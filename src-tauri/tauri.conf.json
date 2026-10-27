@@ -54,6 +54,7 @@
     "longDescription": "A native macOS file manager that recreates the Windows 11 File Explorer interface, navigation, tabs, view modes, context menus, and filesystem operations while browsing the real macOS filesystem.",
     "macOS": {
       "minimumSystemVersion": "12.0",
+      "signingIdentity": "-",
       "dmg": {
         "windowSize": {
           "width": 660,
