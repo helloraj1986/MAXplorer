@@ -88,11 +88,13 @@ Status vocabulary:
 | Persistence | Tabs/history/view/sort/columns/sidebar/theme | Standard Explorer | Verified/implemented | localStorage; window bounds persisted |
 | Persistence | Window size/position | Standard Explorer | Implemented | Restored and clamped to screen |
 | macOS | TCC usage descriptions | N/A | Implemented | Desktop/Documents/Downloads/volumes Info.plist keys |
-| macOS | Real filesystem browsing | Required | Verified on Windows; blocked on macOS | Same Rust code, platform-specific paths |
+| macOS | Real filesystem browsing | Required | Verified on Windows + macOS smoke | Same Rust code; macOS CI Home showed real `/Users/runner` paths |
+| macOS | Full interactive workflow on macOS | Required | Not automated | Clicking/menus/ops verified on Windows; macOS startup verified |
 | macOS | `.app` bundles open as applications | Finder package semantics | Implemented | Double-click launches via `open`; not treated as a folder |
 | macOS | Finder reveal / Terminal / volumes | N/A | Implemented | `open -R`, `open -a Terminal`, `/Volumes` |
-| macOS | Native mac app launch/package | Required | Partial | Universal DMG built and structurally verified on macOS CI; app not launched on macOS here |
-| macOS | DMG artifact | Required | Verified build | `v0.1.0` universal DMG, ad-hoc signed, checksum matches |
+| macOS | Native mac app launch/package | Required | Verified build + launch | Universal DMG built; app launched and screenshotted on macOS 14 CI; full interaction not automated |
+| macOS | DMG artifact | Required | Verified build | `v0.1.0` universal DMG, ad-hoc signed, checksum matches, smoke-launched |
+| macOS | Runtime Home/real filesystem smoke | Required | Verified on macOS 14 CI | App process alive; `/Users/runner` quick-access paths shown |
 
 ## Deliberate deviations
 

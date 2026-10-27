@@ -1,8 +1,8 @@
 # Validation
 
-Validation was performed on the available host, a Windows 11 machine. The target
-deliverable is a macOS application; no macOS host was available in this environment.
-That boundary is stated explicitly rather than hidden.
+Validation was performed on the available Windows 11 host and on a macOS 14 GitHub Actions
+runner. The local workspace has no macOS host; the CI runner was used to build and smoke-
+launch the macOS app. That boundary is stated explicitly rather than hidden.
 
 ## 1. Environment
 
@@ -164,9 +164,11 @@ Bugs found and corrected during this pass:
 
 ## 5. Remaining gaps and blockers
 
-1. **macOS runtime/package unverified.** No macOS host or Apple SDK in the environment.
-   The project includes macOS-specific code, Info.plist usage descriptions, a macOS
-   universal CI workflow, and macOS commands. It must be built and smoke-tested on a Mac.
+1. **macOS runtime coverage is startup-level, not full interaction.** The app was built,
+   mounted from the DMG, launched, and screenshotted on macOS 14 CI, with the process
+   alive and the real `/Users/runner` filesystem shown. Clicking, drag/drop, context
+   menus, and file operations were not automated on macOS; those were exercised on the
+   Windows dev build and covered by Rust tests.
 2. **Tabs** are an informed 22H2/23H2 approximation because the reference host is 21H2.
 3. **Window maximize** is now verified on the Windows release build: the window maximized
    to the working area and the restore glyph appeared. Re-verify minimize/close and the
@@ -203,10 +205,20 @@ Structural verification on Windows (the DMG cannot be mounted here):
   `0.1.0`, minimum system `12.0`, and the macOS TCC usage descriptions.
 - `Contents/_CodeSignature` is present (ad-hoc signing configured in `tauri.conf.json`).
 
-Still not established here:
+Runtime smoke verification on macOS 14 CI:
 
-- The app was not launched on macOS in this environment. A macOS smoke test remains
-  necessary.
+- Workflow: `.github/workflows/macos-smoke.yml`, run `40492290652` (success, 22 s).
+- The published DMG was downloaded, mounted, copied out, quarantine-cleared, and launched.
+- `pgrep -fl win11-explorer` showed the app process running from
+  `/Users/runner/work/_temp/Windows 11 Explorer.app/Contents/MacOS/win11-explorer`.
+- A real macOS screenshot was captured: `docs/screenshots/macos-smoke.png`.
+- macOS version: 14.8.9 (23J631).
+
+Still not established:
+
+- Interactive workflows on macOS (clicking, drag/drop, menus, file operations) were not
+  automated. The smoke run verifies startup, rendering of Home, real filesystem locations,
+  and process stability, not the full interaction matrix.
 - The build is ad-hoc signed, not Developer ID signed or notarized. Gatekeeper requires
   right-click → Open; for distribution, sign and notarize.
 

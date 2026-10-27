@@ -21,6 +21,10 @@ shortcut. See [docs/MACOS_DMG.md](docs/MACOS_DMG.md) for signing and notarizatio
 
 ![Reference](reference/screenshots/explorer-dark-details.png)
 ![Replica](docs/screenshots/release-dark.png)
+![Replica running on macOS 14](docs/screenshots/macos-smoke.png)
+
+A macOS 14 GitHub Actions smoke run launched the built app from the mounted DMG and
+captured the screenshot above (Home view, real `/Users/runner` filesystem).
 
 ## What is implemented
 
@@ -172,10 +176,11 @@ See:
 
 These are honest, intentional boundaries of this build:
 
-- **The macOS app has not been launched in this environment.** The universal `.app`/`.dmg`
-  was built successfully on a macOS 14 GitHub Actions runner and verified structurally
-  (UDIF/HFS, universal Mach-O, Info.plist, ad-hoc CodeSignature), but this Windows host
-  cannot run or screenshot it. Runtime behavior on macOS still needs a Mac smoke test.
+- **The macOS app has been smoke-launched on macOS 14 CI**, not on a developer Mac. The
+  universal `.app`/`.dmg` was built on a macOS 14 GitHub Actions runner, mounted, launched,
+  and screenshotted (`docs/screenshots/macos-smoke.png`); the process stayed alive and the
+  real `/Users/runner` filesystem appeared. Full interactive workflows still need a Mac
+  smoke test.
 - **Tabs** are modeled on Windows 11 22H2 because the reference host (21H2) has no tabs.
   Tab overflow uses horizontal scrolling rather than the 22H2 overflow flyout.
 - **Share** does not open the macOS share sheet. It copies the selected path and offers a

@@ -75,4 +75,7 @@
 - Verified the DMG container, HFS contents, universal Mach-O header, Info.plist, and
   ad-hoc CodeSignature; published the DMG and SHA-256 as a pre-release:
   `https://github.com/helloraj1986/win11-explorer-macos/releases/tag/v0.1.0`.
-- Documented unsupported features and the remaining macOS runtime smoke-test gap.
+- Added and ran `macos-smoke.yml`: downloaded the DMG, mounted it, launched the app on
+  macOS 14, confirmed the process stayed alive, and captured a real macOS screenshot
+  (`docs/screenshots/macos-smoke.png`).
+- Documented unsupported features and the remaining full-interaction macOS gap.

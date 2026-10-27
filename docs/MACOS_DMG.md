@@ -13,6 +13,9 @@ A universal DMG has been produced for this project on a macOS 14 GitHub Actions 
 
 It is universal (arm64 + x86_64), ad-hoc signed, and not notarized.
 
+The DMG was mounted, launched, and screenshotted on macOS 14 CI in run
+`40492290652`; evidence is in `docs/screenshots/macos-smoke.png`.
+
 There are two supported ways to produce it. Both use the project already in this folder.
 
 ---

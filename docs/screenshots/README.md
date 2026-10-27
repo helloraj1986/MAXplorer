@@ -8,6 +8,7 @@ no macOS host was present. See [../VALIDATION.md](../VALIDATION.md).
 | --- | --- |
 | `app-dark-details-1510.png` | Dark Details view, 1510 × 871 |
 | `release-dark.png` | Production release window, dark theme, 21 fixture items |
+| `macos-smoke.png` | Real macOS 14 CI launch, Home view, mounted DMG build |
 | `app-selected.png` | Row selection and status bar |
 | `app-details-pane.png` | Details pane |
 | `app-context-menu.png` | File context menu |
