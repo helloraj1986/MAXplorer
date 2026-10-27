@@ -69,4 +69,10 @@
 
 - Wrote README, reference evidence, feature matrix, architecture, validation, and this log.
 - Added macOS CI build workflow and packaging instructions.
-- Documented unsupported features and macOS verification gaps.
+- Pushed the project to the private GitHub repository `helloraj1986/win11-explorer-macos`.
+- Built a universal macOS app and DMG on a macOS 14 GitHub Actions runner:
+  run `40490663104`.
+- Verified the DMG container, HFS contents, universal Mach-O header, Info.plist, and
+  ad-hoc CodeSignature; published the DMG and SHA-256 as a pre-release:
+  `https://github.com/helloraj1986/win11-explorer-macos/releases/tag/v0.1.0`.
+- Documented unsupported features and the remaining macOS runtime smoke-test gap.

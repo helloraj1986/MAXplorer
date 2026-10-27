@@ -7,6 +7,18 @@ interface for macOS. It is a real desktop application built with **Tauri 2**, **
 It is not a mockup, a screenshot embed, or a generic file manager with a Windows skin.
 Every visible control in the normal file-browser workflow is implemented.
 
+### macOS DMG
+
+A universal macOS DMG was built by the included macOS 14 GitHub Actions workflow:
+
+- **Release:** https://github.com/helloraj1986/win11-explorer-macos/releases/tag/v0.1.0
+- **Local file:** `dist-macos/Windows 11 Explorer_0.1.0_universal.dmg`
+- **SHA-256:** `AE6A6758D2007DDD954E39DAB7B1665CBED8FB3BC49A026F738F4ACC20B845CA`
+
+The DMG is **ad-hoc signed, not notarized**. Gatekeeper may require right-click → Open
+the first time. It contains a universal (arm64 + x86_64) app bundle and an Applications
+shortcut. See [docs/MACOS_DMG.md](docs/MACOS_DMG.md) for signing and notarization.
+
 ![Reference](reference/screenshots/explorer-dark-details.png)
 ![Replica](docs/screenshots/release-dark.png)
 
@@ -81,9 +93,9 @@ produce one. Full local, universal, signing, notarization, GitHub Actions, Gatek
 troubleshooting instructions are in **[docs/MACOS_DMG.md](docs/MACOS_DMG.md)**.
 
 Artifacts are written under `src-tauri/target/release/bundle/` (native) or
-`src-tauri/target/universal-apple-darwin/release/bundle/` (universal). Code signing and
-notarization are not configured; add your Developer ID and notarization credentials before
-distribution.
+`src-tauri/target/universal-apple-darwin/release/bundle/` (universal). The checked-in
+configuration ad-hoc signs the app for CI; Developer ID signing and notarization are not
+configured. Add your Developer ID and notarization credentials before distribution.
 
 ### Tests
 
@@ -160,10 +172,10 @@ See:
 
 These are honest, intentional boundaries of this build:
 
-- **No macOS runtime was available in the build environment.** The app was developed and
-  exercised on Windows 11 (WebView2) because the host is Windows. The same Tauri/React/Rust
-  code and macOS-specific Rust blocks target macOS, and a macOS build workflow is included,
-  but the `.app`/`.dmg` could not be launched or screenshot-tested here.
+- **The macOS app has not been launched in this environment.** The universal `.app`/`.dmg`
+  was built successfully on a macOS 14 GitHub Actions runner and verified structurally
+  (UDIF/HFS, universal Mach-O, Info.plist, ad-hoc CodeSignature), but this Windows host
+  cannot run or screenshot it. Runtime behavior on macOS still needs a Mac smoke test.
 - **Tabs** are modeled on Windows 11 22H2 because the reference host (21H2) has no tabs.
   Tab overflow uses horizontal scrolling rather than the 22H2 overflow flyout.
 - **Share** does not open the macOS share sheet. It copies the selected path and offers a

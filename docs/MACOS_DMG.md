@@ -2,8 +2,16 @@
 
 A real macOS `.app` and `.dmg` **cannot be produced in this Windows workspace**. The
 Tauri macOS bundler needs Apple's toolchain (`xcrun`, `codesign`, `hdiutil`, the macOS
-SDK) and must compile the Rust backend for a macOS target. There is no macOS host or
-Apple SDK available in this environment, so no `.dmg` was fabricated here.
+SDK) and must compile the Rust backend for a macOS target.
+
+A universal DMG has been produced for this project on a macOS 14 GitHub Actions runner:
+
+- Run: https://github.com/helloraj1986/win11-explorer-macos/actions/runs/40490663104
+- Release: https://github.com/helloraj1986/win11-explorer-macos/releases/tag/v0.1.0
+- Local copy: `dist-macos/Windows 11 Explorer_0.1.0_universal.dmg`
+- SHA-256: `AE6A6758D2007DDD954E39DAB7B1665CBED8FB3BC49A026F738F4ACC20B845CA`
+
+It is universal (arm64 + x86_64), ad-hoc signed, and not notarized.
 
 There are two supported ways to produce it. Both use the project already in this folder.
 
@@ -120,7 +128,13 @@ Command Line Tools installed.
 
 ## Signing and notarization
 
-An unsigned DMG is fine for local testing but not for normal distribution.
+The checked-in configuration uses `"signingIdentity": "-"` so CI produces an **ad-hoc
+signed** app. It launches on Apple Silicon after the usual Gatekeeper approval, but it is
+not a Developer ID distribution build.
+
+Ad-hoc signing is fine for local testing but not for normal distribution. For a Developer
+ID build, set the identity in `src-tauri/tauri.conf.json` or via
+`APPLE_SIGNING_IDENTITY`.
 
 ### Local signing
 

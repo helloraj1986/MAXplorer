@@ -183,30 +183,40 @@ Bugs found and corrected during this pass:
 
 ## 7. DMG artifact
 
-A genuine `.dmg` was **not** produced here. Creating it requires macOS: Tauri must compile
-the Rust backend for `aarch64-apple-darwin` / `x86_64-apple-darwin` and run Apple's
-`xcrun`, `codesign`, and `hdiutil` tooling. This host is Windows 11 with no macOS SDK or
-Apple toolchain; a cross-check was already blocked at `objc2-exception-helper`.
+A genuine universal macOS DMG **was produced on a macOS 14 GitHub Actions runner**:
 
-Prepared for the user:
+- Run: https://github.com/helloraj1986/win11-explorer-macos/actions/runs/40490663104
+- Release: https://github.com/helloraj1986/win11-explorer-macos/releases/tag/v0.1.0
+- Local file: `dist-macos/Windows 11 Explorer_0.1.0_universal.dmg`
+- Size: 3,310,805 bytes
+- SHA-256: `AE6A6758D2007DDD954E39DAB7B1665CBED8FB3BC49A026F738F4ACC20B845CA`
+- The checksum matches the published `.sha256` asset.
+
+Structural verification on Windows (the DMG cannot be mounted here):
+
+- 7-Zip recognizes a valid UDIF/`Dmg` container with an HFS filesystem.
+- The mounted image contains `Windows 11 Explorer.app`, an `Applications` shortcut, and
+  `.VolumeIcon.icns`.
+- `Contents/MacOS/win11-explorer` begins with a universal Mach-O fat header
+  (`CA FE BA BE`, 2 architectures).
+- `Contents/Info.plist` has the expected bundle id (`com.replica.win11explorer`), version
+  `0.1.0`, minimum system `12.0`, and the macOS TCC usage descriptions.
+- `Contents/_CodeSignature` is present (ad-hoc signing configured in `tauri.conf.json`).
+
+Still not established here:
+
+- The app was not launched on macOS in this environment. A macOS smoke test remains
+  necessary.
+- The build is ad-hoc signed, not Developer ID signed or notarized. Gatekeeper requires
+  right-click → Open; for distribution, sign and notarize.
+
+Tooling added for reproducible mac builds:
 
 - `scripts/build-macos-dmg.sh` — one-command universal macOS app + DMG build, verification,
   checksum.
-- `.github/workflows/macos-build.yml` — macOS 14 CI build with optional signing secrets,
-  DMG verification, checksum, and artifacts.
-- `src-tauri/tauri.conf.json` — explicit DMG window/icon/Applications positions.
+- `.github/workflows/macos-build.yml` — macOS 14 CI build with DMG verification, checksum,
+  and artifacts.
+- `src-tauri/tauri.conf.json` — explicit DMG window/icon/Applications positions and
+  ad-hoc signing.
 - `docs/MACOS_DMG.md` — local Mac, CI, signing, notarization, Gatekeeper, and
   troubleshooting instructions.
-
-Run on a Mac:
-
-```bash
-cd fileExplorer
-bash scripts/build-macos-dmg.sh
-```
-
-Expected output:
-`src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg`.
-
-Without access to a Mac or an authenticated GitHub/CI runner, I cannot honestly claim to
-have built or tested the DMG.

@@ -91,7 +91,8 @@ Status vocabulary:
 | macOS | Real filesystem browsing | Required | Verified on Windows; blocked on macOS | Same Rust code, platform-specific paths |
 | macOS | `.app` bundles open as applications | Finder package semantics | Implemented | Double-click launches via `open`; not treated as a folder |
 | macOS | Finder reveal / Terminal / volumes | N/A | Implemented | `open -R`, `open -a Terminal`, `/Volumes` |
-| macOS | Native mac app launch/package | Required | Blocked | No macOS host; CI workflow included |
+| macOS | Native mac app launch/package | Required | Partial | Universal DMG built and structurally verified on macOS CI; app not launched on macOS here |
+| macOS | DMG artifact | Required | Verified build | `v0.1.0` universal DMG, ad-hoc signed, checksum matches |
 
 ## Deliberate deviations
 
