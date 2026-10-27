@@ -1,0 +1,59 @@
+name: macOS smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download published DMG
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/dmg"
+          gh release download v0.1.0 \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern '*.dmg' \
+            --dir "$RUNNER_TEMP/dmg"
+          ls -lh "$RUNNER_TEMP/dmg"
+
+      - name: Mount and launch app
+        run: |
+          set -euo pipefail
+          DMG="$(find "$RUNNER_TEMP/dmg" -maxdepth 1 -name '*.dmg' | head -n 1)"
+          hdiutil attach "$DMG" -nobrowse -readonly
+          APP="/Volumes/Windows 11 Explorer/Windows 11 Explorer.app"
+          test -d "$APP"
+          cp -R "$APP" "$RUNNER_TEMP/Windows 11 Explorer.app"
+          xattr -dr com.apple.quarantine "$RUNNER_TEMP/Windows 11 Explorer.app" || true
+          open "$RUNNER_TEMP/Windows 11 Explorer.app"
+          sleep 10
+          pgrep -fl win11-explorer || (echo "ERROR: app process did not start"; exit 1)
+          screencapture -x "$RUNNER_TEMP/explorer-smoke.png"
+          ls -lh "$RUNNER_TEMP/explorer-smoke.png"
+
+      - name: Collect smoke evidence
+        if: always()
+        run: |
+          mkdir -p smoke-evidence
+          cp "$RUNNER_TEMP/explorer-smoke.png" smoke-evidence/ 2>/dev/null || true
+          pgrep -fl win11-explorer > smoke-evidence/process.txt 2>/dev/null || true
+          system_profiler SPDisplaysDataType > smoke-evidence/displays.txt 2>/dev/null || true
+          sw_vers > smoke-evidence/sw_vers.txt
+          pkill -f win11-explorer || true
+          hdiutil detach "/Volumes/Windows 11 Explorer" -force 2>/dev/null || true
+
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-smoke-evidence
+          path: smoke-evidence/
+          if-no-files-found: warn
