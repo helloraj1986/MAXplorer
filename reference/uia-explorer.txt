@@ -1,0 +1,173 @@
+﻿WINDOW: fixture class=CabinetWClass id= rect=0,0,1510,871
+[ControlType.Window] name='fixture' id='' class='CabinetWClass' rect=(0,0,1510,871) enabled=True offscreen=False patterns=
+  [ControlType.Pane] name='' id='' class='WorkerW' rect=(8,85,1494,55) enabled=True offscreen=False patterns=
+    [ControlType.Pane] name='' id='40965' class='ReBarWindow32' rect=(8,85,1494,55) enabled=True offscreen=False patterns=
+      [ControlType.Pane] name='' id='' class='TravelBand' rect=(8,94,100,34) enabled=True offscreen=False patterns=
+        [ControlType.Pane] name='Navigation buttons' id='' class='ToolbarWindow32' rect=(12,96,96,32) enabled=True offscreen=False patterns=
+      [ControlType.Pane] name='' id='' class='UpBand' rect=(108,93,36,36) enabled=True offscreen=False patterns=
+        [ControlType.Pane] name='Up band' id='' class='ToolbarWindow32' rect=(108,96,36,36) enabled=True offscreen=False patterns=
+      [ControlType.Pane] name='' id='41477' class='Address Band Root' rect=(144,85,727,52) enabled=True offscreen=False patterns=
+        [ControlType.Pane] name='' id='' class='msctls_progress32' rect=(146,95,723,34) enabled=True offscreen=False patterns=
+          [ControlType.Pane] name='' id='' class='Breadcrumb Parent' rect=(146,95,649,34) enabled=True offscreen=False patterns=
+            [ControlType.Pane] name='Address: D:\RKM_SYNC\fileExplorer\reference\fixture' id='1001' class='ToolbarWindow32' rect=(152,95,643,34) enabled=True offscreen=False patterns=
+          [ControlType.Pane] name='Address band toolbar' id='' class='ToolbarWindow32' rect=(795,95,74,34) enabled=True offscreen=False patterns=
+      [ControlType.Pane] name='' id='' class='SeparatorBand' rect=(875,110,6,1) enabled=True offscreen=False patterns=
+      [ControlType.Pane] name='' id='' class='UniversalSearchBand' rect=(881,91,610,40) enabled=True offscreen=False patterns=
+        [ControlType.Pane] name='SearchEditBox' id='' class='ModernSearchBox' rect=(881,94,610,36) enabled=True offscreen=False patterns=
+      [ControlType.Pane] name='' id='' class='SeparatorBand' rect=(1495,110,7,1) enabled=True offscreen=False patterns=
+  [ControlType.Pane] name='fixture' id='' class='ShellTabWindowClass' rect=(8,140,1494,723) enabled=True offscreen=False patterns=
+    [ControlType.Pane] name='' id='' class='DUIViewWndClassName' rect=(8,140,1494,723) enabled=True offscreen=False patterns=
+      [ControlType.StatusBar] name='Status bar' id='StatusBarModuleInner' class='StatusBarModuleInner' rect=(8,840,1494,23) enabled=True offscreen=False patterns=Value
+        [ControlType.Group] name='Property Field' id='System.StatusBarViewItemCount' class='Element' rect=(15,840,58,23) enabled=True offscreen=False patterns=Value
+          [ControlType.Text] name='19 items' id='PropertyValue' class='MetadataLabel' rect=(20,840,48,23) enabled=True offscreen=False patterns=Value
+        [ControlType.Group] name='View Modes' id='ViewButtonsGroup' class='SelectorNoDefault' rect=(1454,840,44,23) enabled=True offscreen=False patterns=Value
+          [ControlType.RadioButton] name='Details' id='ViewMode_Details' class='SelectorButton' rect=(1454,840,22,23) enabled=True offscreen=False patterns=Select,Value
+          [ControlType.RadioButton] name='Large Icons' id='ViewMode_LargeIcons' class='SelectorButton' rect=(1476,840,22,23) enabled=True offscreen=False patterns=Select,Value
+      [ControlType.Pane] name='Control Host' id='ProperTreeHost' class='ProperTreeHost' rect=(10,140,193,700) enabled=True offscreen=False patterns=
+        [ControlType.Pane] name='Navigation Pane' id='100' class='SysTreeView32' rect=(10,140,193,700) enabled=True offscreen=False patterns=
+      [ControlType.Pane] name='Shell Folder View' id='listview' class='DUIListView' rect=(207,140,1295,700) enabled=True offscreen=False patterns=
+        [ControlType.List] name='Items View' id='' class='UIItemsView' rect=(207,140,1295,700) enabled=True offscreen=False patterns=Value,Scroll,Grid
+          [ControlType.Header] name='Header' id='' class='UIViewHeader' rect=(207,140,1295,25) enabled=True offscreen=False patterns=Value
+            [ControlType.SplitButton] name='Name' id='System.ItemNameDisplay' class='UIColumnHeader' rect=(207,140,272,25) enabled=True offscreen=False patterns=Invoke,Expand,Value
+              [ControlType.Button] name='Filter dropdown' id='DropDown' class='Button' rect=(463,140,15,25) enabled=True offscreen=False patterns=Invoke,Value
+            [ControlType.SplitButton] name='Date modified' id='System.DateModified' class='UIColumnHeader' rect=(479,140,144,25) enabled=True offscreen=False patterns=Invoke,Expand,Value
+              [ControlType.Button] name='Filter dropdown' id='DropDown' class='Button' rect=(607,140,15,25) enabled=True offscreen=False patterns=Invoke,Value
+            [ControlType.SplitButton] name='Type' id='System.ItemTypeText' class='UIColumnHeader' rect=(623,140,120,25) enabled=True offscreen=False patterns=Invoke,Expand,Value
+              [ControlType.Button] name='Filter dropdown' id='DropDown' class='Button' rect=(727,140,15,25) enabled=True offscreen=False patterns=Invoke,Value
+            [ControlType.SplitButton] name='Size' id='System.Size' class='UIColumnHeader' rect=(743,140,80,25) enabled=True offscreen=False patterns=Invoke,Expand,Value
+              [ControlType.Button] name='Filter dropdown' id='DropDown' class='Button' rect=(807,140,15,25) enabled=True offscreen=False patterns=Invoke,Value
+          [ControlType.ListItem] name='Archive' id='0' class='UIItem' rect=(221,171,598,27) enabled=True offscreen=False patterns=Invoke,Select,Value
+            [ControlType.Image] name='' id='' class='UIImage' rect=(225,174,18,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Name' id='System.ItemNameDisplay' class='UIProperty' rect=(243,174,236,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Date modified' id='System.DateModified' class='UIProperty' rect=(479,174,144,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Type' id='System.ItemTypeText' class='UIProperty' rect=(623,174,120,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Size' id='System.Size' class='UIProperty' rect=(743,174,80,22) enabled=True offscreen=False patterns=Value
+          [ControlType.ListItem] name='Design Assets' id='1' class='UIItem' rect=(221,202,598,27) enabled=True offscreen=False patterns=Invoke,Select,Value
+            [ControlType.Image] name='' id='' class='UIImage' rect=(225,205,18,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Name' id='System.ItemNameDisplay' class='UIProperty' rect=(243,205,236,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Date modified' id='System.DateModified' class='UIProperty' rect=(479,205,144,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Type' id='System.ItemTypeText' class='UIProperty' rect=(623,205,120,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Size' id='System.Size' class='UIProperty' rect=(743,205,80,22) enabled=True offscreen=False patterns=Value
+          [ControlType.ListItem] name='Meeting Notes' id='2' class='UIItem' rect=(221,233,598,27) enabled=True offscreen=False patterns=Invoke,Select,Value
+            [ControlType.Image] name='' id='' class='UIImage' rect=(225,236,18,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Name' id='System.ItemNameDisplay' class='UIProperty' rect=(243,236,236,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Date modified' id='System.DateModified' class='UIProperty' rect=(479,236,144,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Type' id='System.ItemTypeText' class='UIProperty' rect=(623,236,120,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Size' id='System.Size' class='UIProperty' rect=(743,236,80,22) enabled=True offscreen=False patterns=Value
+          [ControlType.ListItem] name='Photos' id='3' class='UIItem' rect=(221,264,598,27) enabled=True offscreen=False patterns=Invoke,Select,Value
+            [ControlType.Image] name='' id='' class='UIImage' rect=(225,267,18,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Name' id='System.ItemNameDisplay' class='UIProperty' rect=(243,267,236,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Date modified' id='System.DateModified' class='UIProperty' rect=(479,267,144,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Type' id='System.ItemTypeText' class='UIProperty' rect=(623,267,120,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Size' id='System.Size' class='UIProperty' rect=(743,267,80,22) enabled=True offscreen=False patterns=Value
+          [ControlType.ListItem] name='Projects' id='4' class='UIItem' rect=(221,295,598,27) enabled=True offscreen=False patterns=Invoke,Select,Value
+            [ControlType.Image] name='' id='' class='UIImage' rect=(225,298,18,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Name' id='System.ItemNameDisplay' class='UIProperty' rect=(243,298,236,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Date modified' id='System.DateModified' class='UIProperty' rect=(479,298,144,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Type' id='System.ItemTypeText' class='UIProperty' rect=(623,298,120,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Size' id='System.Size' class='UIProperty' rect=(743,298,80,22) enabled=True offscreen=False patterns=Value
+          [ControlType.ListItem] name='app-installer.exe' id='5' class='UIItem' rect=(221,326,598,27) enabled=True offscreen=False patterns=Invoke,Select,Value
+            [ControlType.Image] name='' id='' class='UIImage' rect=(225,329,18,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Name' id='System.ItemNameDisplay' class='UIProperty' rect=(243,329,236,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Date modified' id='System.DateModified' class='UIProperty' rect=(479,329,144,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Type' id='System.ItemTypeText' class='UIProperty' rect=(623,329,120,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Size' id='System.Size' class='UIProperty' rect=(743,329,80,22) enabled=True offscreen=False patterns=Value
+          [ControlType.ListItem] name='backup-archive.zip' id='6' class='UIItem' rect=(221,357,598,27) enabled=True offscreen=False patterns=Invoke,Select,Value
+            [ControlType.Image] name='' id='' class='UIImage' rect=(225,360,18,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Name' id='System.ItemNameDisplay' class='UIProperty' rect=(243,360,236,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Date modified' id='System.DateModified' class='UIProperty' rect=(479,360,144,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Type' id='System.ItemTypeText' class='UIProperty' rect=(623,360,120,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Size' id='System.Size' class='UIProperty' rect=(743,360,80,22) enabled=True offscreen=False patterns=Value
+          [ControlType.ListItem] name='Budget 2026.xlsx' id='7' class='UIItem' rect=(221,388,598,27) enabled=True offscreen=False patterns=Invoke,Select,Value
+            [ControlType.Image] name='' id='' class='UIImage' rect=(225,391,18,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Name' id='System.ItemNameDisplay' class='UIProperty' rect=(243,391,236,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Date modified' id='System.DateModified' class='UIProperty' rect=(479,391,144,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Type' id='System.ItemTypeText' class='UIProperty' rect=(623,391,120,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Size' id='System.Size' class='UIProperty' rect=(743,391,80,22) enabled=True offscreen=False patterns=Value
+          [ControlType.ListItem] name='demo-recording.mp4' id='8' class='UIItem' rect=(221,419,598,27) enabled=True offscreen=False patterns=Invoke,Select,Value
+            [ControlType.Image] name='' id='' class='UIImage' rect=(225,422,18,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Name' id='System.ItemNameDisplay' class='UIProperty' rect=(243,422,236,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Date modified' id='System.DateModified' class='UIProperty' rect=(479,422,144,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Type' id='System.ItemTypeText' class='UIProperty' rect=(623,422,120,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Size' id='System.Size' class='UIProperty' rect=(743,422,80,22) enabled=True offscreen=False patterns=Value
+          [ControlType.ListItem] name='design-system.fig' id='9' class='UIItem' rect=(221,450,598,27) enabled=True offscreen=False patterns=Invoke,Select,Value
+            [ControlType.Image] name='' id='' class='UIImage' rect=(225,453,18,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Name' id='System.ItemNameDisplay' class='UIProperty' rect=(243,453,236,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Date modified' id='System.DateModified' class='UIProperty' rect=(479,453,144,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Type' id='System.ItemTypeText' class='UIProperty' rect=(623,453,120,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Size' id='System.Size' class='UIProperty' rect=(743,453,80,22) enabled=True offscreen=False patterns=Value
+          [ControlType.ListItem] name='launch-hero.png' id='10' class='UIItem' rect=(221,481,598,27) enabled=True offscreen=False patterns=Invoke,Select,Value
+            [ControlType.Image] name='' id='' class='UIImage' rect=(225,484,18,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Name' id='System.ItemNameDisplay' class='UIProperty' rect=(243,484,236,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Date modified' id='System.DateModified' class='UIProperty' rect=(479,484,144,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Type' id='System.ItemTypeText' class='UIProperty' rect=(623,484,120,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Size' id='System.Size' class='UIProperty' rect=(743,484,80,22) enabled=True offscreen=False patterns=Value
+          [ControlType.ListItem] name='logo-primary.svg' id='11' class='UIItem' rect=(221,512,598,27) enabled=True offscreen=False patterns=Invoke,Select,Value
+            [ControlType.Image] name='' id='' class='UIImage' rect=(225,515,18,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Name' id='System.ItemNameDisplay' class='UIProperty' rect=(243,515,236,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Date modified' id='System.DateModified' class='UIProperty' rect=(479,515,144,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Type' id='System.ItemTypeText' class='UIProperty' rect=(623,515,120,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Size' id='System.Size' class='UIProperty' rect=(743,515,80,22) enabled=True offscreen=False patterns=Value
+          [ControlType.ListItem] name='notes.pdf' id='12' class='UIItem' rect=(221,543,598,27) enabled=True offscreen=False patterns=Invoke,Select,Value
+            [ControlType.Image] name='' id='' class='UIImage' rect=(225,546,18,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Name' id='System.ItemNameDisplay' class='UIProperty' rect=(243,546,236,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Date modified' id='System.DateModified' class='UIProperty' rect=(479,546,144,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Type' id='System.ItemTypeText' class='UIProperty' rect=(623,546,120,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Size' id='System.Size' class='UIProperty' rect=(743,546,80,22) enabled=True offscreen=False patterns=Value
+          [ControlType.ListItem] name='Product Roadmap.pptx' id='13' class='UIItem' rect=(221,574,598,27) enabled=True offscreen=False patterns=Invoke,Select,Value
+            [ControlType.Image] name='' id='' class='UIImage' rect=(225,577,18,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Name' id='System.ItemNameDisplay' class='UIProperty' rect=(243,577,236,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Date modified' id='System.DateModified' class='UIProperty' rect=(479,577,144,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Type' id='System.ItemTypeText' class='UIProperty' rect=(623,577,120,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Size' id='System.Size' class='UIProperty' rect=(743,577,80,22) enabled=True offscreen=False patterns=Value
+          [ControlType.ListItem] name='Project Brief.docx' id='14' class='UIItem' rect=(221,605,598,27) enabled=True offscreen=False patterns=Invoke,Select,Value
+            [ControlType.Image] name='' id='' class='UIImage' rect=(225,608,18,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Name' id='System.ItemNameDisplay' class='UIProperty' rect=(243,608,236,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Date modified' id='System.DateModified' class='UIProperty' rect=(479,608,144,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Type' id='System.ItemTypeText' class='UIProperty' rect=(623,608,120,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Size' id='System.Size' class='UIProperty' rect=(743,608,80,22) enabled=True offscreen=False patterns=Value
+          [ControlType.ListItem] name='README.md' id='15' class='UIItem' rect=(221,636,598,27) enabled=True offscreen=False patterns=Invoke,Select,Value
+            [ControlType.Image] name='' id='' class='UIImage' rect=(225,639,18,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Name' id='System.ItemNameDisplay' class='UIProperty' rect=(243,639,236,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Date modified' id='System.DateModified' class='UIProperty' rect=(479,639,144,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Type' id='System.ItemTypeText' class='UIProperty' rect=(623,639,120,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Size' id='System.Size' class='UIProperty' rect=(743,639,80,22) enabled=True offscreen=False patterns=Value
+          [ControlType.ListItem] name='source-notes.txt' id='16' class='UIItem' rect=(221,667,598,27) enabled=True offscreen=False patterns=Invoke,Select,Value
+            [ControlType.Image] name='' id='' class='UIImage' rect=(225,670,18,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Name' id='System.ItemNameDisplay' class='UIProperty' rect=(243,670,236,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Date modified' id='System.DateModified' class='UIProperty' rect=(479,670,144,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Type' id='System.ItemTypeText' class='UIProperty' rect=(623,670,120,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Size' id='System.Size' class='UIProperty' rect=(743,670,80,22) enabled=True offscreen=False patterns=Value
+          [ControlType.ListItem] name='Team Roster.csv' id='17' class='UIItem' rect=(221,698,598,27) enabled=True offscreen=False patterns=Invoke,Select,Value
+            [ControlType.Image] name='' id='' class='UIImage' rect=(225,701,18,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Name' id='System.ItemNameDisplay' class='UIProperty' rect=(243,701,236,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Date modified' id='System.DateModified' class='UIProperty' rect=(479,701,144,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Type' id='System.ItemTypeText' class='UIProperty' rect=(623,701,120,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Size' id='System.Size' class='UIProperty' rect=(743,701,80,22) enabled=True offscreen=False patterns=Value
+          [ControlType.ListItem] name='win11-wallpaper.jpg' id='18' class='UIItem' rect=(221,729,598,27) enabled=True offscreen=False patterns=Invoke,Select,Value
+            [ControlType.Image] name='' id='' class='UIImage' rect=(225,732,18,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Name' id='System.ItemNameDisplay' class='UIProperty' rect=(243,732,236,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Date modified' id='System.DateModified' class='UIProperty' rect=(479,732,144,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Type' id='System.ItemTypeText' class='UIProperty' rect=(623,732,120,22) enabled=True offscreen=False patterns=Value
+            [ControlType.Edit] name='Size' id='System.Size' class='UIProperty' rect=(743,732,80,22) enabled=True offscreen=False patterns=Value
+  [ControlType.Pane] name='' id='' class='Windows.UI.Input.InputSite.WindowClass' rect=(8,31,1494,54) enabled=True offscreen=False patterns=
+    [] name='' id='FileExplorerCommandBar' class='ApplicationBar' rect=(11,34,624,47) enabled=True offscreen=False patterns=Expand,Toggle
+      [ControlType.Button] name='New' id='' class='AppBarButton' rect=(17,34,86,47) enabled=True offscreen=False patterns=Invoke,Expand
+        [ControlType.Image] name='' id='' class='Image' rect=(29,50,16,16) enabled=True offscreen=False patterns=
+      [ControlType.Button] name='Cut' id='' class='AppBarButton' rect=(114,34,40,47) enabled=False offscreen=False patterns=Invoke
+        [ControlType.Image] name='' id='' class='Image' rect=(126,50,16,16) enabled=True offscreen=False patterns=
+      [ControlType.Button] name='Copy' id='' class='AppBarButton' rect=(162,34,40,47) enabled=False offscreen=False patterns=Invoke
+        [ControlType.Image] name='' id='' class='Image' rect=(174,50,16,16) enabled=True offscreen=False patterns=
+      [ControlType.Button] name='Paste' id='' class='AppBarButton' rect=(210,34,40,47) enabled=False offscreen=False patterns=Invoke
+        [ControlType.Image] name='' id='' class='Image' rect=(222,50,16,16) enabled=True offscreen=False patterns=
+      [ControlType.Button] name='Rename' id='' class='AppBarButton' rect=(258,34,40,47) enabled=False offscreen=False patterns=Invoke
+        [ControlType.Image] name='' id='' class='Image' rect=(270,50,16,16) enabled=True offscreen=False patterns=
+      [ControlType.Button] name='Share' id='' class='AppBarButton' rect=(306,34,40,47) enabled=False offscreen=False patterns=Invoke
+        [ControlType.Image] name='' id='' class='Image' rect=(318,50,16,16) enabled=True offscreen=False patterns=
+      [ControlType.Button] name='Delete' id='' class='AppBarButton' rect=(354,34,40,47) enabled=False offscreen=False patterns=Invoke
+        [ControlType.Image] name='' id='' class='Image' rect=(366,50,16,16) enabled=True offscreen=False patterns=
+      [ControlType.Button] name='Sort' id='SortAndGroupButton' class='AppBarButton' rect=(405,34,84,47) enabled=True offscreen=False patterns=Invoke,Expand
+        [ControlType.Image] name='' id='' class='Image' rect=(417,50,16,16) enabled=True offscreen=False patterns=
+      [ControlType.Button] name='View' id='' class='AppBarButton' rect=(493,34,87,47) enabled=True offscreen=False patterns=Invoke,Expand
+        [ControlType.Image] name='' id='' class='Image' rect=(505,50,16,16) enabled=True offscreen=False patterns=
+      [ControlType.Button] name='More app bar' id='MoreButton' class='Button' rect=(587,34,48,47) enabled=True offscreen=False patterns=Invoke

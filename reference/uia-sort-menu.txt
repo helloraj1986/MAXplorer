@@ -1,0 +1,17 @@
+﻿=== Menus after action commandmenu ===
+[ControlType.Menu] name='' id='' class='MenuFlyout' rect=(370,86,154,236) enabled=True
+[ControlType.MenuItem] name='Name' id='' class='ToggleMenuFlyoutItem' rect=(375,91,144,28) enabled=True
+[ControlType.MenuItem] name='Date modified' id='' class='ToggleMenuFlyoutItem' rect=(375,123,144,28) enabled=True
+[ControlType.MenuItem] name='Type' id='' class='ToggleMenuFlyoutItem' rect=(375,155,144,28) enabled=True
+[ControlType.MenuItem] name='More' id='' class='MenuFlyoutSubItem' rect=(375,187,144,28) enabled=True
+[ControlType.MenuItem] name='Ascending' id='' class='ToggleMenuFlyoutItem' rect=(375,222,144,28) enabled=True
+[ControlType.MenuItem] name='Descending' id='' class='ToggleMenuFlyoutItem' rect=(375,254,144,28) enabled=True
+[ControlType.MenuItem] name='Group by' id='' class='MenuFlyoutSubItem' rect=(375,289,144,28) enabled=True
+[ControlType.Separator] name='Separator' id='' class='RoundedSeparator' rect=(1190,35,4,16) enabled=True
+[ControlType.Separator] name='' id='' class='ResettableResizeArea' rect=(217,98,4,775) enabled=True
+[ControlType.MenuBar] name='' id='Application.MainWindow.menubar' class='QMenuBar' rect=(-32000,-32000,1512,21) enabled=True
+[ControlType.MenuItem] name='File' id='Application.MainWindow.menubar.QAction' class='QAction' rect=(-31994,-32000,26,21) enabled=True
+[ControlType.MenuItem] name='Edit' id='Application.MainWindow.menubar.QAction' class='QAction' rect=(-31962,-32000,28,21) enabled=True
+[ControlType.MenuItem] name='View' id='Application.MainWindow.menubar.QAction' class='QAction' rect=(-31928,-32000,33,21) enabled=True
+[ControlType.MenuItem] name='Tools' id='Application.MainWindow.menubar.QAction' class='QAction' rect=(-31889,-32000,35,21) enabled=True
+[ControlType.MenuItem] name='Help' id='Application.MainWindow.menubar.QAction' class='QAction' rect=(-31848,-32000,33,21) enabled=True

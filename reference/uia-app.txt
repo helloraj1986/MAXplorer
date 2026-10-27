@@ -1,0 +1,15 @@
+﻿WINDOW: File Explorer class=Tauri Window id= rect=116,26,1296,829
+[ControlType.Window] name='File Explorer' id='' class='Tauri Window' rect=(116,26,1296,829) enabled=True offscreen=False patterns=
+  [ControlType.Pane] name='TAURI_DRAG_RESIZE_WINDOW' id='' class='TAURI_DRAG_RESIZE_BORDERS' rect=(124,27,1280,820) enabled=True offscreen=False patterns=
+  [ControlType.Pane] name='' id='' class='WRY_WEBVIEW' rect=(124,27,1280,820) enabled=True offscreen=False patterns=
+    [ControlType.Pane] name='fixture - File Explorer' id='' class='Chrome_WidgetWin_1' rect=(124,27,1280,820) enabled=True offscreen=False patterns=
+      [ControlType.Pane] name='' id='' class='Intermediate D3D Window' rect=(124,27,1280,820) enabled=False offscreen=False patterns=
+      [ControlType.Pane] name='fixture - File Explorer - Web content' id='' class='BrowserRootView' rect=(124,27,1280,820) enabled=True offscreen=False patterns=
+        [ControlType.Pane] name='' id='' class='NonClientView' rect=(124,27,1280,820) enabled=True offscreen=False patterns=
+          [ControlType.Pane] name='' id='' class='EmbeddedBrowserFrameView' rect=(124,27,1280,820) enabled=True offscreen=False patterns=
+            [ControlType.Pane] name='' id='' class='BrowserView' rect=(124,27,1280,820) enabled=True offscreen=False patterns=
+              [ControlType.Pane] name='' id='' class='SidebarContentsSplitView' rect=(124,27,1280,820) enabled=True offscreen=False patterns=
+                [ControlType.Pane] name='' id='' class='SidebarContentsSplitView' rect=(124,27,1280,820) enabled=True offscreen=False patterns=
+                  [ControlType.Pane] name='' id='' class='MultiContentsView' rect=(124,27,1280,820) enabled=True offscreen=False patterns=
+                    [ControlType.Pane] name='' id='' class='View' rect=(124,27,1280,820) enabled=True offscreen=False patterns=
+          [ControlType.Pane] name='' id='' class='TopContainerOverlayView' rect=(124,27,1280,820) enabled=True offscreen=False patterns=

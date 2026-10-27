@@ -1,0 +1,14 @@
+﻿=== Menus after action commandmenu ===
+[ControlType.Menu] name='' id='' class='MenuFlyout' rect=(17,86,234,166) enabled=True
+[ControlType.MenuItem] name='Folder' id='' class='MenuFlyoutItem' rect=(22,91,224,36) enabled=True
+[ControlType.MenuItem] name='Shortcut' id='' class='MenuFlyoutItem' rect=(22,131,224,36) enabled=True
+[ControlType.MenuItem] name='Bitmap image' id='' class='MenuFlyoutItem' rect=(22,171,224,36) enabled=True
+[ControlType.MenuItem] name='Compressed (zipped) Folder' id='' class='MenuFlyoutItem' rect=(22,211,224,36) enabled=True
+[ControlType.Separator] name='Separator' id='' class='RoundedSeparator' rect=(1190,35,4,16) enabled=True
+[ControlType.Separator] name='' id='' class='ResettableResizeArea' rect=(217,98,4,775) enabled=True
+[ControlType.MenuBar] name='' id='Application.MainWindow.menubar' class='QMenuBar' rect=(-32000,-32000,1512,21) enabled=True
+[ControlType.MenuItem] name='File' id='Application.MainWindow.menubar.QAction' class='QAction' rect=(-31994,-32000,26,21) enabled=True
+[ControlType.MenuItem] name='Edit' id='Application.MainWindow.menubar.QAction' class='QAction' rect=(-31962,-32000,28,21) enabled=True
+[ControlType.MenuItem] name='View' id='Application.MainWindow.menubar.QAction' class='QAction' rect=(-31928,-32000,33,21) enabled=True
+[ControlType.MenuItem] name='Tools' id='Application.MainWindow.menubar.QAction' class='QAction' rect=(-31889,-32000,35,21) enabled=True
+[ControlType.MenuItem] name='Help' id='Application.MainWindow.menubar.QAction' class='QAction' rect=(-31848,-32000,33,21) enabled=True

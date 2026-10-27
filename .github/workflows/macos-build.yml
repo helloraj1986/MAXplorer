@@ -1,0 +1,68 @@
+name: macOS build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Frontend tests
+        run: npm test
+
+      - name: Rust tests
+        run: npm run test:cargo
+
+      - name: Build macOS app (universal)
+        run: npm run tauri build -- --target universal-apple-darwin
+
+      - name: Verify DMG and write checksum
+        id: dmg
+        shell: bash
+        run: |
+          set -euo pipefail
+          DMG="$(find src-tauri/target/universal-apple-darwin/release/bundle/dmg -maxdepth 1 -name '*.dmg' | head -n 1)"
+          if [ -z "$DMG" ]; then
+            echo "No DMG produced"
+            exit 1
+          fi
+          hdiutil verify "$DMG"
+          shasum -a 256 "$DMG" | tee "$DMG.sha256"
+          echo "dmg_path=$DMG" >> "$GITHUB_OUTPUT"
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows11-explorer-macos
+          path: |
+            ${{ steps.dmg.outputs.dmg_path }}
+            ${{ steps.dmg.outputs.dmg_path }}.sha256
+          if-no-files-found: error
+
+      - name: Upload app bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows11-explorer-app
+          path: src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app
+          if-no-files-found: warn

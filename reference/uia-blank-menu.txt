@@ -1,0 +1,45 @@
+﻿=== Menus after action blankmenu ===
+[ControlType.MenuBar] name='System Menu Bar' id='SystemMenuBar' class='' rect=(8,8,22,22) enabled=True
+[ControlType.MenuItem] name='System' id='Item 1' class='' rect=(8,8,22,22) enabled=True
+[ControlType.MenuItem] name='‎fixture' id='Item 1286' class='' rect=(581,95,42,33) enabled=True
+[ControlType.MenuBar] name='System Menu Bar' id='SystemMenuBar' class='' rect=(8,8,22,22) enabled=True
+[ControlType.MenuItem] name='System' id='Item 1' class='' rect=(8,8,22,22) enabled=True
+[ControlType.Separator] name='Separator' id='' class='RoundedSeparator' rect=(1190,35,4,16) enabled=True
+[ControlType.Separator] name='' id='' class='ResettableResizeArea' rect=(217,98,4,775) enabled=True
+[ControlType.MenuBar] name='System Menu Bar' id='SystemMenuBar' class='' rect=(52,60,22,22) enabled=True
+[ControlType.MenuItem] name='System' id='Item 1' class='' rect=(52,60,22,22) enabled=True
+[ControlType.MenuBar] name='System Menu Bar' id='SystemMenuBar' class='' rect=(534,201,22,22) enabled=True
+[ControlType.MenuItem] name='System' id='Item 1' class='' rect=(534,201,22,22) enabled=True
+[ControlType.MenuBar] name='System Menu Bar' id='SystemMenuBar' class='' rect=(9,9,22,22) enabled=True
+[ControlType.MenuItem] name='System' id='Item 1' class='' rect=(9,9,22,22) enabled=True
+[ControlType.MenuBar] name='System Menu Bar' id='SystemMenuBar' class='' rect=(0,0,22,22) enabled=True
+[ControlType.MenuItem] name='System' id='Item 1' class='' rect=(0,0,22,22) enabled=True
+[ControlType.MenuBar] name='System Menu Bar' id='SystemMenuBar' class='' rect=(-31992,-31992,22,22) enabled=True
+[ControlType.MenuItem] name='System' id='Item 1' class='' rect=(-31992,-31992,22,22) enabled=True
+[ControlType.MenuBar] name='Application' id='MenuBar' class='' rect=(-31992,-31992,3440,19) enabled=True
+[ControlType.MenuItem] name='File' id='Item 1' class='' rect=(-31992,-31969,32,19) enabled=True
+[ControlType.MenuItem] name='Edit' id='Item 2' class='' rect=(-31960,-31969,34,19) enabled=True
+[ControlType.MenuItem] name='Search' id='Item 3' class='' rect=(-31926,-31969,49,19) enabled=True
+[ControlType.MenuItem] name='View' id='Item 4' class='' rect=(-31877,-31969,39,19) enabled=True
+[ControlType.MenuItem] name='Encoding' id='Item 5' class='' rect=(-31838,-31969,64,19) enabled=True
+[ControlType.MenuItem] name='Language' id='Item 6' class='' rect=(-31774,-31969,66,19) enabled=True
+[ControlType.MenuItem] name='Settings' id='Item 7' class='' rect=(-31708,-31969,56,19) enabled=True
+[ControlType.MenuItem] name='Tools' id='Item 8' class='' rect=(-31652,-31969,41,19) enabled=True
+[ControlType.MenuItem] name='Macro' id='Item 9' class='' rect=(-31611,-31969,48,19) enabled=True
+[ControlType.MenuItem] name='Run' id='Item 10' class='' rect=(-31563,-31969,35,19) enabled=True
+[ControlType.MenuItem] name='Plugins' id='Item 11' class='' rect=(-31528,-31969,53,19) enabled=True
+[ControlType.MenuItem] name='Window' id='Item 12' class='' rect=(-31475,-31969,58,19) enabled=True
+[ControlType.MenuItem] name='?' id='Item 13' class='' rect=(-31417,-31969,19,19) enabled=True
+[ControlType.MenuItem] name='＋' id='Item 41001' class='' rect=(-28626,-31969,26,19) enabled=True
+[ControlType.MenuItem] name='▼' id='Item 15' class='' rect=(-28600,-31969,24,19) enabled=True
+[ControlType.MenuItem] name='✕' id='Item 41003' class='' rect=(-28576,-31969,24,19) enabled=True
+[ControlType.MenuBar] name='System Menu Bar' id='SystemMenuBar' class='' rect=(13,9,22,22) enabled=True
+[ControlType.MenuItem] name='System' id='Item 1' class='' rect=(13,9,22,22) enabled=True
+[ControlType.MenuBar] name='System Menu Bar' id='SystemMenuBar' class='' rect=(-31992,-31992,22,22) enabled=True
+[ControlType.MenuItem] name='System' id='Item 1' class='' rect=(-31992,-31992,22,22) enabled=True
+[ControlType.MenuBar] name='' id='Application.MainWindow.menubar' class='QMenuBar' rect=(-32000,-32000,1512,21) enabled=True
+[ControlType.MenuItem] name='File' id='Application.MainWindow.menubar.QAction' class='QAction' rect=(-31994,-32000,26,21) enabled=True
+[ControlType.MenuItem] name='Edit' id='Application.MainWindow.menubar.QAction' class='QAction' rect=(-31962,-32000,28,21) enabled=True
+[ControlType.MenuItem] name='View' id='Application.MainWindow.menubar.QAction' class='QAction' rect=(-31928,-32000,33,21) enabled=True
+[ControlType.MenuItem] name='Tools' id='Application.MainWindow.menubar.QAction' class='QAction' rect=(-31889,-32000,35,21) enabled=True
+[ControlType.MenuItem] name='Help' id='Application.MainWindow.menubar.QAction' class='QAction' rect=(-31848,-32000,33,21) enabled=True

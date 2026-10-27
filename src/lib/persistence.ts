@@ -1,0 +1,146 @@
+import type { PersistedState, TabState } from "./types";
+import { HOME_LOCATION } from "./types";
+
+export const STORAGE_KEY = "win11-explorer-state-v1";
+export const WINDOW_STORAGE_KEY = "win11-explorer-window-v1";
+
+export function defaultPersisted(tab: Pick<TabState, "id" | "location" | "history" | "historyIndex">): PersistedState {
+  return {
+    version: 1,
+    tabs: [tab],
+    activeTabId: tab.id,
+    viewMode: "details",
+    sortKey: "name",
+    sortDirection: "asc",
+    groupBy: "none",
+    showHidden: false,
+    showExtensions: true,
+    detailsPane: false,
+    previewPane: false,
+    theme: "system",
+    columnWidths: {
+      name: 272,
+      date: 144,
+      type: 120,
+      size: 80,
+      location: 260,
+    },
+    sidebarWidth: 204,
+    pinned: [],
+    recents: [],
+  };
+}
+
+const VIEW_MODES = new Set([
+  "extraLarge",
+  "large",
+  "medium",
+  "small",
+  "list",
+  "details",
+  "tiles",
+  "content",
+]);
+const SORT_KEYS = new Set(["name", "date", "type", "size"]);
+const GROUP_BY = new Set(["none", "type", "date", "size"]);
+const THEMES = new Set(["system", "light", "dark"]);
+
+export function loadPersisted(): PersistedState | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<PersistedState>;
+    if (!value || value.version !== 1) return null;
+    const tabs = Array.isArray(value.tabs)
+      ? value.tabs
+          .filter(
+            (tab): tab is PersistedState["tabs"][number] =>
+              !!tab &&
+              typeof tab.id === "string" &&
+              typeof tab.location === "string" &&
+              Array.isArray(tab.history) &&
+              tab.history.every((item) => typeof item === "string") &&
+              typeof tab.historyIndex === "number",
+          )
+          .map((tab) => ({
+            ...tab,
+            location: tab.location || HOME_LOCATION,
+            history: tab.history.length ? tab.history : [tab.location || HOME_LOCATION],
+            historyIndex: Math.max(0, Math.min(tab.historyIndex, Math.max(0, tab.history.length - 1))),
+          }))
+      : [];
+    if (!tabs.length) return null;
+    const activeTabId =
+      typeof value.activeTabId === "string" && tabs.some((tab) => tab.id === value.activeTabId)
+        ? value.activeTabId
+        : tabs[0].id;
+    const columnWidths =
+      value.columnWidths && typeof value.columnWidths === "object"
+        ? {
+            name: clampNumber(value.columnWidths.name, 160, 600, 272),
+            date: clampNumber(value.columnWidths.date, 80, 300, 144),
+            type: clampNumber(value.columnWidths.type, 70, 300, 120),
+            size: clampNumber(value.columnWidths.size, 60, 220, 80),
+            location: clampNumber(value.columnWidths.location, 120, 500, 260),
+          }
+        : { name: 272, date: 144, type: 120, size: 80, location: 260 };
+    return {
+      version: 1,
+      tabs,
+      activeTabId,
+      viewMode: VIEW_MODES.has(value.viewMode ?? "") ? value.viewMode! : "details",
+      sortKey: SORT_KEYS.has(value.sortKey ?? "") ? value.sortKey! : "name",
+      sortDirection: value.sortDirection === "desc" ? "desc" : "asc",
+      groupBy: GROUP_BY.has(value.groupBy ?? "") ? value.groupBy! : "none",
+      showHidden: Boolean(value.showHidden),
+      showExtensions: value.showExtensions !== false,
+      detailsPane: Boolean(value.detailsPane),
+      previewPane: Boolean(value.previewPane),
+      theme: THEMES.has(value.theme ?? "") ? value.theme! : "system",
+      columnWidths,
+      sidebarWidth: clampNumber(value.sidebarWidth, 160, 360, 204),
+      pinned: Array.isArray(value.pinned)
+        ? value.pinned.filter((item): item is string => typeof item === "string")
+        : [],
+      recents: Array.isArray(value.recents)
+        ? value.recents
+            .filter(
+              (item) =>
+                !!item &&
+                typeof item.path === "string" &&
+                typeof item.name === "string" &&
+                typeof item.isDir === "boolean" &&
+                typeof item.visitedAt === "number",
+            )
+            .slice(0, 30)
+        : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
+}
+
+export function savePersisted(state: PersistedState): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // Storage can be unavailable or full; the app continues without persistence.
+  }
+}
+
+export function clearPersisted(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(STORAGE_KEY);
+    window.localStorage.removeItem(WINDOW_STORAGE_KEY);
+  } catch {
+    // Ignore storage failures.
+  }
+}
