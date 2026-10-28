@@ -2,11 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Document version | 1.0 |
+| Document version | 1.1 |
 | Handover date | 2026-10-28 |
-| Project version | 0.1.0 |
+| Project version | 0.1.0 (released); main now includes the dual-theme and app-icon work |
 | Repository | https://github.com/helloraj1986/win11-explorer-macos (private) |
 | Release | https://github.com/helloraj1986/win11-explorer-macos/releases/tag/v0.1.0 |
+| Current main | `49085c7` plus this handover refresh; `feature/dual-theme` was merged fast-forward |
 
 ---
 
@@ -29,21 +30,51 @@ generic file manager.
 
 ### Current status
 
-The project is **feature-complete for the scoped feature set and confirmed working on a
-Mac by the project owner on 2026-10-28**. The shipped 0.1.0 DMG launches, renders the
-Windows 11 shell, and browses real macOS folders.
+The project is **feature-complete for the scoped feature set**. The shipped 0.1.0 DMG
+launches, renders the Windows 11 shell, and browses real macOS folders; the project owner
+confirmed it working on a Mac on 2026-10-28.
 
-Verified before handover:
+Since that release, `main` has gained two presentation-level changes:
+
+- **Dual interface themes** — Windows 11 Explorer and macOS Finder, each in light and dark,
+  switchable at runtime from the Appearance dialog. Behavior, state, and filesystem access
+  are shared; only tokens and layout CSS differ.
+- **Real `.app` icons** — application bundles in `/Applications` show their own ICNS/PNG
+  artwork instead of a generic executable glyph.
+
+Both changes are validated on the Windows development host (WebView2) and covered by unit
+tests. The published 0.1.0 DMG predates them.
+
+Verified before this handover:
 
 - macOS 14.8.9 CI build of a universal DMG, plus a smoke launch of the published DMG with
   a real screenshot (`docs/screenshots/macos-smoke.png`).
-- Owner-confirmed interactive run on a Mac.
-- `npm run typecheck`, `npm test` (26 tests), `cargo test` (10 tests), `npm run build` all
-  passing on the Windows development host.
+- Owner-confirmed interactive run on a Mac for the 0.1.0 baseline.
+- `npm run typecheck`, `npm test` (**49 tests / 8 files**), `cargo test` (**18 tests**),
+  `npm run build` all passing on the Windows development host.
 - Windows release build exercised for UI/interaction validation.
+- Theme switching, persistence, keyboard activation, both appearances, and synthetic
+  `.app` icons exercised in the Windows dev build; see `docs/VALIDATION.md`.
 
-Not verified (see [§8](#8-known-limitations-and-risks)): a formal macOS interaction test
-pass, Developer ID signing, notarization, and Mac App Store sandboxing.
+Not verified (see [§8](#8-known-limitations-and-risks)): a formal macOS interaction pass
+for the theme and app-icon work, Developer ID signing, notarization, and Mac App Store
+sandboxing.
+
+### Next session at a glance
+
+Start here; everything else in this document is reference.
+
+1. `git pull` on `main` (the dual-theme and app-icon work is merged as `49085c7`).
+2. Re-run the four checks in [§5](#tests-and-checks-run-before-every-push) to confirm the
+   tree is clean.
+3. On a Mac, build and launch the current source, then run the pending interaction pass:
+   switch to the Finder theme in both appearances, browse real `/Applications`, and confirm
+   real bundle icons, traffic lights, menus, and TCC prompts.
+4. Record what you observe in `docs/VALIDATION.md` and add screenshots to
+   `docs/screenshots/`. If anything fails, fix it before starting new features.
+5. Only then move on to the distribution work in [§10](#10-suggested-next-steps-prioritized).
+
+Do not assume the published `v0.1.0` DMG reflects `main`: it predates both changes.
 
 ---
 
@@ -60,11 +91,12 @@ Read in this order:
 
 1. `README.md` — feature list, quick start, limitations.
 2. `docs/ARCHITECTURE.md` — data flow, module boundaries, contracts.
-3. `docs/FEATURE_MATRIX.md` — every studied Explorer feature and its status.
-4. `docs/VALIDATION.md` — what was actually run and observed.
-5. `docs/MACOS_DMG.md` — packaging, signing, notarization, Gatekeeper.
-6. `docs/REFERENCE.md` — how the Windows 11 reference was captured and measured.
-7. `docs/DEVELOPMENT_LOG.md` — chronological build log.
+3. `docs/THEMES.md` — interface theme model, tokens, persistence, adding a theme.
+4. `docs/FEATURE_MATRIX.md` — every studied Explorer feature and its status.
+5. `docs/VALIDATION.md` — what was actually run and observed.
+6. `docs/MACOS_DMG.md` — packaging, signing, notarization, Gatekeeper.
+7. `docs/REFERENCE.md` — how the Windows 11 reference was captured and measured.
+8. `docs/DEVELOPMENT_LOG.md` — chronological build log.
 
 The UI is a faithful replica, so most "why does it look like this?" questions are answered
 by `docs/REFERENCE.md` (colors, geometry, control inventory from a real Windows 11 21H2
@@ -82,29 +114,31 @@ src/                          React + TypeScript UI
     CommandBar.tsx            New / Cut / Copy / Paste / Rename / Delete / Sort / View
     NavigationBar.tsx         Breadcrumbs, editable address bar, search box
     Sidebar.tsx               Quick access, This Mac, volumes, pinned, recents
-    TitleBar.tsx              Custom Windows-style title bar and tab strip
+    TitleBar.tsx              Custom Windows-style title bar, tabs, Finder traffic lights
     ContextMenu.tsx           File and background context menus with submenus
-    Dialogs.tsx               Create, rename, delete, conflict, properties, open-with
+    Dialogs.tsx               Create, rename, delete, conflict, properties, open-with, themes
     DetailsPane.tsx           Metadata + permissions pane
-    PreviewPane.tsx           Image and text preview
-    FileGlyph.tsx / Icon.tsx  Original SVG glyph system (no emoji, no bitmaps)
+    PreviewPane.tsx           Image, text, and app-icon preview
+    FileGlyph.tsx / Icon.tsx  SVG glyph system plus real `.app` icons (no emoji)
   hooks/                      Keyboard, theme, virtual rows, marquee, window persistence
-  lib/                        Typed IPC API, formatting, sorting, history, tabs, persistence
+  lib/                        Typed IPC API, themes, app icons, formatting, sorting, history,
+                              tabs, persistence
   state/explorerStore.ts      Single Zustand store: tabs, navigation, selection, operations
-  styles/                     tokens.css (design tokens) + app.css (all component styling)
+  styles/                     tokens.css + app.css + finder.css (scoped Finder layout)
 src-tauri/                    Rust backend
-  src/commands.rs             All 25 Tauri commands; platform launching
+  src/commands.rs             All 26 Tauri commands; platform launching
   src/listing.rs              Directory reads, metadata, hidden files, symlinks
   src/operations.rs           Copy/move/rename/delete/duplicate/conflict resolution
   src/search.rs               Bounded, cancellable recursive name search
   src/metadata.rs             Properties, folder stats, text preview, sidebar locations
+  src/app_icons.rs            `.app` icon lookup, ICNS extraction, PNG data URLs
   src/paths.rs                Path/name validation, self-move and protected-root guards
   src/error.rs                Typed error codes surfaced to the UI
   src/types.rs                Serialized IPC contracts
   src/tests.rs                Rust unit/integration tests (tempfile-based)
   tauri.conf.json             Window, CSP, asset protocol, DMG layout, ad-hoc signing
   capabilities/default.json   Tauri permission allowlist
-docs/                         Architecture, reference, matrix, validation, DMG, log
+docs/                         Architecture, themes, reference, matrix, validation, DMG, log
 reference/                    Windows 11 screenshots, UIA dumps, fixtures, REA JSON
 scripts/                      build-macos-dmg.sh + verification helpers
 .github/workflows/            macos-build.yml, macos-smoke.yml
@@ -137,7 +171,17 @@ Rules the codebase follows:
   components subscribe via selectors. Adding a feature means adding a store action, not
   local component state.
 
-### Tauri command surface (25 commands)
+### Presentation layers (do not fork behavior)
+
+- **Interface theme** is a separate axis from light/dark: `interfaceTheme` is `"windows"`
+  or `"finder"` and is persisted independently from `theme` (`system`/`light`/`dark`).
+  `data-ui-theme` and `data-theme` on `<html>` select tokens; `finder.css` only contains
+  scoped layout overrides. Both themes call the same store actions and Tauri commands.
+- **App icons** are content, not chrome. `FileGlyph` asks the backend for a PNG data URL
+  for `.app` bundles; both themes use the same icons. If extraction fails, a built-in
+  application glyph is used.
+
+### Tauri command surface (26 commands)
 
 | Group | Commands |
 | --- | --- |
@@ -146,7 +190,7 @@ Rules the codebase follows:
 | Search | `search_files`, `cancel_search` |
 | Create | `create_folder`, `create_text_file`, `create_symlink` |
 | Modify | `rename_path`, `copy_paths`, `move_paths`, `delete_paths`, `duplicate_paths` |
-| Inspect | `get_properties`, `get_folder_stats`, `read_text_preview`, `list_applications` |
+| Inspect | `get_properties`, `get_folder_stats`, `read_text_preview`, `list_applications`, `read_app_icon` |
 | Launch | `open_path`, `reveal_path`, `open_terminal`, `open_with`, `open_system_settings` |
 
 ### Persistence
@@ -155,8 +199,12 @@ UI state is stored in `localStorage` (WKWebView website data for the bundle ID),
 `win11-explorer-state-v1` and `win11-explorer-window-v1`. It is versioned and defensively
 validated on load (`src/lib/persistence.ts`); malformed data falls back to defaults rather
 than crashing. Persisted: tabs, per-tab history, view mode, sort, group, column widths,
-sidebar width, pinned folders, recents, theme, panes, hidden/extension toggles, window
-bounds.
+sidebar width, pinned folders, recents, light/dark theme, **interface theme**, panes,
+hidden/extension toggles, window bounds.
+
+The theme pair is also read by an inline script in `index.html` and applied to `<html>`
+before the first paint, so the window never flashes the wrong design. Keep that script and
+`src/lib/theme.ts` in sync when changing theme ids or defaults.
 
 To reset to a first-run state: quit the app, then delete the app's WebKit data container
 (search `~/Library` for `com.replica.win11explorer`).
@@ -182,8 +230,8 @@ npm run tauri:dev
 
 ```bash
 npm run typecheck     # tsc --noEmit
-npm test              # vitest, 26 tests
-npm run test:cargo    # cargo test, 10 tests
+npm test              # vitest, 49 tests / 8 files
+npm run test:cargo    # cargo test, 18 tests (10 filesystem + 8 app icons)
 npm run build         # tsc -b && vite build
 ```
 
@@ -245,6 +293,9 @@ contains `Windows 11 Explorer.app`, an `Applications` shortcut, `.VolumeIcon.icn
 `Info.plist` carries the expected bundle ID, version, `LSMinimumSystemVersion 12.0`, and
 TCC usage descriptions; `_CodeSignature` present.
 
+> This artifact predates the dual-theme and real-app-icon work. Rebuild from current
+> `main` (or download a newer CI artifact) to exercise those changes.
+
 ### Signing and notarization (the main outstanding distribution task)
 
 The build is ad-hoc signed. On another machine Gatekeeper will block it until the user
@@ -271,17 +322,33 @@ marquee, drag), create folder/file/symlink, copy/cut/paste/rename/duplicate/move
 send to Desktop/Documents/Downloads, Trash and permanent delete with confirmation and
 conflict resolution (replace/keep both/skip/cancel), context menus with New/Sort/View/Group/
 Send to submenus, details pane (metadata, permissions, owner IDs, folder size), preview pane
-(images, text), Properties, Open With, Reveal in Finder, Open Terminal, System Settings
-deep-link for denied permissions, dark/light/system themes, and full state persistence.
+(images, text, real app icons), Properties, Open With, Reveal in Finder, Open Terminal,
+System Settings deep-link for denied permissions, dark/light/system appearance, and full
+state persistence.
 
-Per-feature status, including approximations, is in `docs/FEATURE_MATRIX.md`.
+Interface themes: **Windows 11 Explorer** and **macOS Finder**, each in light and dark.
+The Finder theme adds traffic lights backed by the same Tauri window APIs, a unified
+toolbar, a source-list sidebar with a footer entry to the Appearance dialog, 28/24 px rows,
+macOS menus, and centered modal titles. Switching preserves the current folder, tabs,
+history, selection, search, sort, and in-flight state without remounting the app or
+reloading the filesystem.
+
+Application icons: `.app` bundles show their own icon in every view and both panes, read
+from `Contents/Info.plist` and `Contents/Resources/*.icns`, with a built-in application
+glyph when no icon is readable.
+
+Per-feature status, including approximations, is in `docs/FEATURE_MATRIX.md`; theme
+architecture is in `docs/THEMES.md`.
 
 ---
 
 ## 7. Development conventions
 
-- **No emoji and no bitmap icons.** All iconography is original SVG in `Icon.tsx` /
-  `FileGlyph.tsx`. Keep it that way.
+- **No emoji.** Chrome iconography is original SVG in `Icon.tsx` / `FileGlyph.tsx`. Real
+  application artwork loaded from `.app` bundles is the only bitmap exception.
+- **Themes change presentation, never behavior.** Add tokens and scoped CSS; do not fork
+  store actions, Tauri commands, or filesystem code per theme. Keep
+  `src/lib/theme.ts`, `index.html`, and the persisted `interfaceTheme` in sync.
 - **No dead controls.** If a button is visible it must do something real. Omitted Windows
   features (Gallery, Quick Look, Compressed folder, Undo) are absent rather than stubbed.
 - **Design tokens first.** Colors, radii, spacing, and type live in `src/styles/tokens.css`;
@@ -316,9 +383,19 @@ Honest boundaries of 0.1.0, ordered by importance to a successor:
 8. **Share** copies the path and offers Reveal in Finder instead of the macOS share sheet.
 9. **Tabs are a 22H2-informed approximation** (the reference host was 21H2 and had no tabs);
    tab overflow scrolls horizontally instead of using the 22H2 overflow flyout.
-10. **Native traffic lights are intentionally not shown** — the title bar uses custom
-    Windows-style window controls.
-11. **CI cost control is partial.** Docs-only and `reference/`-only pushes are skipped, but
+10. **Window controls differ by theme.** The Windows theme uses custom Windows-style
+    controls; the Finder theme renders CSS traffic lights that call the same Tauri
+    close/minimize/maximize APIs. They are not AppKit buttons.
+11. **Finder theme scope.** It recreates toolbar, source list, menus, selection, typography,
+    and spacing. Finder column view, Quick Look, tags, resizable column headers, and
+    alternating row stripes are intentionally absent; list view keeps the shared
+    name-only rows. Native translucent materials are approximated with tokens.
+12. **App icons are macOS-only content.** The backend reads the bundle on macOS; the
+    Windows dev build was validated with synthetic `.app` bundles. Legacy ICNS files
+    without PNG chunks depend on macOS `sips` and were not exercised. Icons are cached
+    per session, so replacing an app while the window is open keeps the old icon until
+    restart.
+13. **CI cost control is partial.** Docs-only and `reference/`-only pushes are skipped, but
     any source change still rebuilds the universal DMG (~6 min of macOS runner time). Cargo
     and target caching are not configured.
 
@@ -337,20 +414,26 @@ Honest boundaries of 0.1.0, ordered by importance to a successor:
 | macOS runner stuck "queued" | GitHub macOS capacity | Wait; retry later |
 | UI state looks corrupted | Stale localStorage from an older build | Quit app, delete the WebKit container for `com.replica.win11explorer` |
 | Search finds nothing in a big tree | Bounds hit | Narrow the folder; bounds are in `src-tauri/src/search.rs` |
+| `.app` rows show the generic application glyph | No readable `Info.plist` icon, or a legacy ICNS without PNG chunks and `sips` failed | Check `Contents/Info.plist` (`CFBundleIconFile`) and `Contents/Resources/*.icns`; quit and relaunch to clear the icon cache |
 
 ---
 
 ## 10. Suggested next steps (prioritized)
 
-1. **Developer ID signing + notarization** in CI, so the DMG opens without workarounds.
-2. **macOS UI smoke automation** (e.g. AppleScript/`osascript` or XCUITest driving the
-   app): open a temp folder, switch views, create a folder, rename, delete, verify on disk.
-3. **Streamed operation progress** for copy/move (byte counts + cancel).
-4. **Undo for delete/rename/move** (operation journal).
-5. **Quick Look and PDF preview**, then Gallery.
-6. **Indexed search** (Spotlight `mdfind` bridge) as an opt-in alongside name search.
-7. **Properties tabs** (Details/Security equivalents) and ACL viewing.
-8. **CI speed**: cache `~/.cargo` and the Rust target directory (docs-only pushes are
+1. **Finish the macOS interaction pass for themes and app icons** (the only unverified
+   user-facing work): Finder theme in light and dark, real `/Applications` icons, traffic
+   lights, menus, TCC prompts, drag/drop, and Open With. Record evidence in
+   `docs/VALIDATION.md`.
+2. **Developer ID signing + notarization** in CI, so the DMG opens without workarounds.
+3. **macOS UI smoke automation** (e.g. AppleScript/`osascript` or XCUITest driving the
+   app): open a temp folder, switch views and themes, create a folder, rename, delete,
+   verify on disk.
+4. **Streamed operation progress** for copy/move (byte counts + cancel).
+5. **Undo for delete/rename/move** (operation journal).
+6. **Quick Look and PDF preview**, then Gallery.
+7. **Indexed search** (Spotlight `mdfind` bridge) as an opt-in alongside name search.
+8. **Properties tabs** (Details/Security equivalents) and ACL viewing.
+9. **CI speed**: cache `~/.cargo` and the Rust target directory (docs-only pushes are
    already skipped).
 
 ---
@@ -367,7 +450,7 @@ Whoever takes this over needs:
 - [ ] **Apple Developer Program membership** (only if signing/notarizing): Developer ID
       Application certificate, Team ID, app-specific password.
 - [ ] **A Mac** (Apple Silicon recommended) with Xcode Command Line Tools for local builds.
-- [ ] **Node 22+ and Rust stable 1.77.2+**.
+- [ ] **Node 22+ and Rust stable 1.88+** (`plist` 1.10 raised the crate MSRV from 1.77.2).
 - [ ] Awareness that `dist-macos/` (local DMG copies) is git-ignored and must be re-fetched
       from the release or rebuilt.
 
@@ -386,7 +469,9 @@ network access at runtime.
 - `reference/rea-explorer-pe-{resources,imports}.json` — REA 6.8.0 evidence from
   `C:\Windows\explorer.exe` (PE resources and imports), re-encoded from UTF-16 to UTF-8.
 - `reference/*.ps1` — the capture/interaction scripts used to drive the real Explorer.
-- `docs/screenshots/` — replica screenshots including the macOS CI smoke capture.
+- `docs/screenshots/` — replica screenshots including the macOS CI smoke capture,
+  Windows/Finder theme comparisons, and the synthetic `.app` icon evidence
+  (`app-icons-*.png`).
 
 `docs/REFERENCE.md` records exactly which claim came from which capture, and which parts
 are informed approximations.
@@ -397,10 +482,13 @@ are informed approximations.
 
 This is a Tauri 2 / Rust / React recreation of Windows 11 File Explorer that runs natively
 on macOS and operates on the real filesystem. It is feature-complete for its scope and
-confirmed working on a Mac, with a universal DMG published as `v0.1.0`. The Rust backend
-owns all filesystem access through 25 typed commands; the React UI is a single Zustand store
-plus a component layer styled with design tokens. Tests and typechecking pass, and CI builds
-and smoke-launches the DMG on macOS 14. The immediate work is distribution polish —
-Developer ID signing and notarization — followed by macOS UI automation and streamed file
-operation progress. Everything you need to build, test, release, and extend it is in
-`README.md` and `docs/`.
+confirmed working on a Mac, with a universal DMG published as `v0.1.0`. Since that release,
+`main` adds two interchangeable interface themes (Windows 11 and macOS Finder, each light
+and dark) and real `.app` bundle icons, both presentation-only and sharing the same
+behavior. The Rust backend owns all filesystem access through 26 typed commands; the React
+UI is a single Zustand store plus a component layer styled with design tokens. Tests and
+typechecking pass (49 frontend / 18 Rust), and CI builds and smoke-launches the DMG on
+macOS 14. The immediate work is to finish the macOS interaction pass for the themes and
+app icons, then distribution polish — Developer ID signing and notarization — followed by
+macOS UI automation and streamed file operation progress. Everything you need to build,
+test, release, and extend it is in `README.md` and `docs/`.

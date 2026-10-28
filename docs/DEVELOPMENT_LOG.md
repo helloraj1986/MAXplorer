@@ -107,7 +107,7 @@
   live theme switch, and persistence across an app restart.
 - Updated README, architecture, feature matrix, and added `docs/THEMES.md`.
 
-## Phase 9 — Real application bundle icons
+## Phase 9 - Real application bundle icons
 
 - Reproduced the reported problem: `.app` bundles were categorized as generic
   executables, so every application in `/Applications` showed the same page glyph.
@@ -124,3 +124,15 @@
 - Validated on Windows with synthetic `.app` bundles (plist-named icon, resource
   fallback, missing icon) in both themes and at 16/96/112 px. Real macOS
   `/Applications` browsing remains to be exercised interactively.
+
+## Phase 10 - Merge and handover refresh
+
+- Merged `feature/dual-theme` into `main` with `--ff-only` (`49085c7`); history stays
+  linear. `origin/main` previously stopped at the 0.1.0 handover commit (`4027ecf`).
+- Refreshed `HANDOVER.md` to 1.1: current status, a next-session brief, theme and
+  app-icon architecture, 26 commands, 49 frontend / 18 Rust tests, MSRV 1.88, new
+  limitations, troubleshooting, and prioritized next steps.
+- Added README and handover notes that the published `v0.1.0` DMG predates the themes
+  and real app icons.
+- Still outstanding: the macOS interactive pass for the Finder theme, real
+  `/Applications` icons, TCC prompts, OS drag/drop, and Open With.

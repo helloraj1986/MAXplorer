@@ -19,6 +19,11 @@ The DMG is **ad-hoc signed, not notarized**. Gatekeeper may require right-click 
 the first time. It contains a universal (arm64 + x86_64) app bundle and an Applications
 shortcut. See [docs/MACOS_DMG.md](docs/MACOS_DMG.md) for signing and notarization.
 
+> **This release predates the dual-theme and real-app-icon work on `main`.** The published
+> `v0.1.0` DMG always opens in the Windows 11 theme and shows a generic glyph for `.app`
+> bundles. Build from current `main` (or use a newer CI artifact) to try the Finder theme
+> and real application icons.
+
 ![Reference](reference/screenshots/explorer-dark-details.png)
 ![Replica](docs/screenshots/release-dark.png)
 ![Replica running on macOS 14](docs/screenshots/macos-smoke.png)
