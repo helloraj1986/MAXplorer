@@ -7,7 +7,7 @@
 | Project version | 0.1.0 (released); main now includes the dual-theme and app-icon work |
 | Repository | https://github.com/helloraj1986/win11-explorer-macos (private) |
 | Release | https://github.com/helloraj1986/win11-explorer-macos/releases/tag/v0.1.0 |
-| Current main | `49085c7` plus this handover refresh; `feature/dual-theme` was merged fast-forward |
+| Current main | `main` after the fast-forward merge of `feature/dual-theme` (`49085c7`) and this docs refresh; see `git log` |
 
 ---
 
@@ -49,6 +49,8 @@ Verified before this handover:
 
 - macOS 14.8.9 CI build of a universal DMG, plus a smoke launch of the published DMG with
   a real screenshot (`docs/screenshots/macos-smoke.png`).
+- macOS 14 CI build of the merged `main` tree succeeded on 2026-10-28 (run `40648095307`,
+  5m19s: typecheck, 49 frontend tests, 18 Rust tests, universal build, DMG verification).
 - Owner-confirmed interactive run on a Mac for the 0.1.0 baseline.
 - `npm run typecheck`, `npm test` (**49 tests / 8 files**), `cargo test` (**18 tests**),
   `npm run build` all passing on the Windows development host.

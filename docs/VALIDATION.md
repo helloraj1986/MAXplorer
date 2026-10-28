@@ -36,6 +36,19 @@ blocker, not a source compile result for macOS.
 | `cargo check --target aarch64-apple-darwin` | **Blocked** by missing macOS C toolchain/SDK |
 | REA `inspect-pe-resources` / `inspect-pe-imports` | Pass (evidence files) |
 
+### Post-merge CI on `main`
+
+`feature/dual-theme` was merged into `main` with `--ff-only` and pushed as `779c6b7`. The
+`macOS build` workflow then succeeded on macOS 14 (run
+[40648095307](https://github.com/helloraj1986/win11-explorer-macos/actions/runs/40648095307),
+5m19s): typecheck, 49 frontend tests, 18 Rust tests, the universal `tauri build`, `hdiutil`
+verification, checksum, and artifact upload all passed. The log contains a Node 20
+deprecation notice for the pinned GitHub actions (the runner forces Node 24); it is
+informational, not a failure.
+
+This confirms the merged tree builds on macOS. It does **not** replace the pending
+interactive pass for the Finder theme and real `/Applications` icons.
+
 ### Rust tests
 
 `src-tauri/src/tests.rs` covers:

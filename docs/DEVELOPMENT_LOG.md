@@ -134,5 +134,8 @@
   limitations, troubleshooting, and prioritized next steps.
 - Added README and handover notes that the published `v0.1.0` DMG predates the themes
   and real app icons.
+- Pushed `main` (`779c6b7`); the `macOS build` workflow succeeded (run `40648095307`,
+  5m19s) with typecheck, 49 frontend tests, 18 Rust tests, the universal build, and DMG
+  verification.
 - Still outstanding: the macOS interactive pass for the Finder theme, real
   `/Applications` icons, TCC prompts, OS drag/drop, and Open With.
