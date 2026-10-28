@@ -7,6 +7,7 @@ import { useExplorerStore } from "../state/explorerStore";
 import { useVirtualRows } from "../hooks/useVirtualRows";
 import { useFileNavigation } from "../hooks/useFileNavigation";
 import { useElementSize } from "../hooks/useElementSize";
+import { useThemeMetrics } from "../hooks/useTheme";
 import { useMarqueeSelection } from "../hooks/useMarqueeSelection";
 import { api } from "../lib/api";
 import {
@@ -212,6 +213,7 @@ function DetailsView({
     [columnWidths, isSearch],
   );
   const totalWidth = columns.reduce((sum, column) => sum + column.width, 0);
+  const themeMetrics = useThemeMetrics();
 
   type Row =
     | { kind: "group"; key: string; height: number; label: string; count: number }
@@ -222,15 +224,15 @@ function DetailsView({
     let entryIndex = 0;
     for (const group of groups) {
       if (group.label) {
-        result.push({ kind: "group", key: `group-${group.key}`, height: 30, label: group.label, count: group.entries.length });
+        result.push({ kind: "group", key: `group-${group.key}`, height: themeMetrics.groupRow, label: group.label, count: group.entries.length });
       }
       for (const entry of group.entries) {
-        result.push({ kind: "entry", key: entry.path, height: 31, entry, index: entryIndex });
+        result.push({ kind: "entry", key: entry.path, height: themeMetrics.detailsRow, entry, index: entryIndex });
         entryIndex += 1;
       }
     }
     return result;
-  }, [groups]);
+  }, [groups, themeMetrics]);
 
   const virtual = useVirtualRows(rows, 8);
   const rowIndexByPath = useMemo(() => {
@@ -360,6 +362,7 @@ function ListView({ entries, groups, isSearch }: { entries: FileEntry[]; groups:
   const clearSelection = useExplorerStore((state) => state.clearSelection);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const home = platform?.home ?? "";
+  const themeMetrics = useThemeMetrics();
 
   type Row =
     | { kind: "group"; key: string; height: number; label: string; count: number }
@@ -368,14 +371,14 @@ function ListView({ entries, groups, isSearch }: { entries: FileEntry[]; groups:
     const result: Row[] = [];
     for (const group of groups) {
       if (group.label) {
-        result.push({ kind: "group", key: `group-${group.key}`, height: 28, label: group.label, count: group.entries.length });
+        result.push({ kind: "group", key: `group-${group.key}`, height: themeMetrics.groupRow, label: group.label, count: group.entries.length });
       }
       for (const entry of group.entries) {
-        result.push({ kind: "entry", key: entry.path, height: 22, entry, index: result.length });
+        result.push({ kind: "entry", key: entry.path, height: themeMetrics.listRow, entry, index: result.length });
       }
     }
     return result;
-  }, [groups]);
+  }, [groups, themeMetrics]);
   const virtual = useVirtualRows(rows, 8);
   const rowIndexByPath = useMemo(() => {
     const map = new Map<string, number>();

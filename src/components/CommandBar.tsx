@@ -182,6 +182,7 @@ export function CommandBar() {
     },
     { type: "separator" },
     { label: "Keyboard shortcuts", icon: "info", onClick: () => openDialog({ kind: "shortcuts" }) },
+    { label: "Appearance and themes", icon: "palette", onClick: () => openDialog({ kind: "themes" }) },
     { label: "Options", icon: "settings", onClick: () => openDialog({ kind: "preferences" }) },
     { label: "About", icon: "info", onClick: () => openDialog({ kind: "about" }) },
   ];

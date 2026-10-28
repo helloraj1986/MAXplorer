@@ -83,6 +83,7 @@ export type IconName =
   | "panel"
   | "fullscreen"
   | "renameFile"
+  | "palette"
   | "spinner";
 
 const FILLED = new Set<IconName>(["more"]);
@@ -523,6 +524,15 @@ const ICONS: Record<IconName, ReactNode> = {
   fullscreen: (
     <>
       <path d="M3.5 8V3.5H8M12 3.5h4.5V8M16.5 12v4.5H12M8 16.5H3.5V12" />
+    </>
+  ),
+  palette: (
+    <>
+      <path d="M10 3.2a6.8 6.8 0 0 0 0 13.6c1.1 0 1.6-.7 1.6-1.5 0-.5-.3-.9-.3-1.4 0-.7.6-1.3 1.4-1.3h1.1a3 3 0 0 0 3-3c0-3.5-3-6.4-6.8-6.4Z" />
+      <circle cx="6.6" cy="8.2" r=".9" />
+      <circle cx="9.6" cy="6.2" r=".9" />
+      <circle cx="13" cy="7.2" r=".9" />
+      <circle cx="6.9" cy="11.7" r=".9" />
     </>
   ),
   spinner: (

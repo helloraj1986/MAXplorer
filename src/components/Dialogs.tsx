@@ -6,7 +6,8 @@ import { useExplorerStore } from "../state/explorerStore";
 import { api, normalizeError } from "../lib/api";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { formatDate, formatSize, typeName } from "../lib/format";
-import type { DialogState, ThemeMode, ViewMode } from "../lib/types";
+import type { DialogState, InterfaceTheme, ThemeMode, ViewMode } from "../lib/types";
+import { INTERFACE_THEME_DEFINITIONS, INTERFACE_THEMES } from "../lib/theme";
 
 function Modal({
   title,
@@ -461,6 +462,211 @@ function OpenWithDialog({ dialog, close }: { dialog: Extract<DialogState, { kind
   );
 }
 
+function WindowsPreview() {
+  return (
+    <svg viewBox="0 0 200 120" role="img" aria-label="Miniature of the Windows 11 Explorer layout">
+      <rect width="200" height="120" rx="6" fill="#e9eef5" />
+      <rect x="1" y="1" width="198" height="118" rx="5" fill="#ffffff" />
+      <rect x="1" y="1" width="198" height="16" rx="5" fill="#f3f3f3" />
+      <rect x="1" y="13" width="198" height="4" fill="#f3f3f3" />
+      <rect x="10" y="4" width="34" height="12" rx="4" fill="#ffffff" />
+      <rect x="14" y="8" width="4" height="4" rx="1" fill="#e8b23a" />
+      <rect x="21" y="8" width="14" height="3" rx="1.5" fill="#9aa4ad" />
+      <rect x="48" y="6" width="10" height="8" rx="2" fill="#e4e8ec" />
+      <rect x="1" y="17" width="198" height="15" fill="#f7f9fb" />
+      <circle cx="13" cy="24.5" r="3.2" fill="#0067c0" />
+      <rect x="20" y="22" width="14" height="4" rx="2" fill="#5c6670" />
+      <rect x="42" y="22" width="4" height="5" rx="1" fill="#8b959e" />
+      <rect x="50" y="22" width="4" height="5" rx="1" fill="#8b959e" />
+      <rect x="58" y="22" width="4" height="5" rx="1" fill="#8b959e" />
+      <rect x="68" y="21" width="58" height="7" rx="3" fill="#ffffff" stroke="#c9d2db" />
+      <rect x="132" y="21" width="38" height="7" rx="3" fill="#ffffff" stroke="#c9d2db" />
+      <rect x="1" y="32" width="198" height="18" fill="#ffffff" />
+      <circle cx="13" cy="41" r="4" fill="#eef2f6" stroke="#9aa4ad" strokeWidth=".8" />
+      <rect x="22" y="37" width="5" height="5" rx="1" fill="#7b8790" />
+      <rect x="30" y="37" width="5" height="5" rx="1" fill="#7b8790" />
+      <rect x="38" y="37" width="5" height="5" rx="1" fill="#7b8790" />
+      <rect x="50" y="36.5" width="118" height="9" rx="3" fill="#fbfcfd" stroke="#d6dde4" />
+      <rect x="56" y="39.5" width="24" height="3" rx="1.5" fill="#8b959e" />
+      <rect x="172" y="36.5" width="40" height="9" rx="3" fill="#fbfcfd" stroke="#d6dde4" />
+      <rect x="1" y="50" width="56" height="69" fill="#f3f6f9" />
+      <rect x="8" y="57" width="24" height="3" rx="1.5" fill="#a7b0b8" />
+      {[66, 78, 90, 102].map((y) => (
+        <g key={y}>
+          <rect x="8" y={y} width="5" height="5" rx="1" fill="#2f9be8" />
+          <rect x="17" y={y + 1} width="24" height="3" rx="1.5" fill="#7b8790" />
+        </g>
+      ))}
+      <rect x="57" y="50" width="142" height="10" fill="#f7f9fb" />
+      <rect x="63" y="54" width="30" height="3" rx="1.5" fill="#a7b0b8" />
+      <rect x="120" y="54" width="22" height="3" rx="1.5" fill="#a7b0b8" />
+      <rect x="164" y="54" width="18" height="3" rx="1.5" fill="#a7b0b8" />
+      {[64, 76, 88, 100, 112].map((y) => (
+        <g key={y}>
+          <rect x="63" y={y + 1} width="4" height="4" rx="1" fill="#e8b23a" />
+          <rect x="72" y={y + 2} width="46" height="3" rx="1.5" fill="#7b8790" />
+          <rect x="124" y={y + 2} width="20" height="3" rx="1.5" fill="#c3cbd2" />
+          <rect x="166" y={y + 2} width="16" height="3" rx="1.5" fill="#c3cbd2" />
+        </g>
+      ))}
+      <rect x="63" y="76" width="119" height="10" rx="2" fill="#e8f2fb" />
+    </svg>
+  );
+}
+
+function FinderPreview() {
+  return (
+    <svg viewBox="0 0 200 120" role="img" aria-label="Miniature of the macOS Finder layout">
+      <rect width="200" height="120" rx="6" fill="#dfe3ea" />
+      <rect x="1" y="1" width="198" height="118" rx="5" fill="#ffffff" />
+      <rect x="1" y="1" width="198" height="22" rx="5" fill="#ececee" />
+      <rect x="1" y="17" width="198" height="6" fill="#ececee" />
+      <circle cx="12" cy="9" r="3" fill="#ff5f57" />
+      <circle cx="22" cy="9" r="3" fill="#febc2e" />
+      <circle cx="32" cy="9" r="3" fill="#28c840" />
+      <rect x="64" y="5" width="34" height="9" rx="3" fill="#ffffff" stroke="#d5d5d8" />
+      <rect x="70" y="8" width="18" height="3" rx="1.5" fill="#8a8a8e" />
+      <rect x="1" y="23" width="198" height="19" fill="#f7f7f9" />
+      <path d="M13 33.5 9 30l4-3.5" fill="none" stroke="#6f7276" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="m19 26.5 4 3.5-4 3.5" fill="none" stroke="#b6b8bb" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      <rect x="32" y="28" width="48" height="4" rx="2" fill="#6f7276" />
+      <rect x="120" y="26" width="46" height="9" rx="4.5" fill="#ffffff" stroke="#d5d5d8" />
+      <circle cx="127" cy="30.5" r="2" fill="none" stroke="#9a9da1" strokeWidth="1" />
+      <rect x="170" y="26" width="9" height="9" rx="3" fill="#ffffff" stroke="#d5d5d8" />
+      <rect x="182" y="26" width="9" height="9" rx="3" fill="#ffffff" stroke="#d5d5d8" />
+      <rect x="1" y="42" width="62" height="77" fill="#f2f2f5" />
+      <rect x="8" y="48" width="20" height="3" rx="1.5" fill="#a4a6aa" />
+      {[
+        { y: 57, color: "#4a9cf5" },
+        { y: 68, color: "#f0a13a" },
+        { y: 79, color: "#58c26a" },
+      ].map((row) => (
+        <g key={row.y}>
+          <rect x="8" y={row.y} width="6" height="6" rx="1.4" fill={row.color} />
+          <rect x="18" y={row.y + 1.5} width="26" height="3" rx="1.5" fill="#7b7d81" />
+        </g>
+      ))}
+      <rect x="8" y="93" width="18" height="3" rx="1.5" fill="#a4a6aa" />
+      {[
+        { y: 101, color: "#8e8e93" },
+        { y: 111, color: "#8e8e93" },
+      ].map((row) => (
+        <g key={row.y}>
+          <rect x="8" y={row.y} width="6" height="6" rx="1.4" fill={row.color} />
+          <rect x="18" y={row.y + 1.5} width="22" height="3" rx="1.5" fill="#7b7d81" />
+        </g>
+      ))}
+      <rect x="63" y="42" width="136" height="12" fill="#fbfbfc" />
+      <rect x="70" y="47" width="32" height="3" rx="1.5" fill="#a4a6aa" />
+      <rect x="118" y="47" width="24" height="3" rx="1.5" fill="#a4a6aa" />
+      <rect x="160" y="47" width="20" height="3" rx="1.5" fill="#a4a6aa" />
+      {[58, 70, 82, 94, 106].map((y, index) => (
+        <g key={y}>
+          <rect x="63" y={y} width="136" height="11" rx="2" fill={index === 1 ? "#d9e7fb" : "transparent"} />
+          <rect x="70" y={y + 3} width="5" height="5" rx="1.2" fill="#4a9cf5" />
+          <rect x="80" y={y + 4} width="48" height="3" rx="1.5" fill="#6f7276" />
+          <rect x="132" y={y + 4} width="22" height="3" rx="1.5" fill="#c3c5c9" />
+          <rect x="162" y={y + 4} width="18" height="3" rx="1.5" fill="#c3c5c9" />
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function ThemePreview({ theme }: { theme: InterfaceTheme }) {
+  return (
+    <span className={`theme-preview ${theme}`} aria-hidden="true">
+      {theme === "finder" ? <FinderPreview /> : <WindowsPreview />}
+    </span>
+  );
+}
+
+function ThemesDialog({ close }: { close: () => void }) {
+  const interfaceTheme = useExplorerStore((state) => state.interfaceTheme);
+  const setInterfaceTheme = useExplorerStore((state) => state.setInterfaceTheme);
+  const theme = useExplorerStore((state) => state.theme);
+  const setTheme = useExplorerStore((state) => state.setTheme);
+
+  return (
+    <Modal
+      title="Appearance"
+      width={640}
+      icon={<Icon name="palette" size={20} />}
+      onClose={close}
+      footer={
+        <button type="button" className="dialog-button primary" onClick={close}>
+          Done
+        </button>
+      }
+    >
+      <div className="themes">
+        <section className="themes-section" aria-labelledby="interface-theme-heading">
+          <h3 id="interface-theme-heading">Interface theme</h3>
+          <p className="themes-hint">
+            Choose how the window looks. Both themes use the same files, tabs, and commands.
+          </p>
+          <div className="theme-grid" role="group" aria-labelledby="interface-theme-heading">
+            {INTERFACE_THEMES.map((id) => {
+              const definition = INTERFACE_THEME_DEFINITIONS[id];
+              const active = interfaceTheme === id;
+              return (
+                <button
+                  type="button"
+                  key={id}
+                  className={`theme-card ${active ? "active" : ""}`}
+                  aria-pressed={active}
+                  aria-label={`${definition.name}${active ? " (active theme)" : ""}`}
+                  onClick={() => setInterfaceTheme(id)}
+                >
+                  <ThemePreview theme={id} />
+                  <span className="theme-card-head">
+                    <span className="theme-card-name">{definition.name}</span>
+                    {active ? (
+                      <span className="theme-card-badge">
+                        <Icon name="check" size={11} />
+                        Active
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="theme-card-description">{definition.description}</span>
+                  <span className={`theme-card-action ${active ? "applied" : ""}`}>
+                    {active ? "Applied" : "Apply theme"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+        <section className="themes-section" aria-labelledby="appearance-heading">
+          <h3 id="appearance-heading">Light and dark</h3>
+          <p className="themes-hint">
+            Appearance is independent from the interface theme. Both themes support both settings.
+          </p>
+          <div className="appearance-segmented" role="group" aria-label="Appearance">
+            {(
+              [
+                { value: "system", label: "Use system setting" },
+                { value: "light", label: "Light" },
+                { value: "dark", label: "Dark" },
+              ] as Array<{ value: ThemeMode; label: string }>
+            ).map((option) => (
+              <button
+                type="button"
+                key={option.value}
+                className={`appearance-option ${theme === option.value ? "active" : ""}`}
+                aria-pressed={theme === option.value}
+                onClick={() => setTheme(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </section>
+      </div>
+    </Modal>
+  );
+}
+
 function PreferencesDialog({ close }: { close: () => void }) {
   const theme = useExplorerStore((state) => state.theme);
   const viewMode = useExplorerStore((state) => state.viewMode);
@@ -475,6 +681,8 @@ function PreferencesDialog({ close }: { close: () => void }) {
   const setDetailsPane = useExplorerStore((state) => state.setDetailsPane);
   const setPreviewPane = useExplorerStore((state) => state.setPreviewPane);
   const clearRecents = useExplorerStore((state) => state.clearRecents);
+  const openDialog = useExplorerStore((state) => state.openDialog);
+  const interfaceTheme = useExplorerStore((state) => state.interfaceTheme);
 
   return (
     <Modal
@@ -506,6 +714,14 @@ function PreferencesDialog({ close }: { close: () => void }) {
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            className="link-button theme-more"
+            onClick={() => openDialog({ kind: "themes" })}
+          >
+            <Icon name="palette" size={14} />
+            Interface theme: {INTERFACE_THEME_DEFINITIONS[interfaceTheme].name}...
+          </button>
         </section>
         <section>
           <h3>Default view</h3>
@@ -675,6 +891,8 @@ export function Dialogs() {
       return <OpenWithDialog dialog={dialog} close={close} />;
     case "preferences":
       return <PreferencesDialog close={close} />;
+    case "themes":
+      return <ThemesDialog close={close} />;
     case "about":
       return <AboutDialog close={close} />;
     case "shortcuts":

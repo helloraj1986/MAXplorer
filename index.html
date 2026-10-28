@@ -5,6 +5,32 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#191919" />
     <title>File Explorer</title>
+    <script>
+      // Bootstrap the persisted theme pair before the first paint so the window
+      // never flashes the wrong design or appearance. Mirrors src/lib/theme.ts
+      // and src/lib/persistence.ts; invalid values fall back to the defaults.
+      (function () {
+        try {
+          var raw = window.localStorage.getItem("win11-explorer-state-v1");
+          var prefs = raw ? JSON.parse(raw) : null;
+          var ui = prefs && prefs.interfaceTheme === "finder" ? "finder" : "windows";
+          var mode =
+            prefs && (prefs.theme === "light" || prefs.theme === "dark") ? prefs.theme : "system";
+          var dark =
+            mode === "dark" ||
+            (mode === "system" &&
+              window.matchMedia &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          var appearance = dark ? "dark" : "light";
+          var root = document.documentElement;
+          root.dataset.uiTheme = ui;
+          root.dataset.theme = appearance;
+          root.style.colorScheme = appearance;
+        } catch (error) {
+          // Storage can be unavailable; the app boots with default tokens.
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

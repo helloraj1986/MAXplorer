@@ -28,8 +28,9 @@ export default function App() {
   const previewPane = useExplorerStore((state) => state.previewPane);
   const activeTab = useExplorerStore((state) => state.tabs.find((tab) => tab.id === state.activeTabId));
   const platform = useExplorerStore((state) => state.platform);
+  const interfaceTheme = useExplorerStore((state) => state.interfaceTheme);
   const [osDropActive, setOsDropActive] = useState(false);
-  const resolvedTheme = useTheme();
+  useTheme();
 
   useWindowPersistence();
   useKeyboardShortcuts();
@@ -84,8 +85,9 @@ export default function App() {
       activeTab.location === HOME_LOCATION
         ? "Home"
         : activeTab.location.split(/[\\/]/).filter(Boolean).pop() || "File Explorer";
-    document.title = `${label} - File Explorer`;
-  }, [activeTab?.location]);
+    const appName = interfaceTheme === "finder" ? "Finder" : "File Explorer";
+    document.title = `${label} - ${appName}`;
+  }, [activeTab?.location, interfaceTheme]);
 
   if (fatalError) {
     return (
@@ -113,8 +115,12 @@ export default function App() {
           <span className="boot-logo">
             <Icon name="folder" size={34} />
           </span>
-          <h1>File Explorer</h1>
-          <p>Starting Windows 11 Explorer for macOS...</p>
+          <h1>{interfaceTheme === "finder" ? "Finder" : "File Explorer"}</h1>
+          <p>
+            {interfaceTheme === "finder"
+              ? "Starting macOS Finder..."
+              : "Starting Windows 11 Explorer..."}
+          </p>
           <div className="boot-progress">
             <span />
           </div>
@@ -125,9 +131,11 @@ export default function App() {
 
   return (
     <div className={`app-shell ${osDropActive ? "os-drop-active" : ""}`}>
-      <TitleBar key={`title-${resolvedTheme}`} />
-      <CommandBar key={`command-${resolvedTheme}`} />
-      <NavigationBar />
+      <TitleBar />
+      <div className="chrome">
+        <CommandBar />
+        <NavigationBar />
+      </div>
       <div className="main-area">
         <Sidebar />
         <div className="workspace">

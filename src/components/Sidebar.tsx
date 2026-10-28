@@ -70,6 +70,7 @@ export function Sidebar() {
   const setSidebarWidth = useExplorerStore((state) => state.setSidebarWidth);
   const sidebarWidth = useExplorerStore((state) => state.sidebarWidth);
   const moveOrCopyPaths = useExplorerStore((state) => state.moveOrCopyPaths);
+  const openDialog = useExplorerStore((state) => state.openDialog);
   const [expanded, setExpanded] = useState(true);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -226,6 +227,7 @@ export function Sidebar() {
     <>
       <aside className="sidebar" style={{ width: sidebarWidth }} aria-label="Navigation pane">
         <div className="sidebar-scroll" role="tree" aria-label="Locations">
+          <div className="sidebar-heading" role="presentation">Favorites</div>
           <div
             className={`nav-row ${current === HOME_LOCATION ? "selected" : ""}`}
             role="treeitem"
@@ -245,6 +247,7 @@ export function Sidebar() {
             <span className="nav-label">Home</span>
           </div>
           {pinnedRows.length ? <div className="nav-section">{pinnedRows}</div> : null}
+          <div className="sidebar-heading" role="presentation">Locations</div>
           <div className="nav-section">
             <div
               className={`nav-row nav-group ${current === rootLocation?.path ? "selected" : ""}`}
@@ -287,6 +290,18 @@ export function Sidebar() {
               </div>
             ) : null}
           </div>
+        </div>
+        <div className="sidebar-footer">
+          <button
+            type="button"
+            className="sidebar-theme-button"
+            title="Appearance and themes"
+            aria-label="Appearance and themes"
+            onClick={() => openDialog({ kind: "themes" })}
+          >
+            <Icon name="palette" size={16} />
+            <span className="nav-label">Appearance</span>
+          </button>
         </div>
       </aside>
       <div

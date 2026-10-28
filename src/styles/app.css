@@ -95,6 +95,13 @@ select:focus-visible,
   position: relative;
 }
 
+/* The command bar and navigation bar are grouped so the Finder theme can lay
+   them out as a single macOS toolbar. In the Windows theme they participate in
+   the app shell layout exactly as before. */
+.chrome {
+  display: contents;
+}
+
 /* Title bar and tabs */
 .titlebar {
   height: var(--titlebar-height);
@@ -655,14 +662,45 @@ select:focus-visible,
   overflow: hidden;
   background: var(--surface);
   border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
 }
 
 .sidebar-scroll {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding-bottom: 10px;
 }
+
+/* Finder-only section headings; hidden in the Windows theme. */
+.sidebar-heading {
+  display: none;
+}
+
+.sidebar-footer {
+  flex: 0 0 auto;
+  padding: 6px 2px 8px;
+  border-top: 1px solid var(--border);
+}
+
+.sidebar-theme-button {
+  width: 100%;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border-radius: 4px;
+  color: var(--text-2);
+}
+
+.sidebar-theme-button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
 
 .nav-row {
   height: 30px;
@@ -2645,6 +2683,177 @@ select:focus-visible,
 
 .theme-swatch.dark {
   background: #1e1e1e;
+}
+
+.theme-more {
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Interface theme selector */
+.themes {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.themes-section h3 {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.themes-hint {
+  margin: 0 0 12px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.theme-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  padding: 10px;
+  text-align: left;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.theme-card:hover {
+  background: var(--surface-3);
+  border-color: var(--border-strong);
+}
+
+.theme-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.theme-card.active {
+  border-color: var(--accent);
+  background: var(--accent-tint);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.theme-card:disabled {
+  opacity: 0.55;
+}
+
+.theme-preview {
+  display: block;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.theme-preview svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.theme-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.theme-card-name {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.theme-card-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.theme-card-description {
+  flex: 1;
+  color: var(--text-2);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.theme-card-action {
+  align-self: flex-start;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 11.5px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.theme-card:hover .theme-card-action {
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
+.theme-card-action.applied {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.appearance-segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-3);
+}
+
+.appearance-option {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 4px;
+  color: var(--text-2);
+  font-size: 11.5px;
+}
+
+.appearance-option:hover {
+  color: var(--text);
+}
+
+.appearance-option.active {
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: var(--shadow-1);
+  font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .theme-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .check-row {

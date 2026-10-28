@@ -37,7 +37,7 @@ src/
     StatusBar.tsx             Item count, selection size, view buttons
     ContextMenu.tsx           File and blank context menus + nested menus
     Menu.tsx                  Shared menu primitive with submenus/checkmarks/shortcuts
-    Dialogs.tsx               Confirm, prompt, conflict, properties, open-with, options
+    Dialogs.tsx               Confirm, prompt, conflict, properties, open-with, options, themes
     FileGlyph.tsx             Original SVG folder/file glyphs, real image thumbnails
     Icon.tsx                  Original Fluent-style SVG icon set (no emoji)
   hooks/
@@ -46,18 +46,23 @@ src/
     useFileNavigation.ts      Click/modifier selection + arrows/page/type-ahead
     useMarqueeSelection.ts    Drag rectangle selection over visible rows
     useKeyboardShortcuts.ts   Global Windows-style shortcut map
-    useTheme.ts               System/light/dark resolution + data-theme
+    useTheme.ts               Applies data-ui-theme + resolved data-theme, row metrics
     useWindowPersistence.ts   Logical size/position persistence
   lib/
     api.ts                    Typed Tauri invoke wrappers, error normalization
     types.ts                  Shared serialized contracts and UI models
+    theme.ts                  Interface theme definitions, normalization, metrics, apply
     format.ts                 Windows-style sizes, dates, type names, paths
     sort.ts                   Sorting and group buckets
     history.ts                Per-tab back/forward history
     tabs.ts                   Tab creation/closing/cycling/duplication
     selection.ts              Range/toggle/prune selection
-    persistence.ts            Versioned localStorage persistence + validation
+    persistence.ts            Versioned localStorage persistence + validation + theme bootstrap
   state/explorerStore.ts      Application store and all user actions
+  styles/
+    tokens.css                Windows and Finder design tokens (light + dark)
+    app.css                   Shared component styling and the theme selector
+    finder.css                Structural Finder overrides scoped to data-ui-theme="finder"
 src-tauri/src/
   lib.rs                      Tauri builder + command registration
   commands.rs                 Async command boundary, platform launchers
@@ -122,13 +127,39 @@ different tab location.
 
 `TabState` owns location, history, listing, loading/error state, selection, anchor,
 search query/results/request generation. View mode, sort, grouping, panes, hidden/extensions,
-theme, column widths, sidebar width, pinned paths, recents, clipboard, menus, dialogs,
-toasts, and the current operation live in the store.
+`theme` (light/dark axis), `interfaceTheme` (Windows/Finder axis), column widths, sidebar
+width, pinned paths, recents, clipboard, menus, dialogs, toasts, and the current operation
+live in the store.
 
 Persisted (versioned) fields exclude derived/transient state. Invalid stored values are
 rejected or clamped. Window bounds are stored separately and clamped to the visible screen.
-Theme changes remount the two top bars to work around a WebView2 composited-layer repaint
-issue observed during validation.
+The theme pair is also read by a tiny inline bootstrap in `index.html` (mirrored in
+`main.tsx`) so the first paint already uses the saved design; theme changes are applied by
+mutating `data-ui-theme` / `data-theme` on `<html>`, without remounting the shell.
+
+## Interface themes
+
+The two interface themes are a presentation layer over the same application:
+
+```
+Windows 11 shell ─┐
+                  ├── shared React state + Tauri commands ── real filesystem
+Finder shell ─────┘
+```
+
+- `lib/theme.ts` is the single source of truth for theme ids, names, normalization,
+  appearance resolution, the `data-*` attribute application, and virtualized row metrics.
+- `tokens.css` defines Windows tokens at `:root`/`[data-theme="light"]` and Finder
+  overrides at `[data-ui-theme="finder"]` plus a more specific
+  `[data-ui-theme="finder"][data-theme="light"]` block.
+- `finder.css` contains structural overrides (traffic lights, unified toolbar, sidebar
+  sections, row heights, menus, status bar) scoped to `[data-ui-theme="finder"]`.
+- Shared components keep their behavior. `FileArea` receives row heights from
+  `THEME_METRICS` so virtualization stays in sync with the CSS.
+- The theme selector (`Dialogs.tsx`) only calls `setInterfaceTheme` / `setTheme`; it never
+  touches tabs, navigation, selection, search, or file operations.
+- Persistence is part of the existing snapshot (`interfaceTheme` + `theme`), so switching
+  is debounced and restored exactly like the other preferences.
 
 ## macOS integration
 

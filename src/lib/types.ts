@@ -12,6 +12,11 @@ export type SortKey = "name" | "date" | "type" | "size";
 export type SortDirection = "asc" | "desc";
 export type GroupBy = "none" | "type" | "date" | "size";
 export type ThemeMode = "system" | "light" | "dark";
+/**
+ * Visual identity of the whole application. Independent of `ThemeMode`
+ * (light/dark appearance); both themes support both appearances.
+ */
+export type InterfaceTheme = "windows" | "finder";
 export type ConflictPolicy = "error" | "replace" | "rename" | "skip";
 
 export interface FileEntry {
@@ -192,6 +197,7 @@ export type DialogState =
       loading: boolean;
     }
   | { kind: "preferences" }
+  | { kind: "themes" }
   | { kind: "about" }
   | { kind: "shortcuts" };
 
@@ -232,6 +238,7 @@ export interface PersistedState {
   detailsPane: boolean;
   previewPane: boolean;
   theme: ThemeMode;
+  interfaceTheme: InterfaceTheme;
   columnWidths: Record<string, number>;
   sidebarWidth: number;
   pinned: string[];

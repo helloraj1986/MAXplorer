@@ -79,3 +79,30 @@
   macOS 14, confirmed the process stayed alive, and captured a real macOS screenshot
   (`docs/screenshots/macos-smoke.png`).
 - Documented unsupported features and the remaining full-interaction macOS gap.
+
+## Phase 8 — Dual interface themes
+
+- Verified the baseline before the change: typecheck clean, `npm test` 26/26.
+- Created branch `feature/dual-theme`.
+- Added a second presentation axis, `interfaceTheme` (`windows` | `finder`), independent
+  of the existing light/dark `theme`.
+- Added Finder design tokens in `tokens.css` (dark and light), structural overrides in
+  `finder.css`, and shared picker/sidebar-footer styles in `app.css`.
+- Added `lib/theme.ts` (definitions, normalization, appearance resolution, attributes,
+  `THEME_METRICS`) and extended persistence with `parsePersisted`,
+  `parseThemePreferences`, and `loadThemePreferences`.
+- Added the store's `interfaceTheme` state/action and seeded initial theme preferences so
+  the first render matches the bootstrapped document attributes.
+- Added an inline pre-paint bootstrap in `index.html` and a matching call in `main.tsx`;
+  removed the previous theme remount keys from `TitleBar`/`CommandBar`.
+- Built the Finder layout: traffic lights (same Tauri window APIs), unified toolbar,
+  source-list sidebar headings and footer, 28/24 px rows, Finder menus/selection,
+  centered modal titles, and responsive toolbar behavior.
+- Added the Appearance dialog with two CSS/SVG preview cards, active badge, keyboard
+  focus, and an independent system/light/dark control; entry points in the sidebar
+  footer, More menu, and Options dialog.
+- Added 17 frontend tests for themes and persistence: **43 passed** across 7 files.
+- Visually validated both themes in light and dark on the Windows dev host, including
+  details/list/icon views, context and More menus, a 1080x720 resize, a rename across a
+  live theme switch, and persistence across an app restart.
+- Updated README, architecture, feature matrix, and added `docs/THEMES.md`.

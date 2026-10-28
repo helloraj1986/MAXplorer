@@ -15,7 +15,7 @@ import {
   typeName,
 } from "../lib/format";
 import { backHistory, canGoBack, canGoForward, forwardHistory, pushHistory } from "../lib/history";
-import { loadPersisted, savePersisted } from "../lib/persistence";
+import { loadPersisted, loadThemePreferences, savePersisted } from "../lib/persistence";
 import { filterEntries, sortEntries } from "../lib/sort";
 import {
   pruneSelection,
@@ -34,6 +34,7 @@ import type {
   FileEntry,
   FolderStats,
   GroupBy,
+  InterfaceTheme,
   Location,
   OperationState,
   OperationResult,
@@ -49,6 +50,7 @@ import type {
   ViewMode,
 } from "../lib/types";
 import { HOME_LOCATION } from "../lib/types";
+import { DEFAULT_INTERFACE_THEME } from "../lib/theme";
 
 interface ExplorerState {
   platform: PlatformInfo | null;
@@ -64,6 +66,7 @@ interface ExplorerState {
   detailsPane: boolean;
   previewPane: boolean;
   theme: ThemeMode;
+  interfaceTheme: InterfaceTheme;
   columnWidths: Record<string, number>;
   sidebarWidth: number;
   pinned: string[];
@@ -122,6 +125,7 @@ interface ExplorerState {
   setDetailsPane: (show: boolean) => void;
   setPreviewPane: (show: boolean) => void;
   setTheme: (theme: ThemeMode) => void;
+  setInterfaceTheme: (theme: InterfaceTheme) => void;
   setColumnWidth: (key: string, width: number) => void;
   setSidebarWidth: (width: number) => void;
 
@@ -236,6 +240,12 @@ let toastCounter = 0;
 let persistenceStarted = false;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
+/**
+ * Seed the store with the persisted theme pair so the very first render already
+ * matches the bootstrapped document attributes (no flash of the wrong theme).
+ */
+const initialPreferences = loadThemePreferences();
+
 export const useExplorerStore = create<ExplorerState>((set, get) => ({
   platform: null,
   locations: [],
@@ -249,7 +259,8 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   showExtensions: true,
   detailsPane: false,
   previewPane: false,
-  theme: "system",
+  theme: initialPreferences.theme,
+  interfaceTheme: initialPreferences.interfaceTheme,
   columnWidths: { name: 272, date: 144, type: 120, size: 80, location: 260 },
   sidebarWidth: 204,
   pinned: [],
@@ -290,6 +301,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
       let detailsPane = false;
       let previewPane = false;
       let theme: ThemeMode = "system";
+      let interfaceTheme: InterfaceTheme = DEFAULT_INTERFACE_THEME;
       let columnWidths: Record<string, number> = { name: 272, date: 144, type: 120, size: 80, location: 260 };
       let sidebarWidth = 204;
       let pinned: string[] = [];
@@ -310,6 +322,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
         previewPane = persisted.previewPane;
         if (detailsPane && previewPane) previewPane = false;
         theme = persisted.theme;
+        interfaceTheme = persisted.interfaceTheme;
         columnWidths = persisted.columnWidths;
         sidebarWidth = persisted.sidebarWidth;
         pinned = persisted.pinned;
@@ -344,6 +357,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
         detailsPane,
         previewPane,
         theme,
+        interfaceTheme,
         columnWidths,
         sidebarWidth,
         pinned,
@@ -739,6 +753,9 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   },
   setTheme(theme) {
     set({ theme });
+  },
+  setInterfaceTheme(interfaceTheme) {
+    set({ interfaceTheme });
   },
   setColumnWidth(key, width) {
     set((state) => ({ columnWidths: { ...state.columnWidths, [key]: width } }));
@@ -1350,6 +1367,7 @@ export function startPersistence(): void {
         detailsPane: state.detailsPane,
         previewPane: state.previewPane,
         theme: state.theme,
+        interfaceTheme: state.interfaceTheme,
         columnWidths: state.columnWidths,
         sidebarWidth: state.sidebarWidth,
         pinned: state.pinned,

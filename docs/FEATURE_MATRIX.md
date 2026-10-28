@@ -83,9 +83,13 @@ Status vocabulary:
 | Properties | Security/Details tabs | Windows properties | Unsupported | General only |
 | Open With | App chooser | Windows Open With | Blocked | macOS `.app` list implemented; needs macOS run |
 | Share | Native share sheet | Windows Share | Partial | Copies path + Reveal in Finder action |
-| Themes | Dark / light / system | Captured both | Verified/implemented | Top bars force repaint on switch |
-| Theming | Selected/hover/pressed/focus states | Captured core states | Implemented | CSS tokens |
-| Persistence | Tabs/history/view/sort/columns/sidebar/theme | Standard Explorer | Verified/implemented | localStorage; window bounds persisted |
+| Themes | Interface themes: Windows 11 / macOS Finder | Windows reference + macOS HIG | Verified/implemented | Selector dialog; live switch without remount or filesystem reload |
+| Themes | Dark / light / system appearance | Captured both | Verified/implemented | Independent from the interface theme; applies to both |
+| Theming | Selected/hover/pressed/focus/disabled states | Captured core states | Implemented | CSS tokens; shared focus-visible rules |
+| Theming | Finder traffic lights / toolbar / source list | macOS HIG | Implemented | Real Tauri window APIs; CSS/SVG recreation, not AppKit |
+| Theming | Finder column view / Quick Look / tags | macOS HIG | Unsupported | Not shown as fake controls |
+| Persistence | Tabs/history/view/sort/columns/sidebar/themes | Standard Explorer | Verified/implemented | localStorage; window bounds persisted |
+| Persistence | Theme restored without a wrong-theme flash | Requirement | Implemented | Inline pre-paint bootstrap + store seeding |
 | Persistence | Window size/position | Standard Explorer | Implemented | Restored and clamped to screen |
 | macOS | TCC usage descriptions | N/A | Implemented | Desktop/Documents/Downloads/volumes Info.plist keys |
 | macOS | Real filesystem browsing | Required | Verified on Windows + macOS smoke | Same Rust code; macOS CI Home showed real `/Users/runner` paths |
@@ -104,7 +108,42 @@ Status vocabulary:
 2. **This PC is labeled This Mac on macOS**, and drives map to `/Volumes`.
 3. **Quick access is a Home surface** because the 21H2 reference had no 22H2 Home. It uses
    real macOS home folders and app-maintained recents.
-4. **Native window captions are Windows-style**, even on macOS, because the target is the
-   Windows 11 Explorer appearance. macOS traffic lights are intentionally hidden.
+4. **Native window captions are Windows-style in the Windows theme and macOS-style traffic
+   lights in the Finder theme.** Both are CSS controls backed by the same Tauri window APIs;
+   they are not AppKit buttons.
 5. **Share and Open With** are the two areas where macOS integration is intentionally
    partial or unverified rather than faked.
+6. **Finder theme scope**: list/icon views, toolbar, sidebar, menus, selection, and
+   typography are recreated. Finder-specific column view, Quick Look, tags, and native
+   materials are not implemented and are not shown.
+
+## Theme parity checklist
+
+The themes are presentation-only: both render the same components, store, and Rust
+commands. "Shared code" means the Finder theme uses the same path but that workflow was
+not separately re-exercised in this pass; "Exercised" means it was run in the running app
+in that theme.
+
+| Feature | Windows theme | Finder theme | Evidence |
+| --- | --- | --- | --- |
+| Directory navigation | Exercised | Exercised | Same store/`navigate`; fixture and temp directory opened in both |
+| Back / forward / up / refresh | Shared code | Shared code | Same `NavigationBar` controls; history covered by unit tests |
+| Breadcrumbs / editable address | Exercised | Exercised | Same component, restyled; address navigation used in both |
+| Search and filtering | Exercised | Exercised | Same search box/store action; query + 17 results preserved across a switch |
+| Selection / multi-selection | Exercised | Exercised | Same row handlers; path-based selection preserved |
+| Sorting / grouping | Shared code | Shared code | Same command and context menus |
+| View switching (8 modes) | Exercised | Exercised | Same view buttons/menus; details/list/icons captured in both |
+| Create folder / text file / shortcut | Shared code | Shared code | Same store actions |
+| Copy / cut / paste / move | Shared code | Shared code | Same Rust operations |
+| Rename / duplicate / delete | Exercised (rename) | Exercised (rename) | Rename via F2 in Windows, result and selection checked in Finder |
+| Tabs (new/close/switch/reorder) | Shared code | Shared code | Same tab state, restyled; one restored tab exercised in both |
+| Drag-and-drop (internal + OS) | Shared code | Shared code | Same handlers and payloads |
+| Context menus | Exercised | Exercised | Same `MenuPanel` items, Finder styling |
+| Keyboard shortcuts | Shared code | Shared code | Single global shortcut map; theme cards keyboard-exercised |
+| File metadata / properties | Shared code | Shared code | Same panes/dialogs |
+| Error handling / permissions | Shared code | Shared code | Same API error normalization |
+| Theme persistence | Exercised | Exercised | Finder + dark + list view restored after restart |
+
+Not re-tested interactively in the Finder theme on macOS: native TCC prompts, OS-level
+drag-and-drop from Finder, and Open With. The Windows dev build exercises the shared code
+paths; see [VALIDATION.md](VALIDATION.md) for the exact boundary.

@@ -52,14 +52,16 @@ captured the screenshot above (Home view, real `/Users/runner` filesystem).
   Group submenus, and nested Send to. All displayed actions are functional.
 - **Details and preview**: metadata, permissions, owner IDs on macOS, folder size scan,
   image preview, text preview, and open actions. Image thumbnails use real file content.
-- **Appearance**: Windows 11 dark and light color schemes with system/light/dark mode,
-  matching surfaces, borders, hover/selected states, rounded menus, and Fluent-style
-  original SVG icons (no emoji).
+- **Appearance**: two interchangeable interface themes — Windows 11 Explorer and macOS
+  Finder — each with dark and light variants plus system/light/dark mode. The themes share
+  all filesystem behavior and differ only in presentation. Finder-style traffic lights,
+  toolbar, source-list sidebar, menus, selection, spacing, and typography are included.
+  Original SVG icons are used throughout (no emoji).
 - **macOS integration**: real home folders, `/Volumes` drives, `/Applications` app list,
   Finder reveal, Terminal, TCC usage descriptions, and macOS permission guidance.
 - **Persistence**: tabs, location history, view mode, sorting, grouping, column widths,
-  sidebar width, pinned folders, recent items, theme, panes, hidden/extension settings,
-  and window size.
+  sidebar width, pinned folders, recent items, interface theme, light/dark theme, panes,
+  hidden/extension settings, and window size.
 
 ## Quick start
 
@@ -101,6 +103,20 @@ Artifacts are written under `src-tauri/target/release/bundle/` (native) or
 configuration ad-hoc signs the app for CI; Developer ID signing and notarization are not
 configured. Add your Developer ID and notarization credentials before distribution.
 
+### Switch interface themes
+
+Open **Appearance** from any of these entry points:
+
+- the **Appearance** button at the bottom of the sidebar;
+- **More (…) → Appearance and themes** in the command bar;
+- **Options → Interface theme** in the More menu.
+
+The dialog shows two preview cards (Windows 11 Explorer and macOS Finder) and an
+independent light/dark/system control. The choice is saved immediately and restored on
+the next launch; switching never changes the current folder, tabs, history, selection,
+search, sorting, or in-flight file operations. See **[docs/THEMES.md](docs/THEMES.md)**
+for the theme architecture and how to add another theme.
+
 ### Tests
 
 ```bash
@@ -127,8 +143,9 @@ without touching the user's normal folders.
 src/                       React + TypeScript UI
   components/              Shell, command bar, sidebar, file views, menus, dialogs
   hooks/                   Keyboard, theme, virtual list, marquee, window state
-  lib/                     Typed API, formatting, sorting, history, tabs, persistence
+  lib/                     Typed API, formatting, sorting, history, tabs, persistence, theme
   state/explorerStore.ts   Predictable Zustand application store
+  styles/                  tokens.css (design tokens), app.css, finder.css (Finder overrides)
 src-tauri/                 Rust backend
   src/commands.rs          Tauri command boundary and platform launching
   src/listing.rs           Directory reading and metadata
@@ -168,6 +185,7 @@ See:
 - [docs/REFERENCE.md](docs/REFERENCE.md) — evidence, measurements, colors, uncertainty.
 - [docs/FEATURE_MATRIX.md](docs/FEATURE_MATRIX.md) — status of every studied feature.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — design decisions and contracts.
+- [docs/THEMES.md](docs/THEMES.md) — interface themes, persistence, and adding a theme.
 - [docs/MACOS_DMG.md](docs/MACOS_DMG.md) — DMG build, signing, notarization, Gatekeeper.
 - [docs/VALIDATION.md](docs/VALIDATION.md) — what was run, what was seen, what was not.
 - [docs/DEVELOPMENT_LOG.md](docs/DEVELOPMENT_LOG.md) — concise build log.
@@ -202,8 +220,15 @@ These are honest, intentional boundaries of this build:
   completion; byte-level progress is not streamed.
 - **Open With** is macOS-only and lists `.app` bundles from `/Applications`,
   `/System/Applications`, and `~/Applications`. It was not runtime-tested on macOS.
-- **Native window controls** are Windows-style custom controls. They use Tauri window APIs;
-  native macOS traffic lights are intentionally not shown.
+- **Native window controls** are custom. The Windows theme renders Windows-style caption
+  controls on the right; the Finder theme renders macOS-style traffic lights on the left.
+  Both call the same Tauri window APIs (close/minimize/maximize). They are not AppKit
+  `NSWindow` buttons, so hover glyphs and spacing are recreated in CSS.
+- **The Finder theme is a web-rendered recreation**, not AppKit. It approximates Finder's
+  toolbar, source list, menus, selection, and typography with the existing React
+  components. It does not implement Finder's column view, Quick Look, tags, or native
+  translucent material; translucency is approximated with opaque tokens and blur where
+  WebView2 supports it.
 - **App sandbox** is not enabled. macOS uses TCC folder permissions; Distribution via the
   Mac App Store would require sandbox entitlements and additional review work.
 - Deleting `/Applications`, `/System`, `/Library`, and similar protected roots is refused

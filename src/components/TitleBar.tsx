@@ -13,6 +13,7 @@ export function TitleBar() {
   const closeTabById = useExplorerStore((state) => state.closeTabById);
   const newTab = useExplorerStore((state) => state.newTab);
   const reorderTab = useExplorerStore((state) => state.reorderTab);
+  const interfaceTheme = useExplorerStore((state) => state.interfaceTheme);
   const [maximized, setMaximized] = useState(false);
   const [draggedTab, setDraggedTab] = useState<string | null>(null);
 
@@ -51,6 +52,41 @@ export function TitleBar() {
 
   return (
     <header className="titlebar">
+      {interfaceTheme === "finder" ? (
+        <div className="traffic-lights" onDoubleClick={toggleMaximize}>
+          <button
+            type="button"
+            className="traffic-light traffic-close"
+            aria-label="Close window"
+            title="Close"
+            onClick={() => {
+              void getCurrentWindow().close().catch((error) => useExplorerStore.getState().toastError(error));
+            }}
+          >
+            <Icon name="close" size={8} strokeWidth={1.8} />
+          </button>
+          <button
+            type="button"
+            className="traffic-light traffic-minimize"
+            aria-label="Minimize window"
+            title="Minimize"
+            onClick={() => {
+              void getCurrentWindow().minimize().catch((error) => useExplorerStore.getState().toastError(error));
+            }}
+          >
+            <Icon name="minimize" size={8} strokeWidth={1.8} />
+          </button>
+          <button
+            type="button"
+            className="traffic-light traffic-zoom"
+            aria-label={maximized ? "Restore window" : "Zoom window"}
+            title={maximized ? "Restore" : "Zoom"}
+            onClick={toggleMaximize}
+          >
+            <Icon name="fullscreen" size={8} strokeWidth={1.8} />
+          </button>
+        </div>
+      ) : null}
       <div className="tab-strip" data-tauri-drag-region>
         <div className="tabs" role="tablist" aria-label="File Explorer tabs">
           {tabs.map((tab, index) => (

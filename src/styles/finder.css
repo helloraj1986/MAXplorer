@@ -1,0 +1,742 @@
+/*
+ * macOS Finder presentation layer.
+ *
+ * Every rule in this file is scoped to `[data-ui-theme="finder"]`, so the
+ * Windows 11 theme keeps its existing layout. Nothing here changes behavior:
+ * the same components, state, Tauri commands, and filesystem services are used.
+ */
+
+/* ---------------------------------------------------------------- Typography */
+
+[data-ui-theme="finder"] body {
+  font-size: 12.5px;
+  letter-spacing: -0.005em;
+  -webkit-font-smoothing: antialiased;
+}
+
+[data-ui-theme="finder"] ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+[data-ui-theme="finder"] ::-webkit-scrollbar-thumb {
+  border-width: 2px;
+}
+
+[data-ui-theme="finder"] button:focus-visible,
+[data-ui-theme="finder"] input:focus-visible,
+[data-ui-theme="finder"] select:focus-visible,
+[data-ui-theme="finder"] [tabindex]:focus-visible {
+  outline: 3px solid var(--accent-soft);
+  outline-offset: 1px;
+}
+
+/* ------------------------------------------------------------------ Title bar */
+
+[data-ui-theme="finder"] .titlebar {
+  height: var(--titlebar-height);
+  flex: 0 0 var(--titlebar-height);
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  background: var(--mica);
+  border-bottom: 0;
+  border-top: 1px solid var(--finder-separator);
+}
+
+[data-ui-theme="finder"] .window-controls {
+  display: none;
+}
+
+[data-ui-theme="finder"] .traffic-lights {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+  flex: 0 0 auto;
+}
+
+[data-ui-theme="finder"] .traffic-light {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(0, 0, 0, 0.55);
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.18);
+  transition: filter 100ms ease;
+}
+
+[data-ui-theme="finder"] .traffic-light svg {
+  opacity: 0;
+  transition: opacity 90ms ease;
+}
+
+[data-ui-theme="finder"] .traffic-lights:hover .traffic-light svg,
+[data-ui-theme="finder"] .traffic-light:focus-visible svg {
+  opacity: 1;
+}
+
+[data-ui-theme="finder"] .traffic-light:hover {
+  filter: brightness(1.08);
+}
+
+[data-ui-theme="finder"] .traffic-light:active {
+  filter: brightness(0.82);
+}
+
+[data-ui-theme="finder"] .traffic-close {
+  background: var(--traffic-close);
+}
+
+[data-ui-theme="finder"] .traffic-minimize {
+  background: var(--traffic-minimize);
+}
+
+[data-ui-theme="finder"] .traffic-zoom {
+  background: var(--traffic-zoom);
+}
+
+[data-ui-theme="finder"] .tab-strip {
+  align-items: center;
+  padding-left: 2px;
+  gap: 6px;
+}
+
+[data-ui-theme="finder"] .tabs {
+  align-items: center;
+  gap: 6px;
+}
+
+[data-ui-theme="finder"] .tab {
+  height: 30px;
+  min-width: 126px;
+  max-width: 208px;
+  padding: 0 8px 0 10px;
+  border-radius: 7px;
+  color: var(--text-2);
+  gap: 7px;
+}
+
+[data-ui-theme="finder"] .tab:hover {
+  background: var(--hover);
+}
+
+[data-ui-theme="finder"] .tab.active {
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: 0 0 0 0.5px var(--finder-separator), 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+[data-ui-theme="finder"] .tab-title {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+[data-ui-theme="finder"] .tab-close {
+  border-radius: 50%;
+}
+
+[data-ui-theme="finder"] .tab-close:hover {
+  background: var(--pressed);
+}
+
+[data-ui-theme="finder"] .tab-new {
+  width: 28px;
+  height: 28px;
+  flex-basis: 28px;
+  border-radius: 7px;
+}
+
+[data-ui-theme="finder"] .titlebar-spacer {
+  height: var(--titlebar-height);
+}
+
+/* --------------------------------------------------------- Unified toolbar */
+
+[data-ui-theme="finder"] .chrome {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: var(--navbar-height);
+  flex: 0 0 var(--navbar-height);
+  padding: 0 10px;
+  background: var(--finder-toolbar);
+  border-bottom: 1px solid var(--finder-separator);
+  position: relative;
+  z-index: 30;
+}
+
+[data-ui-theme="finder"] .chrome > .commandbar,
+[data-ui-theme="finder"] .chrome > .navbar {
+  display: contents;
+}
+
+/* Visual order: navigation, path, actions, search. */
+[data-ui-theme="finder"] .chrome > .navbar > .nav-btn {
+  order: 1;
+  width: 28px;
+  height: 28px;
+  flex-basis: 28px;
+  border-radius: 6px;
+  color: var(--text-2);
+}
+
+[data-ui-theme="finder"] .chrome > .navbar > .nav-btn:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+[data-ui-theme="finder"] .chrome > .navbar > .nav-btn:disabled {
+  opacity: 0.4;
+}
+
+[data-ui-theme="finder"] .chrome > .navbar > .refresh-btn {
+  margin: 0 4px 0 0;
+}
+
+[data-ui-theme="finder"] .chrome > .navbar > .address-wrap {
+  order: 2;
+  flex: 1;
+  margin: 0 10px;
+}
+
+[data-ui-theme="finder"] .chrome > .commandbar > * {
+  order: 3;
+}
+
+[data-ui-theme="finder"] .chrome > .navbar > .search-box {
+  order: 4;
+}
+
+[data-ui-theme="finder"] .chrome > .commandbar > .commandbar-spacer,
+[data-ui-theme="finder"] .chrome > .commandbar > .address-hidden {
+  display: none;
+}
+
+[data-ui-theme="finder"] .chrome > .commandbar > .cmd-btn,
+[data-ui-theme="finder"] .chrome > .commandbar > .cmd-button-wrap > .cmd-btn {
+  width: 30px;
+  height: 28px;
+  min-width: 30px;
+  padding: 0;
+  border-radius: 6px;
+  color: var(--text-2);
+}
+
+[data-ui-theme="finder"] .chrome > .commandbar > .cmd-btn {
+  margin-right: 0;
+}
+
+[data-ui-theme="finder"] .chrome .cmd-btn:hover:not(:disabled),
+[data-ui-theme="finder"] .chrome .cmd-btn.open {
+  background: var(--hover);
+  color: var(--text);
+}
+
+[data-ui-theme="finder"] .chrome .cmd-btn:disabled {
+  color: var(--text-disabled);
+  opacity: 0.5;
+}
+
+[data-ui-theme="finder"] .chrome .cmd-label,
+[data-ui-theme="finder"] .chrome .cmd-caret {
+  display: none;
+}
+
+[data-ui-theme="finder"] .chrome .cmd-new-icon {
+  color: var(--accent);
+}
+
+[data-ui-theme="finder"] .chrome .cmd-separator {
+  height: 18px;
+  margin: 0 5px;
+  background: var(--finder-separator);
+}
+
+[data-ui-theme="finder"] .chrome .dropdown-menu {
+  top: 34px;
+}
+
+[data-ui-theme="finder"] .chrome .cmd-properties {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+}
+
+/* Address / path bar */
+[data-ui-theme="finder"] .address-bar {
+  height: 28px;
+  background: transparent;
+  border-color: transparent;
+  border-radius: 6px;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+[data-ui-theme="finder"] .address-bar:hover {
+  background: var(--hover);
+}
+
+[data-ui-theme="finder"] .address-bar:focus-within {
+  background: var(--field);
+  border-color: var(--accent-border);
+}
+
+[data-ui-theme="finder"] .address-folder {
+  width: 28px;
+  height: 26px;
+  flex-basis: 28px;
+  color: var(--text-2);
+}
+
+[data-ui-theme="finder"] .crumb {
+  height: 24px;
+  border-radius: 5px;
+  color: var(--text-2);
+  font-size: 12.5px;
+  padding: 0 5px;
+}
+
+[data-ui-theme="finder"] .crumb.current {
+  color: var(--text);
+  font-weight: 500;
+}
+
+[data-ui-theme="finder"] .crumb-separator {
+  color: var(--text-3);
+  opacity: 0.8;
+}
+
+[data-ui-theme="finder"] .address-input {
+  font-size: 12.5px;
+}
+
+[data-ui-theme="finder"] .address-dropdown {
+  border-radius: 5px;
+  color: var(--text-3);
+}
+
+[data-ui-theme="finder"] .address-menu {
+  top: 34px;
+}
+
+[data-ui-theme="finder"] .search-box {
+  height: 28px;
+  flex: 0 1 220px;
+  min-width: 140px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--field);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+[data-ui-theme="finder"] .search-box:hover {
+  background: var(--pressed);
+}
+
+[data-ui-theme="finder"] .search-box:focus-within {
+  background: var(--surface-raised);
+  border-color: var(--accent-border);
+}
+
+[data-ui-theme="finder"] .search-icon {
+  width: 30px;
+  height: 26px;
+  flex-basis: 30px;
+}
+
+[data-ui-theme="finder"] .search-input {
+  font-size: 12.5px;
+}
+
+[data-ui-theme="finder"] .search-clear {
+  border-radius: 50%;
+}
+
+/* ------------------------------------------------------------------ Sidebar */
+
+[data-ui-theme="finder"] .sidebar {
+  padding: 10px 8px 0 10px;
+  background: var(--finder-sidebar);
+  border-right: 1px solid var(--finder-separator);
+}
+
+[data-ui-theme="finder"] .sidebar-scroll {
+  padding-bottom: 8px;
+}
+
+[data-ui-theme="finder"] .sidebar-heading {
+  display: block;
+  padding: 10px 8px 4px;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+[data-ui-theme="finder"] .nav-section + .sidebar-heading {
+  margin-top: 6px;
+}
+
+[data-ui-theme="finder"] .nav-row {
+  height: 28px;
+  padding: 0 8px;
+  gap: 8px;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+[data-ui-theme="finder"] .nav-row:hover {
+  background: var(--hover);
+}
+
+[data-ui-theme="finder"] .nav-row.selected,
+[data-ui-theme="finder"] .nav-row.selected:hover {
+  background: var(--selected);
+  color: var(--finder-selection-text);
+}
+
+[data-ui-theme="finder"] .nav-row.selected .nav-label,
+[data-ui-theme="finder"] .nav-row.selected .sidebar-icon,
+[data-ui-theme="finder"] .nav-row.selected .nav-chevron {
+  color: var(--finder-selection-text);
+}
+
+[data-ui-theme="finder"] .nav-group {
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+[data-ui-theme="finder"] .nav-chevron {
+  color: var(--text-3);
+}
+
+[data-ui-theme="finder"] .nav-child-indent {
+  width: 10px;
+  flex-basis: 10px;
+}
+
+[data-ui-theme="finder"] .sidebar-icon {
+  width: 17px;
+  height: 17px;
+  flex-basis: 17px;
+}
+
+[data-ui-theme="finder"] .sidebar-folder {
+  width: 17px;
+  height: 17px;
+  flex-basis: 17px;
+}
+
+[data-ui-theme="finder"] .sidebar-folder-overlay {
+  background: var(--finder-sidebar);
+}
+
+[data-ui-theme="finder"] .nav-row.selected .sidebar-folder-overlay {
+  background: var(--selected);
+}
+
+[data-ui-theme="finder"] .nav-pin {
+  border-radius: 4px;
+}
+
+[data-ui-theme="finder"] .sidebar-footer {
+  border-top-color: var(--finder-separator);
+}
+
+[data-ui-theme="finder"] .sidebar-theme-button {
+  height: 28px;
+  border-radius: 6px;
+  color: var(--text-2);
+}
+
+[data-ui-theme="finder"] .sidebar-resizer {
+  width: 5px;
+}
+
+/* --------------------------------------------------------------- File views */
+
+[data-ui-theme="finder"] .main-area,
+[data-ui-theme="finder"] .file-pane,
+[data-ui-theme="finder"] .workspace {
+  background: var(--surface);
+}
+
+[data-ui-theme="finder"] .column-header-clip {
+  height: 26px;
+  flex-basis: 26px;
+  border-bottom: 1px solid var(--finder-separator);
+  background: var(--surface);
+}
+
+[data-ui-theme="finder"] .column-header {
+  height: 26px;
+}
+
+[data-ui-theme="finder"] .column-cell {
+  border-right: 0;
+  padding: 0 8px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+[data-ui-theme="finder"] .column-sort:hover {
+  color: var(--text);
+}
+
+[data-ui-theme="finder"] .details-view .virtual-canvas {
+  margin-top: 4px;
+}
+
+[data-ui-theme="finder"] .list-view .virtual-canvas {
+  margin-top: 4px;
+}
+
+[data-ui-theme="finder"] .details-row {
+  height: 28px;
+  border-radius: 5px;
+}
+
+[data-ui-theme="finder"] .list-row {
+  height: 24px;
+  border-radius: 5px;
+  padding-left: 12px;
+}
+
+[data-ui-theme="finder"] .group-row {
+  height: 28px;
+  background: var(--surface);
+  padding-left: 12px;
+}
+
+[data-ui-theme="finder"] .group-label {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+[data-ui-theme="finder"] .details-name {
+  padding-left: 10px;
+  gap: 6px;
+}
+
+[data-ui-theme="finder"] .details-text {
+  font-size: 12px;
+  padding: 0 8px;
+}
+
+[data-ui-theme="finder"] .details-row.selected,
+[data-ui-theme="finder"] .details-row.selected:hover,
+[data-ui-theme="finder"] .list-row.selected,
+[data-ui-theme="finder"] .list-row.selected:hover {
+  background: var(--selected);
+  color: var(--finder-selection-text);
+}
+
+[data-ui-theme="finder"] .details-row.selected .details-text,
+[data-ui-theme="finder"] .details-row.selected .details-location {
+  color: rgba(255, 255, 255, 0.86);
+}
+
+[data-ui-theme="finder"] .grid-item {
+  border-radius: 7px;
+}
+
+[data-ui-theme="finder"] .grid-item.selected,
+[data-ui-theme="finder"] .grid-item.selected:hover {
+  background: var(--selected);
+  color: var(--finder-selection-text);
+}
+
+[data-ui-theme="finder"] .grid-item.selected .grid-meta {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+[data-ui-theme="finder"] .file-scroll {
+  padding: 0 2px;
+}
+
+[data-ui-theme="finder"] .marquee-box {
+  border-radius: 2px;
+}
+
+/* -------------------------------------------------------------- Menus, etc. */
+
+[data-ui-theme="finder"] .menu-panel {
+  border-radius: var(--radius-menu);
+  padding: 5px;
+  border-color: var(--menu-border);
+}
+
+[data-ui-theme="finder"] .menu-item {
+  border-radius: 5px;
+  min-height: 26px !important;
+  padding-right: 10px;
+}
+
+[data-ui-theme="finder"] .menu-label {
+  padding: 5px 0;
+}
+
+[data-ui-theme="finder"] .menu-item:hover:not(.disabled),
+[data-ui-theme="finder"] .menu-item.active {
+  background: var(--menu-hover);
+  color: #ffffff;
+}
+
+[data-ui-theme="finder"] .menu-item:hover:not(.disabled) .menu-icon,
+[data-ui-theme="finder"] .menu-item:hover:not(.disabled) .menu-shortcut,
+[data-ui-theme="finder"] .menu-item:hover:not(.disabled) .menu-chevron,
+[data-ui-theme="finder"] .menu-item.active .menu-icon,
+[data-ui-theme="finder"] .menu-item.active .menu-shortcut,
+[data-ui-theme="finder"] .menu-item.active .menu-chevron {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+[data-ui-theme="finder"] .menu-item:hover:not(.disabled) .menu-check-dot,
+[data-ui-theme="finder"] .menu-item.active .menu-check-dot {
+  background: #ffffff;
+}
+
+[data-ui-theme="finder"] .menu-item.danger:hover .menu-label,
+[data-ui-theme="finder"] .menu-item.danger:hover .menu-icon {
+  color: #ffffff;
+}
+
+[data-ui-theme="finder"] .menu-separator {
+  background: var(--finder-separator);
+  margin: 5px 6px;
+}
+
+[data-ui-theme="finder"] .menu-shortcut {
+  font-size: 11px;
+  letter-spacing: 0.01em;
+}
+
+[data-ui-theme="finder"] .menu-footer {
+  border-top-color: var(--finder-separator);
+}
+
+[data-ui-theme="finder"] .statusbar {
+  background: var(--statusbar);
+  border-top: 1px solid var(--finder-separator);
+  color: var(--text-3);
+  font-size: 11px;
+  padding: 0 10px;
+}
+
+[data-ui-theme="finder"] .status-view {
+  border-radius: 4px;
+}
+
+[data-ui-theme="finder"] .modal-backdrop {
+  background: rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+[data-ui-theme="finder"] .modal {
+  border-radius: 12px;
+  border-color: var(--finder-separator);
+}
+
+[data-ui-theme="finder"] .modal-titlebar {
+  min-height: 48px;
+  justify-content: center;
+  padding: 0 16px;
+  position: relative;
+}
+
+[data-ui-theme="finder"] .modal-titlebar h2 {
+  flex: 0 1 auto;
+  text-align: center;
+  font-size: 13px;
+}
+
+[data-ui-theme="finder"] .modal-icon {
+  position: absolute;
+  left: 16px;
+}
+
+[data-ui-theme="finder"] .modal-close {
+  position: absolute;
+  right: 12px;
+  border-radius: 50%;
+}
+
+[data-ui-theme="finder"] .modal-footer {
+  border-top-color: var(--finder-separator);
+  background: var(--surface-raised);
+}
+
+[data-ui-theme="finder"] .dialog-button {
+  border-radius: 6px;
+  height: 30px;
+}
+
+[data-ui-theme="finder"] .dialog-button.primary {
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
+}
+
+[data-ui-theme="finder"] .dialog-path,
+[data-ui-theme="finder"] .dialog-field input {
+  border-radius: 6px;
+}
+
+[data-ui-theme="finder"] .theme-card {
+  border-radius: 10px;
+}
+
+[data-ui-theme="finder"] .theme-preview {
+  border-radius: 8px;
+}
+
+[data-ui-theme="finder"] .appearance-segmented {
+  border-radius: 7px;
+}
+
+[data-ui-theme="finder"] .appearance-option {
+  border-radius: 5px;
+}
+
+[data-ui-theme="finder"] .home-view {
+  padding: 26px 34px 48px;
+}
+
+[data-ui-theme="finder"] .home-header h1 {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+[data-ui-theme="finder"] .quick-tile {
+  border-radius: 8px;
+}
+
+[data-ui-theme="finder"] .home-section-heading h2 {
+  font-size: 14px;
+}
+
+[data-ui-theme="finder"] .toast {
+  border-radius: 10px;
+}
+
+[data-ui-theme="finder"] [data-tooltip]::after {
+  border-radius: 6px;
+  border-color: var(--finder-separator);
+  background: var(--menu);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+/* ------------------------------------------------------- Responsive layout */
+
+@media (max-width: 980px) {
+  [data-ui-theme="finder"] .chrome > .navbar > .search-box {
+    flex-basis: 160px;
+    min-width: 110px;
+  }
+}

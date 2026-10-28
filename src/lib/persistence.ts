@@ -1,5 +1,6 @@
-import type { PersistedState, TabState } from "./types";
+import type { InterfaceTheme, PersistedState, TabState, ThemeMode } from "./types";
 import { HOME_LOCATION } from "./types";
+import { DEFAULT_INTERFACE_THEME, normalizeInterfaceTheme, normalizeThemeMode } from "./theme";
 
 export const STORAGE_KEY = "win11-explorer-state-v1";
 export const WINDOW_STORAGE_KEY = "win11-explorer-window-v1";
@@ -18,6 +19,7 @@ export function defaultPersisted(tab: Pick<TabState, "id" | "location" | "histor
     detailsPane: false,
     previewPane: false,
     theme: "system",
+    interfaceTheme: DEFAULT_INTERFACE_THEME,
     columnWidths: {
       name: 272,
       date: 144,
@@ -45,11 +47,13 @@ const SORT_KEYS = new Set(["name", "date", "type", "size"]);
 const GROUP_BY = new Set(["none", "type", "date", "size"]);
 const THEMES = new Set(["system", "light", "dark"]);
 
-export function loadPersisted(): PersistedState | null {
-  if (typeof window === "undefined") return null;
+/**
+ * Pure parser for a persisted snapshot. Returns `null` for missing, malformed,
+ * or incompatible data so callers can fall back to defaults.
+ */
+export function parsePersisted(raw: string | null): PersistedState | null {
+  if (!raw) return null;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
     const value = JSON.parse(raw) as Partial<PersistedState>;
     if (!value || value.version !== 1) return null;
     const tabs = Array.isArray(value.tabs)
@@ -98,6 +102,7 @@ export function loadPersisted(): PersistedState | null {
       detailsPane: Boolean(value.detailsPane),
       previewPane: Boolean(value.previewPane),
       theme: THEMES.has(value.theme ?? "") ? value.theme! : "system",
+      interfaceTheme: normalizeInterfaceTheme(value.interfaceTheme),
       columnWidths,
       sidebarWidth: clampNumber(value.sidebarWidth, 160, 360, 204),
       pinned: Array.isArray(value.pinned)
@@ -118,6 +123,50 @@ export function loadPersisted(): PersistedState | null {
     };
   } catch {
     return null;
+  }
+}
+
+export function loadPersisted(): PersistedState | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return parsePersisted(window.localStorage.getItem(STORAGE_KEY));
+  } catch {
+    return null;
+  }
+}
+
+export interface ThemePreferences {
+  interfaceTheme: InterfaceTheme;
+  theme: ThemeMode;
+}
+
+/**
+ * Pure, tolerant reader for the two theme preferences. Used before the first
+ * React render so the window never flashes the wrong design or appearance.
+ */
+export function parseThemePreferences(raw: string | null): ThemePreferences {
+  const fallback: ThemePreferences = { interfaceTheme: DEFAULT_INTERFACE_THEME, theme: "system" };
+  if (!raw) return fallback;
+  try {
+    const value = JSON.parse(raw) as Partial<PersistedState> | null;
+    if (!value || typeof value !== "object") return fallback;
+    return {
+      interfaceTheme: normalizeInterfaceTheme(value.interfaceTheme),
+      theme: normalizeThemeMode(value.theme),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+export function loadThemePreferences(): ThemePreferences {
+  if (typeof window === "undefined") {
+    return { interfaceTheme: DEFAULT_INTERFACE_THEME, theme: "system" };
+  }
+  try {
+    return parseThemePreferences(window.localStorage.getItem(STORAGE_KEY));
+  } catch {
+    return { interfaceTheme: DEFAULT_INTERFACE_THEME, theme: "system" };
   }
 }
 

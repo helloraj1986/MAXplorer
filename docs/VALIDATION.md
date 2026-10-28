@@ -26,10 +26,10 @@ blocker, not a source compile result for macOS.
 | --- | --- |
 | `npm install` | Pass, 111 packages |
 | `npm run typecheck` | Pass (strict TypeScript) |
-| `npm test` | **26 passed** across 5 files |
+| `npm test` | **43 passed** across 7 files (26 across 5 before the theme change) |
 | `cargo check --manifest-path src-tauri/Cargo.toml` | Pass |
 | `cargo test --manifest-path src-tauri/Cargo.toml` | **10 passed** (real temp-directory filesystem tests) |
-| `npm run build` | Pass; 297.60 kB JS / 41.25 kB CSS |
+| `npm run build` | Pass; 313.87 kB JS / 59.77 kB CSS |
 | `npm run tauri dev` | Launched; interactive UI validation performed |
 | `npm run tauri build` | Pass; Windows MSI (1.72 MiB) and NSIS setup (1.22 MiB) |
 | Release `win11-explorer.exe` launched with the disposable fixture | Pass; real filesystem listing, image thumbnail, context menu, details pane, dialogs |
@@ -61,7 +61,11 @@ All destructive tests use `tempfile::tempdir()` and never touch user folders.
 - type grouping;
 - history truncation and forward/back behavior;
 - tab close/cycle/duplicate behavior;
-- selection toggle/range/prune/byte totals.
+- selection toggle/range/prune/byte totals;
+- interface theme ids, names, normalization, appearance resolution, and `data-*` attributes;
+- theme row metrics used by the virtualized views;
+- persisted `interfaceTheme`/`theme` restoration, invalid-value fallback, and the pre-render
+  theme reader (`parseThemePreferences`).
 
 ## 3. Interactive validation (running app)
 
@@ -93,6 +97,16 @@ Observed workflows:
 | Image preview + thumbnail | Pass | `app-preview-pane.png`, `app-light-large-thumb-v3.png` |
 | Text preview | Pass | `app-text-preview.png` |
 | Light/dark theme + Options | Pass | `app-preferences-v2.png`, `app-light-resized.png` |
+| Interface theme selector (two cards, active badge, keyboard focus/activation) | Pass | `themes-dialog-finder-light.png`, `themes-dialog-finder-dark.png`, `themes-dialog-windows-dark.png`; Tab reached both cards, Space applied Finder, focus ring visible |
+| Live switch Finder → Windows with tabs/path/selection/search preserved | Pass | `finder-light-details.png` → `windows-light-details.png`; 17 search results and query unchanged; no remount, no reload |
+| Finder light details, toolbar, source list, 28 px rows | Pass | `finder-light-details.png` |
+| Finder dark details and selection | Pass | `finder-dark-details.png` |
+| Finder dark list and icon views | Pass | `finder-dark-list.png`, `finder-dark-icons.png` |
+| Windows dark regression check | Pass | `windows-dark-details.png` |
+| Finder context menu and More menu | Pass | `finder-dark-context-menu.png`, `finder-dark-more-menu.png` |
+| Finder layout at 1080 × 720 (toolbar/search/sidebar) | Pass | `finder-dark-narrow.png`; no overlap, breadcrumb truncates, search remains usable |
+| Rename across a live theme switch (temp directory) | Pass | `alpha.txt` → `beta.txt`; file on disk, selection preserved, temp directory removed |
+| Theme persistence across restart | Pass | Finder + dark + list view restored from `localStorage` |
 | Refresh re-reads disk | Pass | `app-refresh-click.png` |
 | OS-level screenshot capture of app | Pass | all `app-*.png` |
 | Tab close | Not recorded | Code path + unit tests |
@@ -107,6 +121,8 @@ Observed workflows:
 - The `Test Folder` created in the fixture and its copied `Project Brief.docx` were
   removed. The test copy that was moved to the Recycle Bin during validation was matched
   by original path and permanently removed.
+- The theme rename test used a temporary directory outside the repository
+  (`theme-rename-test` with `alpha.txt`) and was deleted after validation.
 - No user folders were used as test targets.
 
 ## 4. Screenshot comparison
@@ -140,6 +156,11 @@ Known visual differences:
 - Blank menu lacks Undo Delete and Show more options; tab overflow uses scrolling.
 - Native tooltips are rendered by the OS while hovering rows; the reference also shows
   native tooltips, but exact styling differs.
+- **Finder theme** is a web-rendered recreation: list view keeps the shared name-only rows
+  (no Finder column headers or alternating stripes), and column view, Quick Look, and tags
+  are intentionally absent. Traffic lights are CSS controls (glyphs appear on hover), not
+  AppKit buttons. On the Windows dev host, Finder typography falls back to Segoe UI; macOS
+  uses the system UI font stack.
 
 - Windows release bundle artifacts:
   `src-tauri/target/release/bundle/msi/Windows 11 Explorer_0.1.0_x64_en-US.msi`
@@ -156,8 +177,10 @@ Bugs found and corrected during this pass:
 - Search summary text was mojibake after a PowerShell edit; all source non-ASCII was
   normalized to ASCII and verified.
 - Address-bar error text persisted after blur; it now clears.
-- Theme switching left composited top bars dark in WebView2; the top bars are remounted on
-  resolved-theme changes.
+- Theme switching initially left composited top bars dark in WebView2; the earlier
+  workaround remounted the top bars. The dual-theme work removed the remounts, applied
+  `data-ui-theme`/`data-theme` to `<html>`, and re-validated live switches in both
+  directions without stale bars.
 - Contextual submenu vertical offset was relative to the wrong element; fixed.
 - Internal drag to the same folder could rename to `(2)`; same-parent cuts are now no-ops.
 - Delete to Trash validation left a test item in the Recycle Bin; removed by original path.
@@ -182,6 +205,14 @@ Bugs found and corrected during this pass:
 7. **Full keyboard matrix** under every focus state (dialogs, menus, search, address) was
    not automated. Core shortcuts were exercised (Ctrl+T, Ctrl+Shift+N, F5, theme shortcuts,
    and mouse-driven address editing).
+8. **Theme interaction coverage is Windows-hosted.** Both themes were exercised in the
+   Windows dev build in light and dark; the theme selector, menus, resize, rename, and
+   restart persistence were validated. The Finder theme was not re-run interactively on
+   macOS in this pass, so native font rendering, TCC prompts, OS drag-and-drop, and Open
+   With remain unverified there. Theme unit tests cover normalization and persistence, not
+   pixel layout.
+9. **No automated visual regression suite.** Theme parity is checked by unit tests, shared
+   code paths, and the screenshots listed above, not by image diffing.
 
 ## 7. DMG artifact
 
