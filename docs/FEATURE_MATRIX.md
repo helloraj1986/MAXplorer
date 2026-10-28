@@ -89,7 +89,7 @@ Status vocabulary:
 | Persistence | Window size/position | Standard Explorer | Implemented | Restored and clamped to screen |
 | macOS | TCC usage descriptions | N/A | Implemented | Desktop/Documents/Downloads/volumes Info.plist keys |
 | macOS | Real filesystem browsing | Required | Verified on Windows + macOS smoke | Same Rust code; macOS CI Home showed real `/Users/runner` paths |
-| macOS | Full interactive workflow on macOS | Required | Not automated | Clicking/menus/ops verified on Windows; macOS startup verified |
+| macOS | Full interactive workflow on macOS | Required | Manually verified, not automated | Owner ran the app successfully on a Mac (2026-10-28); clicking/menus/ops exercised on Windows; no macOS UI automation yet |
 | macOS | `.app` bundles open as applications | Finder package semantics | Implemented | Double-click launches via `open`; not treated as a folder |
 | macOS | Finder reveal / Terminal / volumes | N/A | Implemented | `open -R`, `open -a Terminal`, `/Volumes` |
 | macOS | Native mac app launch/package | Required | Verified build + launch | Universal DMG built; app launched and screenshotted on macOS 14 CI; full interaction not automated |

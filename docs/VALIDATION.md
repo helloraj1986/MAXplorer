@@ -214,11 +214,14 @@ Runtime smoke verification on macOS 14 CI:
 - A real macOS screenshot was captured: `docs/screenshots/macos-smoke.png`.
 - macOS version: 14.8.9 (23J631).
 
+Owner confirmation (2026-10-28): the application was installed and run successfully on a
+Mac by the project owner, including normal browsing.
+
 Still not established:
 
-- Interactive workflows on macOS (clicking, drag/drop, menus, file operations) were not
-  automated. The smoke run verifies startup, rendering of Home, real filesystem locations,
-  and process stability, not the full interaction matrix.
+- Interactive workflows on macOS (clicking, drag/drop, menus, file operations) are not
+  covered by automated tests. The smoke run verifies startup, rendering of Home, real
+  filesystem locations, and process stability, not the full interaction matrix.
 - The build is ad-hoc signed, not Developer ID signed or notarized. Gatekeeper requires
   right-click → Open; for distribution, sign and notarize.
 

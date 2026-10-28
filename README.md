@@ -171,16 +171,18 @@ See:
 - [docs/MACOS_DMG.md](docs/MACOS_DMG.md) — DMG build, signing, notarization, Gatekeeper.
 - [docs/VALIDATION.md](docs/VALIDATION.md) — what was run, what was seen, what was not.
 - [docs/DEVELOPMENT_LOG.md](docs/DEVELOPMENT_LOG.md) — concise build log.
+- [HANDOVER.md](HANDOVER.md) — project handover: status, architecture, release process,
+  risks, and next steps for a new maintainer.
 
 ## Known limitations
 
 These are honest, intentional boundaries of this build:
 
-- **The macOS app has been smoke-launched on macOS 14 CI**, not on a developer Mac. The
-  universal `.app`/`.dmg` was built on a macOS 14 GitHub Actions runner, mounted, launched,
-  and screenshotted (`docs/screenshots/macos-smoke.png`); the process stayed alive and the
-  real `/Users/runner` filesystem appeared. Full interactive workflows still need a Mac
-  smoke test.
+- **The macOS app runs on a real Mac.** It was built and smoke-launched on macOS 14 CI
+  (`docs/screenshots/macos-smoke.png`) and has since been confirmed working interactively
+  by the project owner on a Mac. What is still missing is an *automated* macOS interaction
+  test suite; the interaction matrix is currently covered by the Windows dev build and the
+  Rust tests.
 - **Tabs** are modeled on Windows 11 22H2 because the reference host (21H2) has no tabs.
   Tab overflow uses horizontal scrolling rather than the 22H2 overflow flyout.
 - **Share** does not open the macOS share sheet. It copies the selected path and offers a
