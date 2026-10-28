@@ -88,6 +88,7 @@ export const api = {
   readTextPreview: (path: string, maxBytes = 128 * 1024) =>
     call<TextPreview>("read_text_preview", { path, maxBytes }),
   listApplications: () => call<ApplicationInfo[]>("list_applications"),
+  readAppIcon: (path: string) => call<string | null>("read_app_icon", { path }),
   openPath: (path: string) => call<void>("open_path", { path }),
   revealPath: (path: string) => call<void>("reveal_path", { path }),
   openTerminal: (path: string) => call<void>("open_terminal", { path }),

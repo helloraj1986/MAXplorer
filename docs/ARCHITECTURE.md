@@ -50,6 +50,7 @@ src/
     useWindowPersistence.ts   Logical size/position persistence
   lib/
     api.ts                    Typed Tauri invoke wrappers, error normalization
+    appIcons.ts               .app icon loading, in-memory cache, LRU eviction
     types.ts                  Shared serialized contracts and UI models
     theme.ts                  Interface theme definitions, normalization, metrics, apply
     format.ts                 Windows-style sizes, dates, type names, paths
@@ -70,6 +71,7 @@ src-tauri/src/
   operations.rs               Create/copy/move/rename/delete/duplicate/conflicts
   search.rs                   Bounded recursive search + cancellation
   metadata.rs                 Properties, folder stats, previews, sidebar, apps
+  app_icons.rs                .app bundle icon lookup + ICNS/PNG extraction
   paths.rs                    Expansion, name validation, unique names, safety
   error.rs                    AppError code/message contract
   types.rs                    Serde contracts shared with TypeScript
@@ -88,6 +90,25 @@ src-tauri/src/
 
 Search is cancellable by request ID. A stale result cannot overwrite a newer query or a
 different tab location.
+
+## Application bundle icons
+
+A macOS `.app` is a directory, so the listing marks it as a folder. `FileGlyph` detects the
+`.app` suffix and asks `read_app_icon` for a real icon:
+
+1. `app_icons.rs` reads `Contents/Info.plist` (XML or binary, via the `plist` crate) and
+   looks for `CFBundleIconFile`/`CFBundleIconName` under `Contents/Resources`.
+2. If the plist is missing or the named file is absent, it scans the resource directory for
+   `.icns` files, preferring the bundle name, then `AppIcon`, then the largest file.
+3. The ICNS container is scanned for PNG chunks (`ic07`–`ic10`, `icp4`–`icp6`). The
+   smallest chunk at or above 256 px is chosen, so the IPC payload stays small while the
+   preview pane remains sharp. Legacy ICNS files fall back to the macOS `sips` tool.
+4. The PNG is returned as a `data:image/png;base64,...` URL. Rust caches the result per
+   process (128 entries); `lib/appIcons.ts` caches in the webview (256 entries, LRU) so
+   virtualized rows do not re-request icons while scrolling.
+
+If no icon can be read, the row keeps the built-in application glyph. Both interface
+themes use the same real icons; only the surrounding chrome changes.
 
 ## Filesystem correctness and safety
 

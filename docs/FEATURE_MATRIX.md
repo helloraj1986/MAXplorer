@@ -42,6 +42,7 @@ Status vocabulary:
 | Listing | Tiles | View menu | Implemented | 48 px icon + name/type/size |
 | Listing | Content | View menu | Implemented | 32 px icon + name/type/date/size |
 | Listing | Column resize | Screenshot | Implemented | Drag dividers; persisted |
+| Listing | `.app` bundle icons | Fixture + screenshot | Implemented | Real ICNS/PNG icon via `read_app_icon`; generic fallback |
 | Listing | Sort by name/date/type/size | Sort menu | Verified/implemented | Asc/desc; folders first |
 | Listing | Group by type/date/size | Sort > Group by | Implemented | Group headers in details/list/grid |
 | Listing | Column filter dropdowns | Hover arrows visible | Unsupported | Sorting/resizing only |

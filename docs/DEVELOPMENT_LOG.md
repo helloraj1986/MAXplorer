@@ -106,3 +106,21 @@
   details/list/icon views, context and More menus, a 1080x720 resize, a rename across a
   live theme switch, and persistence across an app restart.
 - Updated README, architecture, feature matrix, and added `docs/THEMES.md`.
+
+## Phase 9 — Real application bundle icons
+
+- Reproduced the reported problem: `.app` bundles were categorized as generic
+  executables, so every application in `/Applications` showed the same page glyph.
+- Added `app_icons.rs`: reads `Contents/Info.plist` (XML or binary), resolves
+  `CFBundleIconFile`/`CFBundleIconName`, falls back to the resource directory, and
+  extracts the best PNG chunk from ICNS (smallest at or above 256 px). Legacy ICNS uses
+  macOS `sips`.
+- Added the `read_app_icon` Tauri command, returning a PNG data URL, with a 128-entry
+  process cache.
+- Added `lib/appIcons.ts` (LRU cache, in-flight dedupe, pre-paint peek) and wired
+  `FileGlyph` to show real icons in details/list/icon/tiles/content views and both
+  panes, with a generic application glyph as the loading/no-icon fallback.
+- Added 8 Rust tests and 6 frontend tests: **49 frontend / 18 Rust** passing.
+- Validated on Windows with synthetic `.app` bundles (plist-named icon, resource
+  fallback, missing icon) in both themes and at 16/96/112 px. Real macOS
+  `/Applications` browsing remains to be exercised interactively.

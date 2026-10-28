@@ -1486,6 +1486,19 @@ select:focus-visible,
   outline-offset: -1px;
 }
 
+/* Real macOS application icons are rendered with their own artwork and
+   transparent padding, so they are contained rather than cropped. */
+.file-glyph.app-icon {
+  position: relative;
+}
+
+.file-glyph.app-icon img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 .symlink-badge {
   position: absolute;
   left: 1px;

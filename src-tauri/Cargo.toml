@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Windows 11 File Explorer replica for macOS"
 authors = ["Explorer Replica"]
 edition = "2021"
-rust-version = "1.77.2"
+rust-version = "1.88"
 
 [lib]
 name = "win11_explorer_lib"
@@ -19,6 +19,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 trash = "5"
 dirs = "6"
+base64 = "0.23"
+plist = "1.10"
 
 [dev-dependencies]
 tempfile = "3"

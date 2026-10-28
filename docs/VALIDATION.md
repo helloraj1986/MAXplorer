@@ -26,10 +26,10 @@ blocker, not a source compile result for macOS.
 | --- | --- |
 | `npm install` | Pass, 111 packages |
 | `npm run typecheck` | Pass (strict TypeScript) |
-| `npm test` | **43 passed** across 7 files (26 across 5 before the theme change) |
+| `npm test` | **49 passed** across 8 files (26 across 5 before the theme work; 43 before app icons) |
 | `cargo check --manifest-path src-tauri/Cargo.toml` | Pass |
-| `cargo test --manifest-path src-tauri/Cargo.toml` | **10 passed** (real temp-directory filesystem tests) |
-| `npm run build` | Pass; 313.87 kB JS / 59.77 kB CSS |
+| `cargo test --manifest-path src-tauri/Cargo.toml` | **18 passed** (10 filesystem + 8 app-icon tests) |
+| `npm run build` | Pass; 316.16 kB JS / 59.89 kB CSS |
 | `npm run tauri dev` | Launched; interactive UI validation performed |
 | `npm run tauri build` | Pass; Windows MSI (1.72 MiB) and NSIS setup (1.22 MiB) |
 | Release `win11-explorer.exe` launched with the disposable fixture | Pass; real filesystem listing, image thumbnail, context menu, details pane, dialogs |
@@ -48,6 +48,14 @@ blocker, not a source compile result for macOS.
 - name validation and unique names;
 - recursive search, hidden filtering, cancellation state;
 - missing directory error mapping.
+
+`src-tauri/src/app_icons.rs` covers:
+
+- ICNS PNG-chunk selection (prefers the smallest icon at or above 256 px, otherwise the
+  largest) and rejection of non-ICNS data;
+- icon lookup through a binary `Info.plist` (`CFBundleIconFile`), with the bundle-named
+  resource as fallback;
+- non-bundle paths and bundles without icons returning `None`.
 
 All destructive tests use `tempfile::tempdir()` and never touch user folders.
 
@@ -95,6 +103,7 @@ Observed workflows:
 | Properties dialog | Pass | `app-properties.png` |
 | Details pane | Pass | `app-details-pane.png` |
 | Image preview + thumbnail | Pass | `app-preview-pane.png`, `app-light-large-thumb-v3.png` |
+| `.app` bundle icons (details, large icons, preview pane, both themes) | Pass | `app-icons-finder-details.png`, `app-icons-finder-large.png`, `app-icons-finder-preview.png`, `app-icons-windows-preview.png`, `app-icons-windows-fallback.png`; synthetic bundles with `Info.plist`, resource fallback, and no icon |
 | Text preview | Pass | `app-text-preview.png` |
 | Light/dark theme + Options | Pass | `app-preferences-v2.png`, `app-light-resized.png` |
 | Interface theme selector (two cards, active badge, keyboard focus/activation) | Pass | `themes-dialog-finder-light.png`, `themes-dialog-finder-dark.png`, `themes-dialog-windows-dark.png`; Tab reached both cards, Space applied Finder, focus ring visible |
@@ -156,6 +165,11 @@ Known visual differences:
 - Blank menu lacks Undo Delete and Show more options; tab overflow uses scrolling.
 - Native tooltips are rendered by the OS while hovering rows; the reference also shows
   native tooltips, but exact styling differs.
+- **App icons** were validated on the Windows dev host with synthetic `.app` bundles
+  (binary plist parsing is unit-tested, but the real `/Applications` folder was not
+  browsed interactively on macOS in this pass). Legacy ICNS files without PNG chunks rely
+  on macOS `sips` and were not exercised. Icons are cached per session, so replacing an
+  app while the window is open keeps the previous icon until restart.
 - **Finder theme** is a web-rendered recreation: list view keeps the shared name-only rows
   (no Finder column headers or alternating stripes), and column view, Quick Look, and tags
   are intentionally absent. Traffic lights are CSS controls (glyphs appear on hover), not

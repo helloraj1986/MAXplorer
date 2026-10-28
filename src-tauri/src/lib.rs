@@ -1,3 +1,4 @@
+mod app_icons;
 mod commands;
 mod error;
 mod listing;
@@ -37,6 +38,7 @@ pub fn run() {
             commands::get_folder_stats,
             commands::read_text_preview,
             commands::list_applications,
+            commands::read_app_icon,
             commands::open_path,
             commands::reveal_path,
             commands::open_terminal,

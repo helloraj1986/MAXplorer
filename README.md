@@ -52,6 +52,9 @@ captured the screenshot above (Home view, real `/Users/runner` filesystem).
   Group submenus, and nested Send to. All displayed actions are functional.
 - **Details and preview**: metadata, permissions, owner IDs on macOS, folder size scan,
   image preview, text preview, and open actions. Image thumbnails use real file content.
+- **Real app icons**: `.app` bundles in `/Applications` show their own icon, read from
+  `Contents/Resources` (ICNS/PNG), cached, and rendered in every view and both themes.
+  Bundles without a readable icon keep a built-in application glyph.
 - **Appearance**: two interchangeable interface themes — Windows 11 Explorer and macOS
   Finder — each with dark and light variants plus system/light/dark mode. The themes share
   all filesystem behavior and differ only in presentation. Finder-style traffic lights,
@@ -70,7 +73,7 @@ captured the screenshot above (Home view, real `/Users/runner` filesystem).
 - macOS 12 or later (the Tauri code targets macOS 10.15+, but this build was not run on
   macOS; see [Known limitations](#known-limitations)).
 - Node.js 22 or 24 and npm.
-- Rust stable (1.77.2+) with the macOS target.
+- Rust stable (1.88+) with the macOS target.
 - Xcode Command Line Tools: `xcode-select --install`.
 
 ### Run in development

@@ -1,3 +1,4 @@
+use crate::app_icons;
 use crate::error::AppError;
 use crate::listing;
 use crate::metadata;
@@ -223,6 +224,14 @@ pub async fn read_text_preview(
 #[tauri::command]
 pub fn list_applications() -> Vec<ApplicationInfo> {
     metadata::list_applications()
+}
+
+/// Returns a PNG data URL for a macOS `.app` bundle, or `null` when the bundle
+/// has no readable icon. The frontend falls back to its built-in glyph.
+#[tauri::command]
+pub async fn read_app_icon(path: String) -> Result<Option<String>, AppError> {
+    let path = normalize_path(&path)?;
+    blocking(move || Ok(app_icons::app_icon_data_url(&path))).await
 }
 
 fn spawn(command: &mut Command) -> Result<(), AppError> {

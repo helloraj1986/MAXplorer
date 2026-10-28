@@ -1,6 +1,7 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type { FileEntry } from "../lib/types";
 import { assetUrl } from "../lib/api";
+import { isApplicationBundle, loadAppIcon, peekAppIcon } from "../lib/appIcons";
 import { fileCategory, extensionOf, isImageEntry, type FileCategory } from "../lib/format";
 
 function PageShape({
@@ -59,6 +60,35 @@ function FolderShape({ gradientId }: { gradientId: string }) {
         strokeWidth="1"
       />
       <path d="M8 27.5h48" stroke="#fff" strokeOpacity=".28" strokeWidth="2" />
+    </>
+  );
+}
+
+function AppBundleShape({ gradientId }: { gradientId: string }) {
+  return (
+    <>
+      <defs>
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#ffffff" />
+          <stop offset="1" stopColor="#e4ebf3" />
+        </linearGradient>
+      </defs>
+      <rect
+        x="6"
+        y="6"
+        width="52"
+        height="52"
+        rx="12"
+        fill={`url(#${gradientId})`}
+        stroke="rgba(0,0,0,.18)"
+        strokeWidth="1"
+      />
+      <rect x="14" y="15" width="36" height="28" rx="3.5" fill="#0f6cbd" opacity=".16" />
+      <path d="M14 21h36" stroke="#0f6cbd" strokeWidth="2" opacity=".5" />
+      <circle cx="19" cy="18" r="1.3" fill="#0f6cbd" opacity=".7" />
+      <circle cx="24" cy="18" r="1.3" fill="#0f6cbd" opacity=".5" />
+      <path d="M20 28h24M20 33h17M20 38h21" stroke="#0f6cbd" strokeWidth="1.6" opacity=".55" />
+      <path d="M24 49h16" stroke="#0f6cbd" strokeWidth="2.4" strokeLinecap="round" opacity=".35" />
     </>
   );
 }
@@ -180,6 +210,60 @@ export function FileGlyph({ entry, category, size = 20, thumbnail = false, class
   const id = useId().replace(/:/g, "");
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const resolvedCategory = category ?? (entry ? fileCategory(entry) : "file");
+  const applicationBundle = entry ? isApplicationBundle(entry) : false;
+  const entryPath = entry?.path;
+  const [appIcon, setAppIcon] = useState<string | null>(() =>
+    entryPath && applicationBundle ? (peekAppIcon(entryPath) ?? null) : null,
+  );
+
+  useEffect(() => {
+    if (!entryPath || !applicationBundle) {
+      setAppIcon(null);
+      return;
+    }
+    const cached = peekAppIcon(entryPath);
+    if (cached !== undefined) {
+      setAppIcon(cached);
+      return;
+    }
+    let active = true;
+    setAppIcon(null);
+    void loadAppIcon(entryPath).then((url) => {
+      if (active) setAppIcon(url);
+    });
+    return () => {
+      active = false;
+    };
+  }, [entryPath, applicationBundle]);
+
+  if (entry && applicationBundle && appIcon) {
+    return (
+      <span className={`file-glyph app-icon ${className ?? ""}`} style={{ width: size, height: size }}>
+        <img src={appIcon} alt="" draggable={false} />
+        {entry.isSymlink ? <span className="symlink-badge" /> : null}
+      </span>
+    );
+  }
+
+  if (entry && applicationBundle) {
+    return (
+      <svg
+        className={`file-glyph ${className ?? ""}`}
+        width={size}
+        height={size}
+        viewBox="0 0 64 64"
+        aria-hidden="true"
+      >
+        <AppBundleShape gradientId={`app-${id}`} />
+        {entry.isSymlink ? (
+          <g>
+            <rect x="2" y="44" width="18" height="16" rx="3" fill="#0F6CBD" stroke="#fff" strokeWidth="1.5" />
+            <path d="M7 55h7M11 51l4 4-4 4" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" />
+          </g>
+        ) : null}
+      </svg>
+    );
+  }
 
   if (entry && thumbnail && isImageEntry(entry) && !entry.isSymlink && !thumbnailFailed) {
     return (
