@@ -4,6 +4,7 @@ import App from "./App";
 import "./styles/tokens.css";
 import "./styles/app.css";
 import "./styles/finder.css";
+import "./styles/search.css";
 import { loadThemePreferences } from "./lib/persistence";
 import { applyThemeAttributes, themeAttributes } from "./lib/theme";
 

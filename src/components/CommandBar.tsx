@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Icon } from "./Icon";
 import { MenuPanel, type MenuItem } from "./Menu";
+import { GlobalSearchField } from "./search/GlobalSearchField";
 import { useExplorerStore } from "../state/explorerStore";
+import { useSearchStore } from "../state/searchStore";
 import { acceleratorToDisplay } from "../lib/panes";
 import { HOME_LOCATION, type GroupBy, type ViewMode } from "../lib/types";
 
@@ -172,6 +174,18 @@ export function CommandBar() {
   ];
 
   const moreItems: MenuItem[] = [
+    {
+      label: "Universal Search",
+      icon: "search",
+      shortcut: shortcutText(shortcuts.globalSearch),
+      onClick: () => useSearchStore.getState().openOverlay(),
+    },
+    {
+      label: "Search indexing",
+      icon: "database",
+      onClick: () => openDialog({ kind: "indexing" }),
+    },
+    { type: "separator" },
     { label: "Select all", icon: "check", shortcut: `${interfaceTheme === "finder" ? "Cmd" : "Ctrl"}+A`, onClick: () => selectAll(activePane) },
     {
       label: "Invert selection",
@@ -388,6 +402,7 @@ export function CommandBar() {
         ) : null}
       </div>
       <div className="commandbar-spacer" />
+      <GlobalSearchField />
       <span className="address-hidden" aria-hidden="true">
         {currentFolder}
       </span>

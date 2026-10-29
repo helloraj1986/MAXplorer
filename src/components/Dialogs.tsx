@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Icon } from "./Icon";
 import { FileTypeIcon } from "./icons/FileTypeIcon";
+import { IndexingDashboard } from "./search/IndexingDashboard";
 import { useExplorerStore } from "../state/explorerStore";
 import { api, normalizeError } from "../lib/api";
 import { copyTextToClipboard } from "../lib/clipboard";
@@ -711,6 +712,7 @@ function PreferencesDialog({ close }: { close: () => void }) {
     { key: "copyToOtherPane", label: "Copy to other pane" },
     { key: "moveToOtherPane", label: "Move to other pane" },
     { key: "switchPane", label: "Switch active pane" },
+    { key: "globalSearch", label: "Open Universal Search" },
   ];
 
   return (
@@ -856,6 +858,21 @@ function PreferencesDialog({ close }: { close: () => void }) {
           </button>
         </section>
         <section>
+          <h3>Search indexing</h3>
+          <button
+            type="button"
+            className="dialog-button"
+            onClick={() => openDialog({ kind: "indexing" })}
+          >
+            <Icon name="database" size={14} />
+            Indexed locations, content extraction, and diagnostics...
+          </button>
+          <p className="preferences-hint">
+            Universal Search runs locally. Content indexing covers supported text, PDF, and Office documents and can be
+            paused at any time.
+          </p>
+        </section>
+        <section>
           <h3>Privacy</h3>
           <button
             type="button"
@@ -967,6 +984,22 @@ export function Dialogs() {
       return <OpenWithDialog dialog={dialog} close={close} />;
     case "preferences":
       return <PreferencesDialog close={close} />;
+    case "indexing":
+      return (
+        <Modal
+          title="Search indexing"
+          width={760}
+          icon={<Icon name="database" size={20} />}
+          onClose={close}
+          footer={
+            <button type="button" className="dialog-button primary" onClick={close}>
+              Close
+            </button>
+          }
+        >
+          <IndexingDashboard />
+        </Modal>
+      );
     case "themes":
       return <ThemesDialog close={close} />;
     case "about":

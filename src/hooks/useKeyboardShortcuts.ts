@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useExplorerStore } from "../state/explorerStore";
+import { useSearchStore } from "../state/searchStore";
 import { matchesShortcut } from "../lib/panes";
 import { hasSelectAllModifier } from "../lib/interaction";
 import type { ViewMode } from "../lib/types";
@@ -41,6 +42,46 @@ export function useKeyboardShortcuts(): void {
       const editable = isEditable(event.target);
       const key = event.key;
       const lower = key.toLowerCase();
+      const search = useSearchStore.getState();
+
+      if (search.open) {
+        if (key === "Escape") {
+          event.preventDefault();
+          search.closeOverlay();
+          return;
+        }
+        if (matchesShortcut(event, state.shortcuts.globalSearch, modifierKey)) {
+          event.preventDefault();
+          search.closeOverlay();
+        }
+        return;
+      }
+
+      if (matchesShortcut(event, state.shortcuts.globalSearch, modifierKey)) {
+        event.preventDefault();
+        search.openOverlay();
+        return;
+      }
+
+      // The search workspace owns its own selection, text editing, and result
+      // keyboard model. Do not let file-list shortcuts fire underneath it.
+      if (
+        search.workspaceOpen &&
+        event.target instanceof HTMLElement &&
+        event.target.closest(".search-workspace")
+      ) {
+        if (key === "Escape") {
+          event.preventDefault();
+          search.closeWorkspace();
+          return;
+        }
+        if (modifier && lower === "f") {
+          event.preventDefault();
+          window.dispatchEvent(new CustomEvent("maxplorer:focus-search-workspace"));
+          return;
+        }
+        return;
+      }
 
       if (key === "Escape") {
         if (state.dialog) {
@@ -55,6 +96,11 @@ export function useKeyboardShortcuts(): void {
         }
         if (state.activeTab(activePane).searchQuery || state.activeTab(activePane).searchResults) {
           state.clearSearch(activePane);
+          event.preventDefault();
+          return;
+        }
+        if (search.workspaceOpen) {
+          search.closeWorkspace();
           event.preventDefault();
           return;
         }
@@ -123,7 +169,11 @@ export function useKeyboardShortcuts(): void {
       }
       if (modifier && (lower === "f" || lower === "e")) {
         event.preventDefault();
-        focusEvent("explorer:focus-search");
+        if (search.workspaceOpen) {
+          window.dispatchEvent(new CustomEvent("maxplorer:focus-search-workspace"));
+        } else {
+          focusEvent("explorer:focus-search");
+        }
         return;
       }
       if (modifier && lower === "n" && event.shiftKey) {

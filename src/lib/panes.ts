@@ -18,6 +18,7 @@ export const DEFAULT_SHORTCUTS: ShortcutMap = {
   copyToOtherPane: "F5",
   moveToOtherPane: "F6",
   switchPane: "Tab",
+  globalSearch: "Mod+Shift+F",
 };
 
 export interface PaneDefaults {

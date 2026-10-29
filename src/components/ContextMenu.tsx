@@ -2,6 +2,9 @@ import { useEffect, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { MenuPanel, type MenuItem } from "./Menu";
 import { useExplorerStore } from "../state/explorerStore";
+import { useSearchStore } from "../state/searchStore";
+import { api } from "../lib/api";
+import { copyTextToClipboard, pathsAsText } from "../lib/clipboard";
 import { basename, parentPath } from "../lib/format";
 import { HOME_LOCATION, type GroupBy, type PaneId, type SortKey, type ViewMode } from "../lib/types";
 
@@ -58,7 +61,7 @@ export function ContextMenu() {
   const hideContextMenu = useExplorerStore((state) => state.hideContextMenu);
   const platform = useExplorerStore((state) => state.platform);
   const activePane = useExplorerStore((state) => state.activePane);
-  const paneId: PaneId = (menu?.paneId ?? activePane) as PaneId;
+  const paneId: PaneId = (menu && "paneId" in menu ? menu.paneId : undefined) ?? activePane;
   const isPinned = useExplorerStore((state) => state.isPinned);
   const selectedEntries = useExplorerStore(
     useShallow((state) => state.selectedEntries(paneId)),
@@ -96,6 +99,159 @@ export function ContextMenu() {
   const items = useMemo<MenuItem[]>(() => {
     if (!menu) return [];
     const state = useExplorerStore.getState();
+    if (menu.kind === "search") {
+      const paths = menu.paths.length ? menu.paths : [menu.path];
+      const first = menu.path;
+      const otherPane: PaneId = activePane === "left" ? "right" : "left";
+      const otherFolder = state.currentFolder(otherPane);
+      const openAll = () => {
+        for (const path of paths) {
+          const target = path === first ? menu.isDir : false;
+          if (target) void state.navigate(path);
+          else void api.openPath(path).catch((error) => state.toastError(error));
+        }
+      };
+      return [
+        { label: "Open", icon: "open", bold: true, onClick: openAll },
+        ...(platform?.platform === "macos"
+          ? [
+              {
+                label: "Open with",
+                icon: "openWith" as const,
+                disabled: menu.isDir || paths.length > 1,
+                onClick: () => void state.openWithDialog(first),
+              },
+            ]
+          : []),
+        {
+          label: platform?.platform === "macos" ? "Reveal in Finder" : "Show in file manager",
+          icon: "open",
+          onClick: () => void api.revealPath(first).catch((error) => state.toastError(error)),
+        },
+        { type: "separator" },
+        {
+          label: "Copy",
+          icon: "copy",
+          shortcut: platform?.platform === "macos" ? "CmdC" : "Ctrl+C",
+          onClick: () => {
+            state.copyPathsToClipboard(paths, "copy");
+            state.toast({
+              title: paths.length === 1 ? "File ready to copy" : `${paths.length} files ready to copy`,
+              detail: "Use Paste in the destination folder.",
+              tone: "info",
+            });
+          },
+        },
+        {
+          label: "Cut",
+          icon: "cut",
+          shortcut: platform?.platform === "macos" ? "CmdX" : "Ctrl+X",
+          onClick: () => state.copyPathsToClipboard(paths, "cut"),
+        },
+        {
+          label: "Copy as path",
+          icon: "copyPath",
+          onClick: () => {
+            void copyTextToClipboard(pathsAsText(paths)).then((ok) =>
+              state.toast({ title: ok ? "Path copied" : "Couldn't copy the path", tone: ok ? "success" : "error" }),
+            );
+          },
+        },
+        {
+          label: "Copy name",
+          icon: "copy",
+          onClick: () => {
+            void copyTextToClipboard(paths.map((path) => basename(path)).join("\n")).then((ok) =>
+              state.toast({ title: ok ? "Name copied" : "Couldn't copy the name", tone: ok ? "success" : "error" }),
+            );
+          },
+        },
+        {
+          label: "Share",
+          icon: "share",
+          onClick: () => {
+            void copyTextToClipboard(pathsAsText(paths)).then((ok) =>
+              state.toast({
+                title: ok ? "Share is not available in this build" : "Couldn't copy the path",
+                detail: ok
+                  ? "The path was copied instead. Use Reveal in Finder to open the macOS share sheet."
+                  : undefined,
+                tone: ok ? "info" : "error",
+              }),
+            );
+          },
+        },
+        { type: "separator" },
+        ...(state.dualPane
+          ? [
+              {
+                label: "Copy to other pane",
+                icon: "copy" as const,
+                onClick: () => void state.moveOrCopyPaths(paths, otherFolder, "copy"),
+              },
+              {
+                label: "Move to other pane",
+                icon: "cut" as const,
+                onClick: () => void state.moveOrCopyPaths(paths, otherFolder, "move"),
+              },
+              { type: "separator" as const },
+            ]
+          : []),
+        {
+          label: "Rename...",
+          icon: "rename",
+          disabled: paths.length > 1,
+          onClick: () =>
+            state.openDialog({
+              kind: "prompt",
+              title: "Rename",
+              label: "New name",
+              initialValue: basename(first),
+              confirmLabel: "Rename",
+              selectStem: true,
+              onConfirm: async (name) => {
+                state.closeDialog();
+                try {
+                  await state.renameTo(first, name);
+                  if (useSearchStore.getState().workspaceOpen) {
+                    await useSearchStore.getState().runSearchNow();
+                  }
+                } catch (error) {
+                  state.toastError(error);
+                }
+              },
+            }),
+        },
+        {
+          label: "Get info",
+          icon: "properties",
+          onClick: () => void state.openProperties(first),
+        },
+        {
+          label: "Delete",
+          icon: "delete",
+          danger: true,
+          onClick: () =>
+            state.openDialog({
+              kind: "confirm",
+              title: "Delete these items?",
+              message:
+                paths.length === 1
+                  ? `Move ${basename(paths[0])} to the Trash?`
+                  : `Move ${paths.length} items to the Trash?`,
+              confirmLabel: "Delete",
+              destructive: true,
+              onConfirm: async () => {
+                state.closeDialog();
+                await state.confirmDelete(paths, false);
+                if (useSearchStore.getState().workspaceOpen) {
+                  void useSearchStore.getState().runSearchNow();
+                }
+              },
+            }),
+        },
+      ];
+    }
     if (menu.kind === "blank") {
       return [
         {

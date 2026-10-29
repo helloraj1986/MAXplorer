@@ -146,6 +146,7 @@ function parseShortcutMap(value: unknown): ShortcutMap {
     copyToOtherPane: read("copyToOtherPane"),
     moveToOtherPane: read("moveToOtherPane"),
     switchPane: read("switchPane"),
+    globalSearch: read("globalSearch"),
   };
 }
 

@@ -45,8 +45,13 @@ captured the screenshot above (Home view, real `/Users/runner` filesystem).
   duplicate, reorder by drag, and restore across restarts.
 - **Navigation**: back, forward, up, refresh, breadcrumb navigation, editable absolute
   address bar, invalid-path feedback, and per-tab history.
-- **Search**: recursive name search within the current folder, cancellable, bounded, and
-  served by Rust. Search results include the containing folder.
+- **Universal Search**: a toolbar entry point, `Command+Shift+F` command overlay, and a
+  full search workspace with scopes, filters, chips, list/grid views, previews, saved
+  searches, and history. A local SQLite metadata + FTS5 index searches names, paths,
+  metadata, and extracted text from text, PDF, and Office files. A bounded live filesystem
+  provider and macOS Spotlight are merged progressively. Duplicate detection verifies
+  content with staged fingerprints and SHA-256 hashes. See
+  [docs/UNIVERSAL_SEARCH.md](docs/UNIVERSAL_SEARCH.md).
 - **Views**: Details, List, Large icons, Medium icons, Small icons, Extra large icons,
   Tiles, and Content. Details columns are resizable; headers sort ascending/descending;
   grouping by type, date, or size is supported.
@@ -171,7 +176,7 @@ src-tauri/                 Rust backend
   src/commands.rs          Tauri command boundary and platform launching
   src/listing.rs           Directory reading and metadata
   src/operations.rs        Copy/move/rename/delete/duplicate/conflicts
-  src/search.rs            Bounded, cancellable recursive search
+  src/search/              SQLite index, FTS5, extraction, indexing, live/Spotlight search
   src/metadata.rs          Properties, folder stats, previews, sidebar locations
   src/paths.rs             Path/name validation and safety checks
   src/types.rs             Serialized contracts
@@ -232,9 +237,12 @@ These are honest, intentional boundaries of this build:
 - **Share** does not open the macOS share sheet. It copies the selected path and offers a
   **Reveal in Finder** action so the native share flow can be used. This is labeled in the
   toast.
-- **Search is name-based**, not indexed content search. It is recursive and bounded to
-  500 results / 8 seconds / 200,000 entries, and skips heavy system directories such as
-  `Library`, `.git`, and `node_modules`.
+- **Universal Search** indexes text-based formats plus PDF, DOCX, XLSX, and PPTX.
+  Scanned PDFs without embedded text report that no searchable text was found; OCR is not
+  implemented. Semantic and visual image search are optional capabilities that are not
+  implemented in this build and are explicitly reported as disabled rather than faked.
+  The index skips heavy system directories such as `Library`, `.git`, `node_modules`, and
+  application bundles by default; these can still be reached through a scoped live scan.
 - **No undo stack.** Delete has a confirmation and moves to Trash; rename/copy/move are
   confirmed by their explicit actions. There is no Windows-style Undo Delete.
 - **No compression** ("Compressed folder"), **no Gallery**, **no Quick Look**, and no

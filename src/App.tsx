@@ -18,7 +18,10 @@ import { Toasts } from "./components/Toasts";
 import { FileDragOverlay } from "./components/FileDragOverlay";
 import { OperationOverlay } from "./components/OperationOverlay";
 import { Icon } from "./components/Icon";
+import { SearchOverlay } from "./components/search/SearchOverlay";
+import { SearchWorkspace } from "./components/search/SearchWorkspace";
 import { useExplorerStore } from "./state/explorerStore";
+import { useSearchStore } from "./state/searchStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useTheme } from "./hooks/useTheme";
 import { useWindowPersistence } from "./hooks/useWindowPersistence";
@@ -40,6 +43,8 @@ export default function App() {
   );
   const platform = useExplorerStore((state) => state.platform);
   const interfaceTheme = useExplorerStore((state) => state.interfaceTheme);
+  const searchWorkspaceOpen = useSearchStore((state) => state.workspaceOpen);
+  const initializeSearch = useSearchStore((state) => state.initialize);
   const [osDropActive, setOsDropActive] = useState(false);
   useTheme();
 
@@ -49,6 +54,10 @@ export default function App() {
   useEffect(() => {
     void initialize();
   }, [initialize]);
+
+  useEffect(() => {
+    void initializeSearch();
+  }, [initializeSearch]);
 
   useEffect(() => {
     const prevent = (event: MouseEvent) => {
@@ -161,7 +170,9 @@ export default function App() {
       </div>
       <div className="main-area">
         <Sidebar />
-        {dualPane ? (
+        {searchWorkspaceOpen ? (
+          <SearchWorkspace />
+        ) : dualPane ? (
           <DualPaneWorkspace />
         ) : (
           <div className="workspace">
@@ -177,6 +188,7 @@ export default function App() {
       <StatusBar />
       <ContextMenu />
       <Dialogs />
+      <SearchOverlay />
       <OperationOverlay />
       <Toasts />
       <TransferPanel />

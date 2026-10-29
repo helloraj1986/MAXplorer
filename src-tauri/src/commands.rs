@@ -5,7 +5,8 @@ use crate::listing;
 use crate::metadata;
 use crate::operations;
 use crate::paths::{expand_user, home_dir, normalize_path, parent_path};
-use crate::search::{self, SearchState};
+use crate::search::model::{DuplicateRequest, DuplicateResponse, IndexError, IndexStatus, SearchRequest, SearchResponse, SearchSuggestion};
+use crate::search::{self, SearchService};
 use crate::transfer::{self, TransferControl, TransferState};
 use crate::types::{
     ApplicationInfo, ConflictPolicy, DirectoryListing, FolderComparison, FolderStats, Location,
@@ -16,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tauri::State;
+use tauri::{Emitter, State};
 
 async fn blocking<T, F>(work: F) -> Result<T, AppError>
 where
@@ -91,7 +92,7 @@ pub async fn list_directory(path: String, show_hidden: bool) -> Result<Directory
 
 #[tauri::command]
 pub async fn search_files(
-    state: State<'_, SearchState>,
+    state: State<'_, SearchService>,
     root: String,
     query: String,
     show_hidden: bool,
@@ -99,28 +100,143 @@ pub async fn search_files(
     request_id: u64,
 ) -> Result<SearchResult, AppError> {
     let normalized = normalize_path(&root)?;
-    let cancel = Arc::new(AtomicBool::new(false));
-    let cancels = state.cancels.clone();
-    if let Ok(mut map) = cancels.lock() {
-        map.insert(request_id, cancel.clone());
-    }
+    let service = state.inner().clone();
+    let cancel = service.register_cancel(request_id);
     let result = blocking(move || {
-        search::search_files(&normalized, &query, show_hidden, max_results, cancel)
+        search::legacy_search_files(&normalized, &query, show_hidden, max_results, cancel)
     })
     .await;
-    if let Ok(mut map) = cancels.lock() {
-        map.remove(&request_id);
-    }
+    service.remove_cancel(request_id);
     result
 }
 
 #[tauri::command]
-pub fn cancel_search(state: State<'_, SearchState>, request_id: u64) {
-    if let Ok(map) = state.cancels.lock() {
-        if let Some(cancel) = map.get(&request_id) {
-            cancel.store(true, Ordering::Relaxed);
+pub async fn universal_search(
+    app: tauri::AppHandle,
+    state: State<'_, SearchService>,
+    request: SearchRequest,
+) -> Result<SearchResponse, AppError> {
+    let service = state.inner().clone();
+    let query_id = request.query_id;
+    tauri::async_runtime::spawn_blocking(move || {
+        service.run_search_with_progress(request, &|progress| {
+            if progress.query_id == query_id {
+                let _ = app.emit("search-progress", progress);
+            }
+        })
+    })
+    .await
+    .map_err(|error| {
+        AppError::new("internal", format!("Search task failed: {error}"), None)
+    })?
+}
+
+#[tauri::command]
+pub async fn find_duplicates(
+    state: State<'_, SearchService>,
+    request: DuplicateRequest,
+) -> Result<DuplicateResponse, AppError> {
+    let service = state.inner().clone();
+    blocking(move || service.find_duplicates(request)).await
+}
+
+#[tauri::command]
+pub fn search_suggestions(
+    state: State<'_, SearchService>,
+    prefix: String,
+    limit: usize,
+) -> Vec<SearchSuggestion> {
+    state.suggestions(&prefix, limit.clamp(1, 20))
+}
+
+#[tauri::command]
+pub fn get_search_index_status(state: State<'_, SearchService>) -> IndexStatus {
+    state.status()
+}
+
+#[tauri::command]
+pub fn add_search_location(state: State<'_, SearchService>, path: String) -> Result<IndexStatus, AppError> {
+    let normalized = normalize_path(&path)?;
+    state.engine.add_location(&normalized.to_string_lossy())?;
+    state.restart_indexer();
+    Ok(state.status())
+}
+
+#[tauri::command]
+pub fn remove_search_location(state: State<'_, SearchService>, path: String) -> Result<IndexStatus, AppError> {
+    state.stop_indexer();
+    state.engine.remove_location(&path)?;
+    state.restart_indexer();
+    Ok(state.status())
+}
+
+#[tauri::command]
+pub fn set_search_index_paused(state: State<'_, SearchService>, paused: bool) -> Result<IndexStatus, AppError> {
+    state.engine.set_paused(paused)?;
+    if !paused {
+        // Events received while paused are intentionally discarded. Marking the
+        // locations partial makes the indexer reconcile them on resume instead
+        // of waiting for the next periodic pass.
+        for root in state.engine.enabled_roots() {
+            let _ = state.engine.mark_location(&root, "partial", None);
         }
     }
+    Ok(state.status())
+}
+
+#[tauri::command]
+pub fn set_search_content_enabled(
+    state: State<'_, SearchService>,
+    enabled: bool,
+) -> Result<IndexStatus, AppError> {
+    state.engine.set_content_enabled(enabled)?;
+    Ok(state.status())
+}
+
+#[tauri::command]
+pub fn set_search_content_limit(
+    state: State<'_, SearchService>,
+    bytes: u64,
+) -> Result<IndexStatus, AppError> {
+    state.engine.set_max_content_bytes(bytes)?;
+    Ok(state.status())
+}
+
+#[tauri::command]
+pub fn rebuild_search_index(state: State<'_, SearchService>) -> Result<IndexStatus, AppError> {
+    state.stop_indexer();
+    state.engine.rebuild()?;
+    state.restart_indexer();
+    Ok(state.status())
+}
+
+#[tauri::command]
+pub fn clear_search_index(state: State<'_, SearchService>) -> Result<IndexStatus, AppError> {
+    state.stop_indexer();
+    state.engine.clear_index()?;
+    state.restart_indexer();
+    Ok(state.status())
+}
+
+#[tauri::command]
+pub fn retry_failed_extractions(state: State<'_, SearchService>) -> Result<IndexStatus, AppError> {
+    state.engine.retry_failed()?;
+    Ok(state.status())
+}
+
+#[tauri::command]
+pub fn remove_search_path(state: State<'_, SearchService>, path: String) -> Result<(), AppError> {
+    state.engine.remove_path(&path)
+}
+
+#[tauri::command]
+pub fn get_index_errors(state: State<'_, SearchService>, limit: usize) -> Vec<IndexError> {
+    state.index_errors(limit.clamp(1, 200))
+}
+
+#[tauri::command]
+pub fn cancel_search(state: State<'_, SearchService>, request_id: u64) {
+    state.cancel(request_id);
 }
 
 #[tauri::command]

@@ -212,6 +212,7 @@ interface ExplorerState {
     paneId?: PaneId,
   ) => Promise<void>;
   copyAsPath: (paneId?: PaneId) => Promise<void>;
+  copyPathsToClipboard: (paths: string[], mode?: "copy" | "cut") => void;
   copyToOtherPane: () => Promise<void>;
   moveToOtherPane: () => Promise<void>;
   transferToOtherPane: (mode: TransferMode) => Promise<void>;
@@ -1281,6 +1282,18 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     });
   },
 
+  copyPathsToClipboard(paths, mode = "copy") {
+    if (!paths.length) return;
+    set({
+      clipboard: {
+        mode,
+        paths: [...paths],
+        names: paths.map((path) => basename(path)),
+      },
+      contextMenu: null,
+    });
+  },
+
   async copyAsPath(paneId) {
     const paths = selectedEntriesOf(get(), paneId).map((entry) => entry.path);
     if (!paths.length) return;
@@ -1913,7 +1926,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   },
 
   showContextMenu(menu) {
-    const paneId = menu.paneId ?? get().activePane;
+    const paneId = (menu && "paneId" in menu ? menu.paneId : undefined) ?? get().activePane;
     set({ contextMenu: menu, activePane: paneId });
   },
   hideContextMenu() {

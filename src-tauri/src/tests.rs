@@ -6,7 +6,7 @@ mod tests {
         rename_path,
     };
     use crate::paths::{unique_destination, validate_name};
-    use crate::search::{search_files, SearchState};
+    use crate::search::legacy_search_files;
     use crate::types::ConflictPolicy;
     use std::fs;
     use std::sync::atomic::AtomicBool;
@@ -109,7 +109,7 @@ mod tests {
         fs::write(root.path().join("one").join("two").join("match.txt"), b"").unwrap();
         fs::write(root.path().join("visible.txt"), b"").unwrap();
         fs::write(root.path().join(".hidden.txt"), b"").unwrap();
-        let result = search_files(
+        let result = legacy_search_files(
             root.path(),
             "txt",
             false,
@@ -123,8 +123,6 @@ mod tests {
             .iter()
             .any(|entry| entry.name == ".hidden.txt"));
         assert!(!result.cancelled);
-        let state = SearchState::default();
-        assert!(state.cancels.lock().unwrap().is_empty());
     }
 
     #[test]

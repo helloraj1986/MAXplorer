@@ -186,6 +186,7 @@ export interface ShortcutMap {
   copyToOtherPane: string;
   moveToOtherPane: string;
   switchPane: string;
+  globalSearch: string;
 }
 
 export interface TransferProgress {
@@ -334,6 +335,7 @@ export type DialogState =
       loading: boolean;
     }
   | { kind: "preferences" }
+  | { kind: "indexing" }
   | { kind: "themes" }
   | { kind: "about" }
   | { kind: "shortcuts" };
@@ -346,6 +348,14 @@ export type ContextMenuState =
       path: string;
       isDir: boolean;
       paneId?: PaneId;
+    }
+  | {
+      kind: "search";
+      x: number;
+      y: number;
+      path: string;
+      isDir: boolean;
+      paths: string[];
     }
   | { kind: "blank"; x: number; y: number; paneId?: PaneId };
 

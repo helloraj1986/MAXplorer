@@ -19,6 +19,15 @@ import type {
   TransferOutcome,
   TransferProgress,
 } from "./types";
+import type {
+  DuplicateResponse,
+  IndexError,
+  IndexStatus,
+  SearchProgress,
+  SearchRequestPayload,
+  SearchResponse,
+  SearchSuggestion,
+} from "./search/types";
 import { PRODUCT_NAME } from "./branding";
 
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -75,6 +84,37 @@ export const api = {
     requestId: number,
   ) => call<SearchResult>("search_files", { root, query, showHidden, maxResults, requestId }),
   cancelSearch: (requestId: number) => call<void>("cancel_search", { requestId }),
+  universalSearch: (request: SearchRequestPayload) =>
+    call<SearchResponse>("universal_search", { request }),
+  findDuplicates: (request: {
+    queryId: number;
+    roots: string[];
+    minSize: number;
+    includeSimilarNames: boolean;
+    limit: number;
+  }) => call<DuplicateResponse>("find_duplicates", { request }),
+  searchSuggestions: (prefix: string, limit = 8) =>
+    call<SearchSuggestion[]>("search_suggestions", { prefix, limit }),
+  getSearchIndexStatus: () => call<IndexStatus>("get_search_index_status"),
+  addSearchLocation: (path: string) =>
+    call<IndexStatus>("add_search_location", { path }),
+  removeSearchLocation: (path: string) =>
+    call<IndexStatus>("remove_search_location", { path }),
+  setSearchIndexPaused: (paused: boolean) =>
+    call<IndexStatus>("set_search_index_paused", { paused }),
+  setSearchContentEnabled: (enabled: boolean) =>
+    call<IndexStatus>("set_search_content_enabled", { enabled }),
+  setSearchContentLimit: (bytes: number) =>
+    call<IndexStatus>("set_search_content_limit", { bytes }),
+  rebuildSearchIndex: () => call<IndexStatus>("rebuild_search_index"),
+  clearSearchIndex: () => call<IndexStatus>("clear_search_index"),
+  retryFailedExtractions: () => call<IndexStatus>("retry_failed_extractions"),
+  removeSearchPath: (path: string) => call<void>("remove_search_path", { path }),
+  getIndexErrors: (limit = 50) => call<IndexError[]>("get_index_errors", { limit }),
+  onSearchProgress: (handler: (progress: SearchProgress) => void): Promise<UnlistenFn> => {
+    if (!isTauri) return Promise.resolve(() => undefined);
+    return listen<SearchProgress>("search-progress", (event) => handler(event.payload));
+  },
   createFolder: (parent: string, name: string) =>
     call<FileEntry>("create_folder", { parent, name }),
   createTextFile: (parent: string, name: string, contents = "") =>
