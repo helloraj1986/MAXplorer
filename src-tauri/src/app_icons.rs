@@ -223,7 +223,7 @@ fn convert_with_sips(icns_path: &Path) -> Option<Vec<u8>> {
         .ok()?
         .as_nanos();
     let output = std::env::temp_dir().join(format!(
-        "win11-explorer-icon-{}-{stamp}.png",
+        "maxplorer-icon-{}-{stamp}.png",
         std::process::id()
     ));
     let status = Command::new("sips")

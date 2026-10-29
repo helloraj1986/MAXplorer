@@ -1,11 +1,16 @@
-# Windows 11 File Explorer for macOS
+# MAXplorer
 
-A high-fidelity, independently implemented recreation of the Windows 11 File Explorer
-interface for macOS. It is a real desktop application built with **Tauri 2**, **Rust**,
-**React**, and **TypeScript**, and it browses the real macOS filesystem.
+**More than just a file manager.**
+**Your files. Your way.**
+
+MAXplorer is a powerful, customisable desktop file manager for macOS. It is a real
+desktop application built with **Tauri 2**, **Rust**, **React**, and **TypeScript**, and
+it browses the real macOS filesystem.
 
 It is not a mockup, a screenshot embed, or a generic file manager with a Windows skin.
-Every visible control in the normal file-browser workflow is implemented.
+Every visible control in the normal file-browser workflow is implemented. MAXplorer
+includes two interchangeable visual themes: a Windows Explorer theme and a macOS Finder
+theme, each in light and dark appearances.
 
 ### macOS DMG
 
@@ -19,14 +24,12 @@ The DMG is **ad-hoc signed, not notarized**. Gatekeeper may require right-click 
 the first time. It contains a universal (arm64 + x86_64) app bundle and an Applications
 shortcut. See [docs/MACOS_DMG.md](docs/MACOS_DMG.md) for signing and notarization.
 
-> **This release predates the dual-theme and real-app-icon work on `main`.** The published
-> `v0.1.0` DMG always opens in the Windows 11 theme and shows a generic glyph for `.app`
-> bundles. Build from current `main` (or use a newer CI artifact) to try the Finder theme
-> and real application icons.
+> **The published `v0.1.0` DMG predates the MAXplorer rebrand.** It uses the previous
+> working name and does not contain the new icon or the dual-theme work. Build from the
+> current branch (or use a newer CI artifact) to run MAXplorer.
 
-![Reference](reference/screenshots/explorer-dark-details.png)
-![Replica](docs/screenshots/release-dark.png)
-![Replica running on macOS 14](docs/screenshots/macos-smoke.png)
+![Windows Explorer theme](docs/screenshots/release-dark.png)
+![MAXplorer running on macOS 14](docs/screenshots/macos-smoke.png)
 
 A macOS 14 GitHub Actions smoke run launched the built app from the mounted DMG and
 captured the screenshot above (Home view, real `/Users/runner` filesystem).
@@ -103,9 +106,9 @@ npm run tauri build -- --target universal-apple-darwin
 bash scripts/build-macos-dmg.sh
 ```
 
-A real `.app`/`.dmg` must be built on macOS (or macOS CI); this Windows workspace cannot
-produce one. Full local, universal, signing, notarization, GitHub Actions, Gatekeeper, and
-troubleshooting instructions are in **[docs/MACOS_DMG.md](docs/MACOS_DMG.md)**.
+A real `.app`/`.dmg` must be built on macOS (or macOS CI). Full local, universal,
+signing, notarization, GitHub Actions, Gatekeeper, and troubleshooting instructions are in
+**[docs/MACOS_DMG.md](docs/MACOS_DMG.md)**.
 
 Artifacts are written under `src-tauri/target/release/bundle/` (native) or
 `src-tauri/target/universal-apple-darwin/release/bundle/` (universal). The checked-in
@@ -164,9 +167,13 @@ src-tauri/                 Rust backend
   src/paths.rs             Path/name validation and safety checks
   src/types.rs             Serialized contracts
 docs/                      Reference research, feature matrix, validation, screenshots
+branding/                  Canonical SVG artwork and high-resolution master icon
 reference/                 Evidence captured from Windows 11 and REA
 scripts/                   Verification and screenshot tooling
 ```
+
+The icon artwork, colour palette, regeneration command, and the bundle-identifier
+compatibility decision are documented in [branding/README.md](branding/README.md).
 
 The backend owns every filesystem mutation. The UI never invents file entries. All
 listing, search, metadata, previews, and operations go through typed Tauri commands.
@@ -255,5 +262,6 @@ These are honest, intentional boundaries of this build:
 
 ## License
 
-MIT. This is an independent interface recreation and is not affiliated with, endorsed by,
-or sponsored by Microsoft. Windows is a trademark of Microsoft Corporation.
+MIT. MAXplorer is an independent desktop file manager and is not affiliated with,
+endorsed by, or sponsored by Microsoft or Apple. Windows and macOS are trademarks of their
+respective owners.

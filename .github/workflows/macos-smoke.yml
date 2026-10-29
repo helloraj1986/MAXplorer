@@ -1,5 +1,7 @@
 name: macOS smoke
 
+# This workflow intentionally validates the published pre-rebrand v0.1.0 artifact.
+# Update the release tag and volume/app names after a MAXplorer release is published.
 on:
   workflow_dispatch:
 

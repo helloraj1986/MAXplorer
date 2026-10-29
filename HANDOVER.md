@@ -1,32 +1,32 @@
-# Handover — Windows 11 File Explorer for macOS
+# Handover — MAXplorer
 
 | Field | Value |
 | --- | --- |
 | Document version | 1.2 |
 | Handover date | 2026-10-29 |
-| Project version | 0.1.0 (released); main now includes the dual-theme and app-icon work |
+| Project version | 0.1.0 (pre-rebrand release); current branch adds the MAXplorer identity |
 | Repository | https://github.com/helloraj1986/win11-explorer-macos (private) |
 | Release | https://github.com/helloraj1986/win11-explorer-macos/releases/tag/v0.1.0 |
-| Current main | `main` after the fast-forward merge of `feature/dual-theme` (`49085c7`) and this docs refresh; see `git log` |
+| Current branch | `feature/maxplorer-branding` (2026-10-29 rebrand) |
 
 ---
 
 ## 1. What this is
 
-A native macOS desktop application that recreates the Windows 11 File Explorer interface
-with high visual fidelity, while browsing the **real macOS filesystem**. It is an
-independent implementation, not a mockup, screenshot embed, or themed wrapper around a
-generic file manager.
+MAXplorer is a native macOS desktop file manager that browses the **real macOS
+filesystem**. It includes interchangeable Windows Explorer and macOS Finder themes, each
+with light and dark appearances. It is an independent implementation, not a mockup,
+screenshot embed, or themed wrapper around a generic file manager.
 
 | Item | Value |
 | --- | --- |
 | Stack | Tauri 2 + Rust backend + React 18 + TypeScript + Zustand |
 | Bundle ID | `com.replica.win11explorer` |
-| App name | Windows 11 Explorer |
+| App name | MAXplorer |
 | Minimum macOS | 12.0 |
 | Architectures | Universal (arm64 + x86_64) |
 | Signing | Ad-hoc (`signingIdentity: "-"`), **not notarized** |
-| License | MIT (interface recreation; not affiliated with Microsoft) |
+| License | MIT (independent file manager; not affiliated with Microsoft or Apple) |
 
 ### Current status
 
@@ -34,8 +34,10 @@ The project is **feature-complete for the scoped feature set**. The shipped 0.1.
 launches, renders the Windows 11 shell, and browses real macOS folders; the project owner
 confirmed it working on a Mac on 2026-10-28.
 
-Since that release, `main` has gained these changes:
+Since that release, the project has gained these changes:
 
+- **MAXplorer identity** — product name, application icon, About screen, bundle metadata,
+  window titles, menus, and packaging now use the MAXplorer brand.
 - **Dual interface themes** — Windows 11 Explorer and macOS Finder, each in light and dark,
   switchable at runtime from the Appearance dialog. Behavior, state, and filesystem access
   are shared; only tokens and layout CSS differ.
@@ -327,7 +329,7 @@ The build is ad-hoc signed. On another machine Gatekeeper will block it until th
 right-click → Opens it, or clears quarantine:
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/Windows 11 Explorer.app"
+xattr -dr com.apple.quarantine "/Applications/MAXplorer.app"
 ```
 
 For a proper Developer ID build, set `APPLE_SIGNING_IDENTITY`, `APPLE_ID`,
@@ -439,7 +441,7 @@ Honest boundaries of 0.1.0, ordered by importance to a successor:
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| "App is damaged and can't be opened" | Quarantine on an ad-hoc signed build | `xattr -dr com.apple.quarantine "/Applications/Windows 11 Explorer.app"` |
+| "App is damaged and can't be opened" | Quarantine on an ad-hoc signed build | `xattr -dr com.apple.quarantine "/Applications/MAXplorer.app"` |
 | Gatekeeper blocks first launch | Not notarized | Right-click → Open → Open |
 | Empty Desktop/Documents/Downloads | TCC permission denied | Allow in System Settings → Privacy & Security → Files and Folders; the app links there from its error state |
 | `tauri:dev` fails on port 1420 | Port in use | Stop the other process; Vite is pinned to 1420 by `tauri.conf.json` |
@@ -517,8 +519,8 @@ are informed approximations.
 
 ## 13. One-paragraph summary for the next owner
 
-This is a Tauri 2 / Rust / React recreation of Windows 11 File Explorer that runs natively
-on macOS and operates on the real filesystem. It is feature-complete for its scope and
+This is MAXplorer, a Tauri 2 / Rust / React desktop file manager that runs natively on
+macOS and operates on the real filesystem. It is feature-complete for its scope and
 confirmed working on a Mac, with a universal DMG published as `v0.1.0`. Since that release,
 `main` adds two interchangeable interface themes (Windows 11 and macOS Finder, each light
 and dark) and real `.app` bundle icons, both presentation-only and sharing the same

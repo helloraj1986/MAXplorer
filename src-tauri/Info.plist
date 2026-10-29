@@ -3,16 +3,16 @@
 <plist version="1.0">
 <dict>
   <key>NSDesktopFolderUsageDescription</key>
-  <string>Windows 11 Explorer needs access to your Desktop to browse and manage files.</string>
+  <string>MAXplorer needs access to your Desktop to browse and manage files.</string>
   <key>NSDocumentsFolderUsageDescription</key>
-  <string>Windows 11 Explorer needs access to your Documents folder to browse and manage files.</string>
+  <string>MAXplorer needs access to your Documents folder to browse and manage files.</string>
   <key>NSDownloadsFolderUsageDescription</key>
-  <string>Windows 11 Explorer needs access to your Downloads folder to browse and manage files.</string>
+  <string>MAXplorer needs access to your Downloads folder to browse and manage files.</string>
   <key>NSRemovableVolumesUsageDescription</key>
-  <string>Windows 11 Explorer needs access to removable volumes to browse and manage files.</string>
+  <string>MAXplorer needs access to removable volumes to browse and manage files.</string>
   <key>NSNetworkVolumesUsageDescription</key>
-  <string>Windows 11 Explorer needs access to network volumes to browse and manage files.</string>
+  <string>MAXplorer needs access to network volumes to browse and manage files.</string>
   <key>NSHumanReadableCopyright</key>
-  <string>Windows 11 Explorer replica. Independent UI recreation; not affiliated with Microsoft.</string>
+  <string>MAXplorer. Independent file manager for macOS. Not affiliated with Microsoft or Apple.</string>
 </dict>
 </plist>

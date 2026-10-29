@@ -1,9 +1,9 @@
 {
-  "name": "win11-explorer-macos",
+  "name": "maxplorer",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "High-fidelity Windows 11 File Explorer replica for macOS (Tauri + React + Rust).",
+  "description": "MAXplorer - More than just a file manager. A powerful, customisable desktop file manager for macOS (Tauri + React + Rust).",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

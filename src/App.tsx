@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { listen } from "@tauri-apps/api/event";
 import { TitleBar } from "./components/TitleBar";
 import { CommandBar } from "./components/CommandBar";
 import { NavigationBar } from "./components/NavigationBar";
@@ -22,6 +23,7 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useTheme } from "./hooks/useTheme";
 import { useWindowPersistence } from "./hooks/useWindowPersistence";
 import { isTauri } from "./lib/api";
+import { APP_ICON_URL, PRODUCT_NAME, TAGLINE } from "./lib/branding";
 import { HOME_LOCATION } from "./lib/types";
 
 export default function App() {
@@ -60,6 +62,22 @@ export default function App() {
 
   useEffect(() => {
     if (!isTauri) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void listen("maxplorer://about", () => {
+      useExplorerStore.getState().openDialog({ kind: "about" });
+    }).then((cleanup) => {
+      if (disposed) cleanup();
+      else unlisten = cleanup;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isTauri) return;
     let unlisten: (() => void) | undefined;
     let disposed = false;
     void getCurrentWebview()
@@ -91,17 +109,16 @@ export default function App() {
     const label =
       activeTab.location === HOME_LOCATION
         ? "Home"
-        : activeTab.location.split(/[\\/]/).filter(Boolean).pop() || "File Explorer";
-    const appName = interfaceTheme === "finder" ? "Finder" : "File Explorer";
-    document.title = `${label} - ${appName}`;
-  }, [activeTab?.location, interfaceTheme]);
+        : activeTab.location.split(/[\\/]/).filter(Boolean).pop() || PRODUCT_NAME;
+    document.title = `${label} - ${PRODUCT_NAME}`;
+  }, [activeTab?.location]);
 
   if (fatalError) {
     return (
       <div className="boot-screen error-boot">
         <div className="boot-card">
-          <Icon name="warning" size={34} />
-          <h1>File Explorer couldn't start</h1>
+          <img className="boot-app-icon" src={APP_ICON_URL} alt="" />
+          <h1>{PRODUCT_NAME} couldn't start</h1>
           <p>{fatalError.message}</p>
           {fatalError.code === "not_tauri" ? (
             <p className="muted">Run the desktop app with <code>npm run tauri:dev</code>.</p>
@@ -119,14 +136,13 @@ export default function App() {
     return (
       <div className="boot-screen">
         <div className="boot-card">
-          <span className="boot-logo">
-            <Icon name="folder" size={34} />
-          </span>
-          <h1>{interfaceTheme === "finder" ? "Finder" : "File Explorer"}</h1>
+          <img className="boot-app-icon" src={APP_ICON_URL} alt="" />
+          <h1>{PRODUCT_NAME}</h1>
+          <p className="boot-tagline">{TAGLINE}</p>
           <p>
             {interfaceTheme === "finder"
-              ? "Starting macOS Finder..."
-              : "Starting Windows 11 Explorer..."}
+              ? "Starting the macOS Finder theme..."
+              : "Starting the Windows Explorer theme..."}
           </p>
           <div className="boot-progress">
             <span />

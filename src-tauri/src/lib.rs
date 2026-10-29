@@ -16,10 +16,65 @@ mod tests;
 use compare::CompareState;
 use search::SearchState;
 use transfer::TransferState;
+#[cfg(target_os = "macos")]
+use tauri::menu::{Menu, MenuItem, MenuItemKind};
+use tauri::Emitter;
+
+#[cfg(target_os = "macos")]
+fn build_app_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<Menu<R>> {
+    let menu = Menu::default(app)?;
+
+    // Replace Tauri's native About panel with the application's themed About
+    // dialog. The default menu is otherwise preserved exactly.
+    let app_menu = menu
+        .items()?
+        .into_iter()
+        .find_map(|item| match item {
+            MenuItemKind::Submenu(submenu) => Some(submenu),
+            _ => None,
+        });
+
+    if let Some(app_menu) = app_menu {
+        let about_position = app_menu.items()?.iter().position(|item| {
+            matches!(
+                item,
+                MenuItemKind::Predefined(predefined)
+                    if predefined
+                        .text()
+                        .map(|text| text.starts_with("About"))
+                        .unwrap_or(false)
+            )
+        });
+
+        if let Some(position) = about_position {
+            let about = MenuItem::with_id(
+                app,
+                "maxplorer-about",
+                "About MAXplorer",
+                true,
+                None::<&str>,
+            )?;
+            app_menu.remove_at(position)?;
+            app_menu.insert(&about, position)?;
+        }
+    }
+
+    Ok(menu)
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(build_app_menu);
+
+    builder
+        .on_menu_event(|app, event| {
+            if event.id() == "maxplorer-about" {
+                let _ = app.emit("maxplorer://about", ());
+            }
+        })
         .manage(SearchState::default())
         .manage(TransferState::default())
         .manage(CompareState::default())

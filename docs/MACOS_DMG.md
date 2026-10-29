@@ -1,10 +1,11 @@
 # Building the macOS DMG
 
-A real macOS `.app` and `.dmg` **cannot be produced in this Windows workspace**. The
-Tauri macOS bundler needs Apple's toolchain (`xcrun`, `codesign`, `hdiutil`, the macOS
-SDK) and must compile the Rust backend for a macOS target.
+A real macOS `.app` and `.dmg` **must be produced on macOS**. The Tauri macOS bundler
+needs Apple's toolchain (`xcrun`, `codesign`, `hdiutil`, the macOS SDK) and must compile
+the Rust backend for a macOS target.
 
-A universal DMG has been produced for this project on a macOS 14 GitHub Actions runner:
+A universal DMG was produced for the pre-rebrand 0.1.0 project on a macOS 14 GitHub
+Actions runner:
 
 - Run: https://github.com/helloraj1986/win11-explorer-macos/actions/runs/40490663104
 - Release: https://github.com/helloraj1986/win11-explorer-macos/releases/tag/v0.1.0
@@ -71,15 +72,15 @@ npm run tauri build -- --bundles dmg
 Universal build:
 
 ```
-src-tauri/target/universal-apple-darwin/release/bundle/macos/Windows 11 Explorer.app
-src-tauri/target/universal-apple-darwin/release/bundle/dmg/Windows 11 Explorer_0.1.0_universal.dmg
+src-tauri/target/universal-apple-darwin/release/bundle/macos/MAXplorer.app
+src-tauri/target/universal-apple-darwin/release/bundle/dmg/MAXplorer_0.1.0_universal.dmg
 ```
 
 Native build:
 
 ```
-src-tauri/target/release/bundle/macos/Windows 11 Explorer.app
-src-tauri/target/release/bundle/dmg/Windows 11 Explorer_0.1.0_<arch>.dmg
+src-tauri/target/release/bundle/macos/MAXplorer.app
+src-tauri/target/release/bundle/dmg/MAXplorer_0.1.0_<arch>.dmg
 ```
 
 The DMG uses a 660×400 installer window with the app icon at `(180,220)` and the
@@ -92,8 +93,8 @@ Applications folder at `(480,220)`; see `src-tauri/tauri.conf.json`.
 The repository includes `.github/workflows/macos-build.yml`. It runs on a `macos-14`
 GitHub-hosted runner, builds the universal app + DMG, and uploads:
 
-- `windows11-explorer-macos` (DMG)
-- `windows11-explorer-app` (`.app` bundle)
+- `maxplorer-macos` (DMG)
+- `maxplorer-app` (`.app` bundle)
 
 **Use it**
 
@@ -102,14 +103,14 @@ GitHub-hosted runner, builds the universal app + DMG, and uploads:
    ```bash
    git init
    git add .
-   git commit -m "Windows 11 Explorer for macOS"
+   git commit -m "MAXplorer for macOS"
    git branch -M main
    git remote add origin https://github.com/<you>/<repo>.git
    git push -u origin main
    ```
 
 2. Open **Actions → macOS build → Run workflow**.
-3. Download the `windows11-explorer-macos` artifact when the run completes.
+3. Download the `maxplorer-macos` artifact when the run completes.
 4. The artifact is a zip containing the `.dmg`; unzip and distribute it.
 
 The workflow is unsigned by default. Unsigned builds are blocked/warned by Gatekeeper
@@ -209,7 +210,7 @@ or **“is damaged”**. For local testing, either:
 - remove the quarantine attribute:
 
   ```bash
-  xattr -dr com.apple.quarantine "/Applications/Windows 11 Explorer.app"
+  xattr -dr com.apple.quarantine "/Applications/MAXplorer.app"
   ```
 
 For real distribution, sign and notarize instead of telling users to bypass Gatekeeper.
@@ -219,17 +220,17 @@ For real distribution, sign and notarize instead of telling users to bypass Gate
 ## Verify the DMG
 
 ```bash
-hdiutil verify "path/to/Windows 11 Explorer.dmg"
-hdiutil attach "path/to/Windows 11 Explorer.dmg"
-open "/Volumes/Windows 11 Explorer"
+hdiutil verify "path/to/MAXplorer.dmg"
+hdiutil attach "path/to/MAXplorer.dmg"
+open "/Volumes/MAXplorer"
 # drag the app to Applications, then:
-hdiutil detach "/Volumes/Windows 11 Explorer"
+hdiutil detach "/Volumes/MAXplorer"
 ```
 
 Check the binary architectures:
 
 ```bash
-lipo -info "Windows 11 Explorer.app/Contents/MacOS/win11-explorer"
+lipo -info "MAXplorer.app/Contents/MacOS/maxplorer"
 ```
 
 Expected universal output includes `arm64 x86_64`.

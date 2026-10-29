@@ -22,7 +22,7 @@ export function PaneTabList({ paneId }: { paneId: PaneId }) {
   const platform = useExplorerStore((state) => state.platform);
 
   return (
-    <div className="tabs" role="tablist" aria-label="File Explorer tabs" data-pane={paneId}>
+    <div className="tabs" role="tablist" aria-label="MAXplorer tabs" data-pane={paneId}>
       {tabs.map((tab, index) => (
         <div
           key={tab.id}

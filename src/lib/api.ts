@@ -19,6 +19,7 @@ import type {
   TransferOutcome,
   TransferProgress,
 } from "./types";
+import { PRODUCT_NAME } from "./branding";
 
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -47,7 +48,7 @@ function requireTauri(): void {
   if (!isTauri) {
     throw {
       code: "not_tauri",
-      message: "File Explorer must run inside the Tauri desktop runtime.",
+      message: `${PRODUCT_NAME} must run inside the Tauri desktop runtime.`,
       path: null,
     } satisfies AppError;
   }
