@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Icon } from "./Icon";
 import { MenuPanel, type MenuItem } from "./Menu";
-import { GlobalSearchField } from "./search/GlobalSearchField";
 import { useExplorerStore } from "../state/explorerStore";
 import { useSearchStore } from "../state/searchStore";
 import { acceleratorToDisplay } from "../lib/panes";
@@ -402,7 +401,6 @@ export function CommandBar() {
         ) : null}
       </div>
       <div className="commandbar-spacer" />
-      <GlobalSearchField />
       <span className="address-hidden" aria-hidden="true">
         {currentFolder}
       </span>

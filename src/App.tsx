@@ -166,7 +166,7 @@ export default function App() {
       <TitleBar />
       <div className={`chrome ${dualPane ? "dual-chrome" : ""}`}>
         <CommandBar />
-        {!dualPane ? <NavigationBar /> : null}
+        {!dualPane ? <NavigationBar showSearch={!searchWorkspaceOpen} /> : null}
       </div>
       <div className="main-area">
         <Sidebar />

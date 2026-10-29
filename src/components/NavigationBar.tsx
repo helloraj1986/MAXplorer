@@ -4,12 +4,14 @@ import { FolderIcon } from "./icons/FolderIcon";
 import { StorageIcon } from "./icons/StorageIcon";
 import { MenuPanel } from "./Menu";
 import { useExplorerStore } from "../state/explorerStore";
+import { useSearchStore } from "../state/searchStore";
 import { useElementSize } from "../hooks/useElementSize";
 import { basename, breadcrumbs } from "../lib/format";
 import { copyTextToClipboard } from "../lib/clipboard";
+import { acceleratorToDisplay, DEFAULT_SHORTCUTS, normalizeAccelerator } from "../lib/panes";
 import { HOME_LOCATION, type PaneId } from "../lib/types";
 
-export function NavigationBar({ paneId }: { paneId?: PaneId }) {
+export function NavigationBar({ paneId, showSearch = true }: { paneId?: PaneId; showSearch?: boolean }) {
   const activePane = useExplorerStore((state) => state.activePane);
   const id = paneId ?? activePane;
   const platform = useExplorerStore((state) => state.platform);
@@ -31,6 +33,12 @@ export function NavigationBar({ paneId }: { paneId?: PaneId }) {
   const setSearchQuery = useExplorerStore((state) => state.setSearchQuery);
   const runSearch = useExplorerStore((state) => state.runSearch);
   const clearSearch = useExplorerStore((state) => state.clearSearch);
+  const shortcuts = useExplorerStore((state) => state.shortcuts);
+  const openUniversalSearch = useSearchStore((state) => state.openOverlay);
+  const universalShortcut = acceleratorToDisplay(
+    normalizeAccelerator(shortcuts.globalSearch, DEFAULT_SHORTCUTS.globalSearch),
+    platform?.platform ?? "macos",
+  );
   const toast = useExplorerStore((state) => state.toast);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -294,52 +302,66 @@ export function NavigationBar({ paneId }: { paneId?: PaneId }) {
       >
         <Icon name="refresh" size={16} />
       </button>
-      <div
-        className={`search-box ${activeTab?.searchLoading ? "loading" : ""}`}
-        onClick={() => searchRef.current?.focus()}
-      >
-        <span className="search-icon" aria-hidden="true">
-          {activeTab?.searchLoading ? (
-            <Icon name="spinner" size={16} className="spin" />
-          ) : (
-            <Icon name="search" size={16} />
-          )}
-        </span>
-        <input
-          ref={searchRef}
-          type="search"
-          className="search-input"
-          value={activeTab?.searchQuery ?? ""}
-          placeholder={`Search ${folderName}`}
-          aria-label={`Search ${folderName}`}
-          spellCheck={false}
-          onChange={(event) => setSearchQuery(event.target.value, id)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              void runSearch(id);
-            } else if (event.key === "Escape") {
-              event.preventDefault();
-              clearSearch(id);
-              searchRef.current?.blur();
-            }
-          }}
-        />
-        {activeTab?.searchQuery ? (
+      {showSearch ? (
+        <div
+          className={`search-box ${activeTab?.searchLoading ? "loading" : ""}`}
+          onClick={() => searchRef.current?.focus()}
+        >
+          <span className="search-icon" aria-hidden="true">
+            {activeTab?.searchLoading ? (
+              <Icon name="spinner" size={16} className="spin" />
+            ) : (
+              <Icon name="search" size={16} />
+            )}
+          </span>
+          <input
+            ref={searchRef}
+            type="search"
+            className="search-input"
+            value={activeTab?.searchQuery ?? ""}
+            placeholder={`Search ${folderName}`}
+            aria-label={`Search ${folderName}`}
+            spellCheck={false}
+            onChange={(event) => setSearchQuery(event.target.value, id)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                void runSearch(id);
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                clearSearch(id);
+                searchRef.current?.blur();
+              }
+            }}
+          />
+          {activeTab?.searchQuery ? (
+            <button
+              type="button"
+              className="search-clear"
+              aria-label="Clear search"
+              title="Clear search"
+              onClick={() => {
+                clearSearch(id);
+                searchRef.current?.focus();
+              }}
+            >
+              <Icon name="close" size={10} />
+            </button>
+          ) : null}
           <button
             type="button"
-            className="search-clear"
-            aria-label="Clear search"
-            title="Clear search"
-            onClick={() => {
-              clearSearch(id);
-              searchRef.current?.focus();
+            className="search-everywhere"
+            aria-label="Search everywhere with Universal Search"
+            title={`Search everywhere (${universalShortcut})`}
+            onClick={(event) => {
+              event.stopPropagation();
+              openUniversalSearch();
             }}
           >
-            <Icon name="close" size={10} />
+            <Icon name="network" size={14} />
           </button>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
       <span className="sr-only">{rootLabel}</span>
     </div>
   );

@@ -7,7 +7,7 @@ existing MAXplorer shell.
 
 ## Entry points
 
-- Toolbar search field (always visible).
+- The single toolbar search field. Its globe button opens Universal Search; typing in the field keeps the existing contextual folder search.
 - `Command+Shift+F` by default; configurable in **Options → Dual-pane mode** shortcuts.
 - `Command+F` keeps the existing contextual folder search.
 - **More → Universal Search**, **More → Search indexing**.
