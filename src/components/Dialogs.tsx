@@ -8,6 +8,14 @@ import { copyTextToClipboard } from "../lib/clipboard";
 import { formatDate, formatSize, typeName } from "../lib/format";
 import type { DialogState, InterfaceTheme, ThemeMode, ViewMode } from "../lib/types";
 import { INTERFACE_THEME_DEFINITIONS, INTERFACE_THEMES } from "../lib/theme";
+import {
+  APP_ICON_URL,
+  APP_VERSION,
+  BRAND_STATEMENT,
+  PRODUCT_DESCRIPTION,
+  PRODUCT_NAME,
+  TAGLINE,
+} from "../lib/branding";
 
 function Modal({
   title,
@@ -867,22 +875,27 @@ function PreferencesDialog({ close }: { close: () => void }) {
 function AboutDialog({ close }: { close: () => void }) {
   return (
     <Modal
-      title="About Windows 11 Explorer"
-      width={480}
-      icon={<Icon name="folder" size={22} />}
+      title={`About ${PRODUCT_NAME}`}
+      width={500}
+      icon={<img className="modal-app-icon" src={APP_ICON_URL} alt="" />}
       onClose={close}
       footer={<button type="button" className="dialog-button primary" onClick={close}>Close</button>}
     >
       <div className="about">
-        <h3>Windows 11 Explorer for macOS</h3>
-        <p>Version 0.1.0</p>
-        <p>
-          A high-fidelity, independently implemented recreation of the Windows 11 File Explorer
-          interface. It browses the real macOS filesystem and never uses mock file data.
-        </p>
+        <div className="about-brand">
+          <img className="about-app-icon" src={APP_ICON_URL} alt={`${PRODUCT_NAME} icon`} />
+          <div className="about-brand-copy">
+            <h3>{PRODUCT_NAME}</h3>
+            <p className="about-tagline">{TAGLINE}</p>
+            <p className="about-version">Version {APP_VERSION}</p>
+          </div>
+        </div>
+        <p>{PRODUCT_DESCRIPTION}</p>
+        <p className="about-statement">{BRAND_STATEMENT}</p>
         <p className="muted">
-          Built with Tauri, Rust, React, and TypeScript. This project is not affiliated with,
-          endorsed by, or sponsored by Microsoft. Windows is a trademark of Microsoft Corporation.
+          An independent desktop file manager for macOS. Not affiliated with, endorsed by, or
+          sponsored by Microsoft or Apple. Windows and macOS are trademarks of their respective
+          owners.
         </p>
       </div>
     </Modal>

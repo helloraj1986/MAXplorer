@@ -1,20 +1,126 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="MAXplorer application icon">
   <defs>
-    <linearGradient id="back" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#FFDA6E"/>
-      <stop offset="1" stop-color="#F2B53B"/>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#16244B"/>
+      <stop offset="0.5" stop-color="#0B1226"/>
+      <stop offset="1" stop-color="#060912"/>
     </linearGradient>
-    <linearGradient id="front" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#FFE28D"/>
-      <stop offset="1" stop-color="#F7BE45"/>
+    <radialGradient id="tileGlow" cx="0.24" cy="0.16" r="0.92">
+      <stop offset="0" stop-color="#2E7BFF" stop-opacity="0.38"/>
+      <stop offset="0.52" stop-color="#1D4ED8" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#020617" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="tileViolet" cx="0.84" cy="0.9" r="0.72">
+      <stop offset="0" stop-color="#8B5CF6" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#8B5CF6" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7DD3FC" stop-opacity="0.72"/>
+      <stop offset="0.45" stop-color="#38BDF8" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#A78BFA" stop-opacity="0.62"/>
     </linearGradient>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
-      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000000" flood-opacity="0.28"/>
+    <linearGradient id="folderBack" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1D4ED8"/>
+      <stop offset="0.52" stop-color="#0E7490"/>
+      <stop offset="1" stop-color="#6D28D9"/>
+    </linearGradient>
+    <linearGradient id="folderFront" x1="0.02" y1="0.08" x2="0.98" y2="0.96">
+      <stop offset="0" stop-color="#2563EB"/>
+      <stop offset="0.34" stop-color="#0EA5E9"/>
+      <stop offset="0.66" stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <linearGradient id="frontSheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.34"/>
+      <stop offset="0.34" stop-color="#FFFFFF" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="monogram" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.62" stop-color="#F4FEFF"/>
+      <stop offset="1" stop-color="#C7F9FF"/>
+    </linearGradient>
+    <filter id="tileShadow" x="-24%" y="-20%" width="148%" height="152%">
+      <feDropShadow dx="0" dy="20" stdDeviation="24" flood-color="#020617" flood-opacity="0.46"/>
     </filter>
+    <filter id="folderShadow" x="-25%" y="-18%" width="150%" height="158%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#020617" flood-opacity="0.42"/>
+    </filter>
+    <filter id="monoShadow" x="-30%" y="-25%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="5" stdDeviation="6" flood-color="#03142E" flood-opacity="0.38"/>
+    </filter>
+    <clipPath id="tileClip">
+      <rect x="100" y="100" width="824" height="824" rx="184"/>
+    </clipPath>
+    <clipPath id="frontClip">
+      <path d="M184 476c0-31 25-56 56-56h544c31 0 56 25 56 56v240c0 31-25 56-56 56H240c-31 0-56-25-56-56V476z"/>
+    </clipPath>
   </defs>
-  <g filter="url(#shadow)">
-    <path d="M160 260c0-31 25-56 56-56h196c18 0 35 8 46 22l40 49c10 12 25 19 41 19h323c31 0 56 25 56 56v379c0 31-25 56-56 56H216c-31 0-56-25-56-56V260z" fill="url(#back)"/>
-    <path d="M160 410c0-31 25-56 56-56h592c31 0 56 25 56 56v293c0 31-25 56-56 56H216c-31 0-56-25-56-56V410z" fill="url(#front)"/>
-    <path d="M160 430c0-16 13-30 30-30h644c17 0 30 14 30 30v18H160v-18z" fill="#FFFFFF" opacity="0.18"/>
+
+  <!-- macOS-style rounded tile -->
+  <g>
+    <rect x="100" y="100" width="824" height="824" rx="184" fill="url(#tile)"/>
+    <g clip-path="url(#tileClip)">
+      <rect x="100" y="100" width="824" height="824" fill="url(#tileGlow)"/>
+      <rect x="100" y="100" width="824" height="824" fill="url(#tileViolet)"/>
+      <path d="M100 300C250 214 386 188 548 206c168 19 286 86 376 188v-294H100v200z" fill="#FFFFFF" opacity="0.035"/>
+    </g>
+    <rect x="102" y="102" width="820" height="820" rx="182" fill="none" stroke="url(#edge)" stroke-width="2.5"/>
   </g>
+
+  <!-- Folder silhouette -->
+  <g>
+    <path
+      d="M240 346h212c20 0 38 9 50 24l32 41c12 15 30 24 50 24h200c31 0 56 25 56 56v225c0 31-25 56-56 56H240c-31 0-56-25-56-56V402c0-31 25-56 56-56z"
+      fill="url(#folderBack)"
+    />
+    <path
+      d="M240 346h212c20 0 38 9 50 24l32 41c12 15 30 24 50 24h200"
+      fill="none"
+      stroke="#BFE9FF"
+      stroke-opacity="0.42"
+      stroke-width="4"
+      stroke-linecap="round"
+    />
+  </g>
+
+  <!-- Folded front panel -->
+  <path
+    d="M184 476c0-31 25-56 56-56h544c31 0 56 25 56 56v240c0 31-25 56-56 56H240c-31 0-56-25-56-56V476z"
+    fill="url(#folderFront)"
+  />
+  <g clip-path="url(#frontClip)">
+    <rect x="184" y="420" width="656" height="190" fill="url(#frontSheen)"/>
+    <path d="M184 552c150-58 292-70 428-38 82 20 158 57 228 112v96H184V552z" fill="#FFFFFF" opacity="0.045"/>
+    <path d="M184 744c122-35 236-44 342-27 116 18 214 61 314 128H184v-101z" fill="#07142F" opacity="0.13"/>
+  </g>
+  <path
+    d="M184 476c0-31 25-56 56-56h544c31 0 56 25 56 56"
+    fill="none"
+    stroke="#FFFFFF"
+    stroke-opacity="0.44"
+    stroke-width="3.5"
+    stroke-linecap="round"
+  />
+
+  <!-- Integrated geometric M -->
+  <g filter="url(#monoShadow)">
+    <path
+      d="M382 682V508l130 114 130-114v174"
+      fill="none"
+      stroke="url(#monogram)"
+      stroke-width="68"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </g>
+  <path
+    d="M382 682V508l130 114 130-114v174"
+    fill="none"
+    stroke="#FFFFFF"
+    stroke-opacity="0.32"
+    stroke-width="9"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
 </svg>

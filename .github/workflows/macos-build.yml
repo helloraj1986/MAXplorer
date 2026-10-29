@@ -62,7 +62,7 @@ jobs:
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
-          name: windows11-explorer-macos
+          name: maxplorer-macos
           path: |
             ${{ steps.dmg.outputs.dmg_path }}
             ${{ steps.dmg.outputs.dmg_path }}.sha256
@@ -71,6 +71,6 @@ jobs:
       - name: Upload app bundle
         uses: actions/upload-artifact@v4
         with:
-          name: windows11-explorer-app
+          name: maxplorer-app
           path: src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app
           if-no-files-found: warn

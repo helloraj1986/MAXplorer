@@ -1,13 +1,13 @@
 [package]
-name = "win11-explorer"
+name = "maxplorer"
 version = "0.1.0"
-description = "Windows 11 File Explorer replica for macOS"
-authors = ["Explorer Replica"]
+description = "MAXplorer - more than just a file manager"
+authors = ["MAXplorer contributors"]
 edition = "2021"
 rust-version = "1.88"
 
 [lib]
-name = "win11_explorer_lib"
+name = "maxplorer_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

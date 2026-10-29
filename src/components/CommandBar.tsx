@@ -258,11 +258,11 @@ export function CommandBar() {
     { label: "Keyboard shortcuts", icon: "info", onClick: () => openDialog({ kind: "shortcuts" }) },
     { label: "Appearance and themes", icon: "palette", onClick: () => openDialog({ kind: "themes" }) },
     { label: "Options", icon: "settings", onClick: () => openDialog({ kind: "preferences" }) },
-    { label: "About", icon: "info", onClick: () => openDialog({ kind: "about" }) },
+    { label: "About MAXplorer", icon: "info", onClick: () => openDialog({ kind: "about" }) },
   ];
 
   return (
-    <div className="commandbar" ref={rootRef} role="toolbar" aria-label="File Explorer commands">
+    <div className="commandbar" ref={rootRef} role="toolbar" aria-label="MAXplorer commands">
       <div className="cmd-button-wrap">
         <button
           type="button"
