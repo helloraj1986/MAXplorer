@@ -1,6 +1,8 @@
 import { useMemo, useRef, useState } from "react";
-import { Icon, type IconName } from "./Icon";
-import { FileGlyph } from "./FileGlyph";
+import { Icon } from "./Icon";
+import { AppIcon, type AppIconName } from "./icons/AppIcon";
+import { FolderIcon } from "./icons/FolderIcon";
+import { StorageIcon } from "./icons/StorageIcon";
 import { useExplorerStore } from "../state/explorerStore";
 import { basename } from "../lib/format";
 import { HOME_LOCATION, type Location } from "../lib/types";
@@ -15,47 +17,46 @@ const STANDARD_IDS = new Set([
   "applications",
 ]);
 
-const ICON_COLORS: Record<string, string> = {
-  desktop: "sidebar-icon-blue",
-  downloads: "sidebar-icon-green",
-  documents: "sidebar-icon-blue",
-  pictures: "sidebar-icon-purple",
-  music: "sidebar-icon-pink",
-  movies: "sidebar-icon-purple",
-  videos: "sidebar-icon-purple",
-  applications: "sidebar-icon-gray",
-  network: "sidebar-icon-blue",
+const FOLDER_BADGES: Record<string, AppIconName> = {
+  desktop: "desktop",
+  downloads: "downloads",
+  documents: "documents",
+  pictures: "pictures",
+  music: "music",
+  movies: "movies",
+  videos: "movies",
+  applications: "applications",
 };
 
-function LocationIcon({ icon, className }: { icon: string; className?: string }) {
-  const name = (["home", "desktop", "downloads", "documents", "pictures", "music", "movies", "applications", "drive", "network"] as IconName[]).includes(icon as IconName)
-    ? (icon as IconName)
-    : "folder";
-  const knownFolder = ["desktop", "downloads", "documents", "pictures", "music", "movies", "videos"].includes(icon);
-  if (knownFolder) {
+function LocationIcon({ location, className }: { location: Location; className?: string }) {
+  if (location.kind === "drive") {
     return (
-      <span className={`sidebar-folder ${className ?? ""}`}>
-        <svg width="17" height="17" viewBox="0 0 20 20" aria-hidden="true">
-          <path
-            d="M2.2 5.1c0-.7.6-1.3 1.3-1.3h4.1l1.6 1.7h7.3c.7 0 1.3.6 1.3 1.3v8c0 .7-.6 1.3-1.3 1.3H3.5c-.7 0-1.3-.6-1.3-1.3z"
-            fill="#2f9be8"
-          />
-          <path
-            d="M2.2 7.1c0-.7.6-1.3 1.3-1.3h13c.7 0 1.3.6 1.3 1.3v6c0 .7-.6 1.3-1.3 1.3H3.5c-.7 0-1.3-.6-1.3-1.3z"
-            fill="#63c4ff"
-          />
-          <path d="M3.4 7.4h13.2" stroke="#d8f2ff" strokeWidth="1.2" />
-        </svg>
-        <span className="sidebar-folder-overlay">
-          <Icon name={name} size={8} strokeWidth={1.8} />
-        </span>
+      <StorageIcon
+        size={17}
+        variant={location.id === "root" ? "internal" : "external"}
+        status="connected"
+        className={className}
+      />
+    );
+  }
+  if (location.kind === "network" || location.icon === "network") {
+    return <StorageIcon size={17} variant="network" status="connected" className={className} />;
+  }
+  if (location.icon === "home") {
+    return (
+      <span className={`sidebar-icon ${className ?? ""}`}>
+        <AppIcon name="home" size={16} />
       </span>
     );
   }
+  const badge = FOLDER_BADGES[location.icon];
   return (
-    <span className={`sidebar-icon ${ICON_COLORS[icon] ?? ""} ${className ?? ""}`}>
-      <Icon name={name} size={16} />
-    </span>
+    <FolderIcon
+      size={17}
+      variant={badge ? "special" : "standard"}
+      badge={badge}
+      className={className}
+    />
   );
 }
 
@@ -126,7 +127,7 @@ export function Sidebar() {
         data-drop-label={location.name}
       >
         {options.child ? <span className="nav-child-indent" aria-hidden="true" /> : null}
-        <LocationIcon icon={location.icon} />
+        <LocationIcon location={location} />
         <span className="nav-label">{location.name}</span>
         {isPinned ? (
           <button
@@ -182,7 +183,7 @@ export function Sidebar() {
           data-drop-label={basename(path)}
         >
           <span className="sidebar-icon">
-            <FileGlyph category="folder" size={16} />
+            <FolderIcon size={16} variant="favorite" />
           </span>
           <span className="nav-label">{known?.name ?? basename(path) ?? path}</span>
           <button

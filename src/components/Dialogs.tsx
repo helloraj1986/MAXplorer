@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Icon } from "./Icon";
-import { FileGlyph } from "./FileGlyph";
+import { FileTypeIcon } from "./icons/FileTypeIcon";
 import { useExplorerStore } from "../state/explorerStore";
 import { api, normalizeError } from "../lib/api";
 import { copyTextToClipboard } from "../lib/clipboard";
@@ -306,7 +306,7 @@ function PropertiesDialog({ dialog, close }: { dialog: Extract<DialogState, { ki
       ) : properties ? (
         <div className="properties">
           <div className="properties-heading">
-            <FileGlyph entry={{
+            <FileTypeIcon entry={{
               name: properties.name,
               path: properties.path,
               isDir: properties.isDir,

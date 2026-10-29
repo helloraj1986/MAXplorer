@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Icon } from "./Icon";
-import { FileGlyph } from "./FileGlyph";
+import { FileTypeIcon } from "./icons/FileTypeIcon";
 import { useExplorerStore } from "../state/explorerStore";
 import { api, assetUrl } from "../lib/api";
 import { formatDate, formatSize, isImageEntry, isTextEntry, typeName } from "../lib/format";
@@ -61,7 +61,7 @@ export function PreviewPane({ paneId = "left" }: { paneId?: PaneId }) {
           <div className="preview-subtitle">{typeName(entry)}</div>
           {entry.isDir ? (
             <div className="preview-body folder-preview">
-              <FileGlyph entry={entry} size={112} />
+              <FileTypeIcon entry={entry} size={112} />
               <p>Folder preview</p>
             </div>
           ) : isImageEntry(entry) && !entry.isSymlink ? (
@@ -90,7 +90,7 @@ export function PreviewPane({ paneId = "left" }: { paneId?: PaneId }) {
             </div>
           ) : (
             <div className="preview-body unsupported-preview">
-              <FileGlyph entry={entry} size={112} thumbnail />
+              <FileTypeIcon entry={entry} size={112} thumbnail />
               <p>No preview is available for this file type.</p>
             </div>
           )}

@@ -48,6 +48,71 @@ select:focus-visible,
   outline-offset: -2px;
 }
 
+/* ------------------------------------------------------------ Icon system */
+.ui-icon {
+  display: inline-block;
+  flex: 0 0 auto;
+  vertical-align: middle;
+  pointer-events: none;
+}
+
+.ui-icon--muted {
+  color: var(--icon-muted);
+}
+
+.ui-icon--subtle {
+  color: var(--icon-subtle);
+}
+
+.ui-icon--accent {
+  color: var(--icon-accent);
+}
+
+.ui-icon--danger {
+  color: var(--danger-text);
+}
+
+.ui-icon--success {
+  color: var(--success);
+}
+
+.ui-icon--warning {
+  color: var(--warning);
+}
+
+.ui-icon--disabled {
+  opacity: var(--icon-disabled-opacity);
+}
+
+.sync-status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  line-height: 0;
+}
+
+.sync-status-synced {
+  color: var(--success);
+}
+
+.sync-status-syncing {
+  color: var(--accent);
+}
+
+.sync-status-pending,
+.sync-status-conflict {
+  color: var(--warning);
+}
+
+.sync-status-error {
+  color: var(--danger-text);
+}
+
+.sync-status-offline {
+  color: var(--text-3);
+}
+
 ::-webkit-scrollbar {
   width: 12px;
   height: 12px;
@@ -1596,15 +1661,96 @@ select:focus-visible,
   object-fit: contain;
 }
 
+/* Central file artwork. The wrapper only exists for thumbnails, native icons
+   and the symlink badge; plain SVG art is a single element. */
+.file-visual {
+  display: block;
+  position: relative;
+  flex: 0 0 auto;
+  pointer-events: none;
+  line-height: 0;
+}
+
+.file-visual > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.folder-icon,
+.storage-icon {
+  display: block;
+  overflow: visible;
+}
+
+.file-visual.page-art > svg,
+.file-visual.app-bundle-art > svg {
+  filter: drop-shadow(0 1px 1px var(--file-page-shadow));
+}
+
+.file-visual.native-app-art img,
+.file-visual.app-bundle-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.file-visual.thumbnail-art {
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--surface-2);
+  isolation: isolate;
+}
+
+.file-visual.thumbnail-art .thumbnail-placeholder {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+.file-visual.thumbnail-art img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 3px;
+  outline: 1px solid var(--image-border);
+  outline-offset: -1px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.file-visual.thumbnail-art.loaded img {
+  opacity: 1;
+}
+
+.file-visual.thumbnail-art.loaded .thumbnail-placeholder {
+  opacity: 0;
+}
+
+.file-visual.folder-visual > .folder-icon {
+  position: absolute;
+  inset: 0;
+}
+
 .symlink-badge {
   position: absolute;
   left: 1px;
   bottom: 1px;
   width: 9px;
   height: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
   background: #0f6cbd;
   border-radius: 2px;
   border: 1px solid #fff;
+  z-index: 1;
 }
 
 .marquee-box {
@@ -1911,11 +2057,13 @@ select:focus-visible,
   gap: 4px;
 }
 
-.details-thumb.multi .file-glyph:first-child {
+.details-thumb.multi .file-glyph:first-child,
+.details-thumb.multi .file-visual:first-child {
   transform: rotate(-6deg) translateX(5px);
 }
 
-.details-thumb.multi .file-glyph:last-child {
+.details-thumb.multi .file-glyph:last-child,
+.details-thumb.multi .file-visual:last-child {
   transform: rotate(6deg) translateX(-5px);
 }
 

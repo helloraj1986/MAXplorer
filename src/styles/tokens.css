@@ -49,6 +49,83 @@
   --shadow-2: 0 16px 48px rgba(0, 0, 0, 0.5);
   --radius: 4px;
   --radius-menu: 8px;
+
+  /* Icon system ---------------------------------------------------------
+     Functional icons use Lucide SVGs at a constant optical stroke. File
+     artwork uses the palette below so every visual reacts to the active
+     appearance without duplicating component logic. */
+  --icon-size-xs: 12px;
+  --icon-size-sm: 14px;
+  --icon-size-md: 16px;
+  --icon-size-lg: 18px;
+  --icon-size-xl: 20px;
+  --icon-size-2xl: 24px;
+  --icon-stroke: 1.75;
+  --icon-stroke-compact: 1.5;
+  --icon-stroke-strong: 2;
+  --icon-disabled-opacity: 0.38;
+  --icon-muted: var(--text-2);
+  --icon-subtle: var(--text-3);
+  --icon-accent: var(--accent);
+
+  --file-page-top: #ffffff;
+  --file-page-bottom: #e8edf4;
+  --file-fold: #d5dde7;
+  --file-border: rgba(15, 23, 42, 0.2);
+  --file-page-shadow: rgba(15, 23, 42, 0.16);
+
+  --file-accent-pdf: #d13438;
+  --file-accent-word: #2b579a;
+  --file-accent-sheet: #217346;
+  --file-accent-slides: #c25100;
+  --file-accent-text: #5c6670;
+  --file-accent-markdown: #4b5563;
+  --file-accent-csv: #1e7145;
+  --file-accent-ebook: #7a4b9e;
+  --file-accent-image: #0f6cbd;
+  --file-accent-video: #6b3fa0;
+  --file-accent-audio: #b3326b;
+  --file-accent-archive: #8a6a3a;
+  --file-accent-disk: #6b7280;
+  --file-accent-code: #4b5563;
+  --file-accent-js: #a87900;
+  --file-accent-ts: #3178c6;
+  --file-accent-html: #d9480f;
+  --file-accent-css: #3451b2;
+  --file-accent-json: #8a6d00;
+  --file-accent-yaml: #6b4fa0;
+  --file-accent-xml: #c25100;
+  --file-accent-python: #3572a5;
+  --file-accent-java: #b07219;
+  --file-accent-rust: #b7410e;
+  --file-accent-go: #007a99;
+  --file-accent-c: #5c6bc0;
+  --file-accent-cpp: #00599c;
+  --file-accent-shell: #2e7d32;
+  --file-accent-sql: #336791;
+  --file-accent-exe: #0f548c;
+  --file-accent-font: #6b4fa0;
+  --file-accent-cert: #8a6d00;
+  --file-accent-db: #336791;
+  --file-accent-config: #5c6670;
+  --file-accent-app: #0f6cbd;
+  --file-accent-unknown: #6b737b;
+
+  --folder-back-top: #f7c948;
+  --folder-back-bottom: #e0a11c;
+  --folder-front-top: #ffde7a;
+  --folder-front-bottom: #f5b93d;
+  --folder-stroke: rgba(116, 74, 0, 0.26);
+  --folder-shine: rgba(255, 255, 255, 0.34);
+
+  --storage-top: #f4f6f9;
+  --storage-bottom: #c7d0dc;
+  --storage-stroke: rgba(15, 23, 42, 0.3);
+  --storage-led: #4cc2ff;
+  --storage-led-off: #8b949e;
+  --app-tile-top: #ffffff;
+  --app-tile-bottom: #dde7f2;
+  --app-tile-accent: #0f6cbd;
 }
 
 [data-theme="light"] {
@@ -93,6 +170,33 @@
   --overlay: rgba(255, 255, 255, 0.55);
   --shadow-1: 0 2px 8px rgba(0, 0, 0, 0.12);
   --shadow-2: 0 16px 48px rgba(0, 0, 0, 0.2);
+
+  --file-page-top: #ffffff;
+  --file-page-bottom: #edf1f6;
+  --file-fold: #dbe2ea;
+  --file-border: rgba(15, 23, 42, 0.16);
+  --file-page-shadow: rgba(15, 23, 42, 0.12);
+
+  --file-accent-js: #8a6d00;
+  --file-accent-json: #8a6d00;
+  --file-accent-go: #007a99;
+  --file-accent-html: #d9480f;
+
+  --folder-back-top: #f8cd54;
+  --folder-back-bottom: #e5a921;
+  --folder-front-top: #ffe187;
+  --folder-front-bottom: #f7bf4a;
+  --folder-stroke: rgba(116, 74, 0, 0.22);
+  --folder-shine: rgba(255, 255, 255, 0.4);
+
+  --storage-top: #ffffff;
+  --storage-bottom: #cbd4df;
+  --storage-stroke: rgba(15, 23, 42, 0.26);
+  --storage-led: #0f6cbd;
+  --storage-led-off: #9aa4af;
+  --app-tile-top: #ffffff;
+  --app-tile-bottom: #e5edf6;
+  --app-tile-accent: #0f6cbd;
 }
 
 /*
@@ -158,6 +262,23 @@
   --traffic-close: #ff5f57;
   --traffic-minimize: #febc2e;
   --traffic-zoom: #28c840;
+
+  /* Finder folders use the familiar blue source-list artwork instead of the
+     Windows gold folder. */
+  --folder-back-top: #7dbcf7;
+  --folder-back-bottom: #2f8ff0;
+  --folder-front-top: #9ed2ff;
+  --folder-front-bottom: #3f9bf5;
+  --folder-stroke: rgba(12, 62, 120, 0.28);
+  --folder-shine: rgba(255, 255, 255, 0.42);
+
+  --storage-top: #f7f9fc;
+  --storage-bottom: #c9d3df;
+  --storage-stroke: rgba(12, 62, 120, 0.24);
+  --storage-led: #0a84ff;
+  --app-tile-top: #ffffff;
+  --app-tile-bottom: #dce8f7;
+  --app-tile-accent: #0a84ff;
 }
 
 [data-ui-theme="finder"][data-theme="light"] {
@@ -206,4 +327,11 @@
   --finder-toolbar: #f6f6f8;
   --finder-separator: rgba(0, 0, 0, 0.09);
   --finder-selection-text: #ffffff;
+
+  --folder-back-top: #8cc7fa;
+  --folder-back-bottom: #3b95f2;
+  --folder-front-top: #a9d8ff;
+  --folder-front-bottom: #4aa2f7;
+  --folder-stroke: rgba(12, 62, 120, 0.22);
+  --folder-shine: rgba(255, 255, 255, 0.5);
 }

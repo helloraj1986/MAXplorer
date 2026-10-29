@@ -87,6 +87,8 @@ design.
 | `src/styles/tokens.css` | Windows tokens plus Finder token overrides for dark and light |
 | `src/styles/app.css` | Shared component styling, theme selector, sidebar footer |
 | `src/styles/finder.css` | Structural Finder overrides, all scoped to `[data-ui-theme="finder"]` |
+| `src/components/icons/` | Lucide chrome icons plus theme-aware file, folder, storage and status artwork |
+| `src/lib/icons/` | File-type registry, native `.app` icon service, thumbnail policy |
 | `src/components/Dialogs.tsx` | Appearance dialog with preview cards and appearance control |
 | `src/components/TitleBar.tsx` | Finder traffic lights (same Tauri window APIs) |
 | `src/components/Sidebar.tsx` | Finder section headings and Appearance entry point |
@@ -107,6 +109,16 @@ The Finder tokens are declared in two blocks:
 
 The second selector is more specific, so Finder + light wins regardless of source order.
 The Windows theme continues to use the original `:root` / `[data-theme="light"]` tokens.
+
+### Theme-aware icon artwork
+
+Functional chrome icons come from `components/icons/AppIcon.tsx` and use the same
+size/stroke/color tokens in both themes. File artwork is resolved by
+`lib/icons/fileIconRegistry.ts`; category accents and page colors are tokens. Folder
+artwork switches between the Windows gold folder and the Finder blue folder through
+`--folder-*` tokens, and storage artwork uses `--storage-*` tokens. No component forks
+behavior per theme: switching themes only changes tokens and the scoped Finder layout.
+See [ICON_SYSTEM.md](ICON_SYSTEM.md).
 
 ### Finder layout adapter
 
@@ -144,11 +156,14 @@ Automated checks (Windows dev host):
 | Command | Result |
 | --- | --- |
 | `npm run typecheck` | Pass |
-| `npm test` | **43 passed** across 7 files (was 26 across 5 before this change) |
+| `npm test` | **161 passed** across 20 files |
+| `npm run test:cargo` | **28 passed** |
 | `npm run build` | Pass |
 
-The new tests cover theme normalization, appearance resolution, attribute application,
-metrics, persisted theme restoration, invalid-value fallback, and the pre-render reader.
+The tests cover theme normalization, appearance resolution, attribute application,
+metrics, persisted theme restoration, invalid-value fallback, the pre-render reader, and
+the icon registry/component suite (theme switching, list/grid rendering, thumbnails,
+native-icon fallback and accessibility).
 
 Interactive validation of both themes, light/dark, the selector, menus, resizing, and a
 rename operation is recorded in [VALIDATION.md](VALIDATION.md). Screenshots:
@@ -185,3 +200,5 @@ restored after restarting the app.
   build.
 - Theme switching keeps the scroll offset in pixels. Because Finder rows are shorter,
   the exact first visible row can shift slightly.
+- Native artwork is currently limited to macOS `.app` bundles. Arbitrary file/folder
+  native icons and QuickLook video thumbnails would require a new Rust/AppKit bridge.

@@ -1,9 +1,22 @@
 import { useMemo } from "react";
 import { Icon } from "./Icon";
-import { FileGlyph } from "./FileGlyph";
+import { FileTypeIcon } from "./icons/FileTypeIcon";
+import { FolderIcon } from "./icons/FolderIcon";
+import type { AppIconName } from "./icons/AppIcon";
 import { useExplorerStore } from "../state/explorerStore";
 import { basename, formatDate } from "../lib/format";
 import { HOME_LOCATION, type FileEntry, type PaneId, type RecentItem } from "../lib/types";
+
+const QUICK_BADGES: Record<string, AppIconName> = {
+  desktop: "desktop",
+  downloads: "downloads",
+  documents: "documents",
+  pictures: "pictures",
+  music: "music",
+  movies: "movies",
+  videos: "movies",
+  applications: "applications",
+};
 
 function recentAsEntry(recent: RecentItem): FileEntry {
   return {
@@ -116,7 +129,11 @@ export function HomeView({ paneId = "left" }: { paneId?: PaneId }) {
                 }}
               >
                 <span className="quick-icon">
-                  <FileGlyph category="folder" size={32} />
+                  <FolderIcon
+                    size={32}
+                    variant={item.pinned ? "favorite" : "special"}
+                    badge={QUICK_BADGES[item.icon]}
+                  />
                 </span>
                 <span className="quick-meta">
                   <span className="quick-name">{item.name}</span>
@@ -171,9 +188,9 @@ export function HomeView({ paneId = "left" }: { paneId?: PaneId }) {
               >
                 <span className="recent-icon">
                   {recent.isDir ? (
-                    <FileGlyph category="folder" size={22} />
+                    <FolderIcon size={22} />
                   ) : (
-                    <FileGlyph entry={recentAsEntry(recent)} size={22} />
+                    <FileTypeIcon entry={recentAsEntry(recent)} size={22} />
                   )}
                 </span>
                 <span className="recent-name">{recent.name}</span>

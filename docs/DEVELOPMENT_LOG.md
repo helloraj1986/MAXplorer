@@ -167,3 +167,29 @@
   interactive macOS pass for this fix is still pending.
 - Known residual: a *background* tab that shows a moved-from folder is only reloaded when
   it is activated, because the post-transfer refresh reloads the active tab of each pane.
+
+## Phase 12 - Premium icon system (2026-10-29)
+
+- Added `lucide-react` as the primary functional icon library. `AppIcon.tsx` maps stable
+  semantic names to named Lucide imports and applies shared size/stroke/tone tokens;
+  `Icon.tsx` remains a compatibility facade for existing callers.
+- Added a typed file-type registry (`lib/icons/fileIconRegistry.ts`) covering documents,
+  images, video/audio, archives, disk images, development formats, applications,
+  executables, fonts, certificates, databases, configuration files, dotfiles, compound
+  extensions and deterministic unknown fallbacks. Resolution never opens or executes a
+  file.
+- Added `FileTypeIcon`, `FolderIcon`, `StorageIcon` and `SyncStatusIcon`. Folder artwork
+  switches between Windows gold and Finder blue; storage connection state is separate
+  from volume identity; the status indicator is wired only to real transfer state.
+- Kept native `.app` icons through the existing Rust `read_app_icon` command, now behind
+  `nativeIconService.ts` with the existing 256-entry webview LRU. Image thumbnails remain
+  on the asset protocol with lazy loading, a 512-entry URL cache and a 1,024-entry failure
+  cache; failed thumbnails fall back to registry artwork.
+- Migrated the command bar, navigation, sidebar, tabs, menus, details/preview panes,
+  dialogs and file views to the central components. Existing `FileGlyph`/`Icon` APIs were
+  preserved as facades.
+- Added 32 icon tests: **161 frontend tests across 20 files**; `npm run typecheck`,
+  `npm run test:cargo` (28), `npm run build`, and `git diff --check` pass.
+- Merged `feature/premium-icon-system` into `main` with `--ff-only`; history stays linear.
+- Still outstanding: the macOS Tauri-window interaction pass. Native artwork for arbitrary
+  files/folders and QuickLook video thumbnails would require a new Rust/AppKit bridge.

@@ -43,6 +43,12 @@ Status vocabulary:
 | Listing | Content | View menu | Implemented | 32 px icon + name/type/date/size |
 | Listing | Column resize | Screenshot | Implemented | Drag dividers; persisted |
 | Listing | `.app` bundle icons | Fixture + screenshot | Implemented | Real ICNS/PNG icon via `read_app_icon`; generic fallback |
+| Icons | Functional chrome icons | Design system request | Implemented | Lucide named imports; shared 12–24 px sizes, 1.75 px optical stroke, tone tokens |
+| Icons | File-type registry | Design system request | Implemented | Documents, images, media, archives, disk images, dev files, apps, fonts, certificates, databases, config, unknown fallback |
+| Icons | Folder artwork | Design system request | Implemented | Windows gold and Finder blue folders; standard/open/selected/shared/favourite/downloads/network/special variants |
+| Icons | Storage artwork | Design system request | Implemented | Internal/external/removable/network/mounted/disconnected variants; connection dot separate |
+| Icons | Image thumbnails | Design system request | Implemented | Lazy asset-protocol images, bounded URL/failure caches, category fallback |
+| Icons | Transfer status indicator | Design system request | Implemented | Wired to real transfer state only; no fake sync engine |
 | Listing | Sort by name/date/type/size | Sort menu | Verified/implemented | Asc/desc; folders first |
 | Listing | Group by type/date/size | Sort > Group by | Implemented | Group headers in details/list/grid |
 | Listing | Column filter dropdowns | Hover arrows visible | Unsupported | Sorting/resizing only |
@@ -165,4 +171,4 @@ paths; see [VALIDATION.md](VALIDATION.md) for the exact boundary.
 | Comparison | Read-only folder comparison, differences filter, optional content verification | Explicit request | Implemented | Rust `compare.rs`; comparison dock; no mutation commands |
 | Comparison | Row indicators in both panes | Explicit request | Implemented | Left-only / right-only / size / date / content dots |
 | Sync navigation | Relative folder mapping, disabled by default | Explicit request | Implemented | `deriveSyncAnchors` + `mapSynchronizedPath`; no-op on invalid mappings |
-| Tests | Temp-directory coverage for transfer/compare and pure helper tests | Explicit request | Implemented | 28 Rust tests; 83 frontend tests across 11 files |
+| Tests | Temp-directory coverage for transfer/compare and pure helper tests | Explicit request | Implemented | 28 Rust tests; 161 frontend tests across 20 files |

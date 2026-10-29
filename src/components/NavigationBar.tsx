@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "./Icon";
+import { FolderIcon } from "./icons/FolderIcon";
+import { StorageIcon } from "./icons/StorageIcon";
 import { MenuPanel } from "./Menu";
 import { useExplorerStore } from "../state/explorerStore";
 import { useElementSize } from "../hooks/useElementSize";
@@ -182,7 +184,7 @@ export function NavigationBar({ paneId }: { paneId?: PaneId }) {
       <div className="address-wrap" ref={addressWrapRef}>
         <div className={`address-bar ${editing ? "editing" : ""} ${addressError ? "invalid" : ""}`}>
           <span className="address-folder" aria-hidden="true">
-            {isHome ? <Icon name="home" size={16} /> : <Icon name="folder" size={16} />}
+            {isHome ? <Icon name="home" size={16} /> : <FolderIcon size={16} />}
           </span>
           {editing ? (
             <input
@@ -235,11 +237,8 @@ export function NavigationBar({ paneId }: { paneId?: PaneId }) {
                       void navigate(crumb.path, { paneId: id });
                     }}
                   >
-                    {index === 0 && platform?.platform !== "macos" ? (
-                      <Icon name="computer" size={14} className="crumb-icon" />
-                    ) : null}
-                    {index === 0 && platform?.platform === "macos" ? (
-                      <Icon name="drive" size={14} className="crumb-icon" />
+                    {index === 0 ? (
+                      <StorageIcon size={14} variant="internal" className="crumb-icon" />
                     ) : null}
                     <span>{crumb.label}</span>
                   </button>

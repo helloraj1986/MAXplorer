@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Icon } from "./Icon";
-import { FileGlyph } from "./FileGlyph";
+import { FileTypeIcon } from "./icons/FileTypeIcon";
+import { FolderIcon } from "./icons/FolderIcon";
 import { useExplorerStore } from "../state/explorerStore";
 import { basename, formatCount, formatDate, formatSize, plural, totalSize, typeName } from "../lib/format";
 import { HOME_LOCATION, type PaneId } from "../lib/types";
@@ -48,7 +49,7 @@ export function DetailsPane({ paneId = "left" }: { paneId?: PaneId }) {
           <div className="details-title">{single.name}</div>
           <div className="details-subtitle">{typeName(single)}</div>
           <div className="details-thumb">
-            <FileGlyph entry={single} size={96} thumbnail />
+            <FileTypeIcon entry={single} size={96} thumbnail />
           </div>
           <div className="details-meta">
             {single.isSymlink && single.target ? <MetaRow label="Target" value={single.target} /> : null}
@@ -64,13 +65,13 @@ export function DetailsPane({ paneId = "left" }: { paneId?: PaneId }) {
           <div className="details-title">{formatCount(selection.length)} items selected</div>
           <div className="details-subtitle">{formatSize(stats.bytes)}</div>
           <div className="details-thumb multi">
-            <FileGlyph entry={selection[0]} size={72} thumbnail />
-            <FileGlyph entry={selection[1]} size={72} thumbnail />
+            <FileTypeIcon entry={selection[0]} size={72} thumbnail />
+            <FileTypeIcon entry={selection[1]} size={72} thumbnail />
           </div>
           <div className="details-selection-list">
             {selection.slice(0, 8).map((entry) => (
               <div className="details-selection-row" key={entry.path} title={entry.path}>
-                <FileGlyph entry={entry} size={18} />
+                <FileTypeIcon entry={entry} size={18} />
                 <span>{entry.name}</span>
               </div>
             ))}
@@ -93,7 +94,7 @@ export function DetailsPane({ paneId = "left" }: { paneId?: PaneId }) {
             {activeTab?.location === HOME_LOCATION ? (
               <Icon name="home" size={72} />
             ) : (
-              <FileGlyph category="folder" size={96} />
+              <FolderIcon size={96} />
             )}
           </div>
           <div className="details-meta">

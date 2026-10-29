@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import type * as React from "react";
 import { Icon } from "./Icon";
-import { FileGlyph } from "./FileGlyph";
+import { FileTypeIcon } from "./icons/FileTypeIcon";
+import { FolderIcon } from "./icons/FolderIcon";
 import { HomeView } from "./HomeView";
 import { useExplorerStore } from "../state/explorerStore";
 import { beginFileDrag } from "../state/fileDrag";
@@ -377,7 +378,7 @@ function DetailsView({
               >
                 <div className="details-name">
                   <span className="entry-icon">
-                    <FileGlyph entry={entry} size={18} />
+                    <FileTypeIcon entry={entry} size={18} />
                   </span>
                   <span className="entry-name">{displayName(entry, showExtensions)}</span>
                   <CompareDot category={indicator} />
@@ -498,7 +499,7 @@ function ListView({
                 onContextMenu={(event) => openContextMenu(event, entry, selected, paneId)}
               >
                 <span className="entry-icon">
-                  <FileGlyph entry={entry} size={16} />
+                  <FileTypeIcon entry={entry} size={16} />
                 </span>
                 <span className="entry-name">{displayName(entry, showExtensions)}</span>
                 <CompareDot category={indicator} />
@@ -673,7 +674,7 @@ function GridView({
                       onContextMenu={(event) => openContextMenu(event, entry, selected, paneId)}
                     >
                       <span className="grid-icon" style={{ width: metrics.iconSize, height: metrics.iconSize }}>
-                        <FileGlyph entry={entry} size={metrics.iconSize} thumbnail={metrics.mode === "grid" || metrics.mode === "tiles"} />
+                        <FileTypeIcon entry={entry} size={metrics.iconSize} thumbnail={metrics.mode === "grid" || metrics.mode === "tiles"} />
                       </span>
                       <span className="grid-text">
                         <span className="grid-name">
@@ -735,7 +736,7 @@ function EmptyState({ search, query, paneId }: { search: boolean; query: string;
   return (
     <div className="file-area-state empty-state">
       <div className="empty-icon">
-        <Icon name={search ? "search" : "folder"} size={42} />
+        {search ? <Icon name="search" size={42} /> : <FolderIcon size={56} variant="open" />}
       </div>
       <h2>{search ? "No items match your search" : "This folder is empty"}</h2>
       <p>

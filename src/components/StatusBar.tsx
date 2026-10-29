@@ -1,6 +1,16 @@
 import { Icon } from "./Icon";
+import { SyncStatusIcon, type SyncState } from "./icons/SyncStatusIcon";
 import { useExplorerStore, selectStatusText } from "../state/explorerStore";
 import { isTerminalTransfer } from "../lib/transfers";
+
+function transferSyncState(transfers: Array<{ status: string }>): SyncState {
+  if (transfers.some((item) => item.status === "failed")) return "error";
+  if (transfers.some((item) => item.status === "running" || item.status === "scanning")) return "syncing";
+  if (transfers.some((item) => item.status === "queued")) return "pending";
+  if (transfers.some((item) => item.status === "paused")) return "offline";
+  if (transfers.some((item) => item.status === "cancelled")) return "offline";
+  return "synced";
+}
 
 export function StatusBar() {
   const text = useExplorerStore(selectStatusText);
@@ -41,9 +51,10 @@ export function StatusBar() {
             type="button"
             className="status-transfers"
             title="Show transfers"
+            aria-label={`Show transfers (${transfers.filter((item) => !isTerminalTransfer(item)).length || transfers.length})`}
             onClick={openTransfers}
           >
-            <Icon name="sync" size={12} />
+            <SyncStatusIcon state={transferSyncState(transfers)} size={12} />
             {transfers.filter((item) => !isTerminalTransfer(item)).length || transfers.length}
           </button>
         ) : null}

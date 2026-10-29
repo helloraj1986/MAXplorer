@@ -25,8 +25,8 @@ the first time. It contains a universal (arm64 + x86_64) app bundle and an Appli
 shortcut. See [docs/MACOS_DMG.md](docs/MACOS_DMG.md) for signing and notarization.
 
 > **The published `v0.1.0` DMG predates the MAXplorer rebrand.** It uses the previous
-> working name and does not contain the new icon or the dual-theme work. Build from the
-> current branch (or use a newer CI artifact) to run MAXplorer.
+> working name and does not contain the dual-theme work or the premium icon system. Build
+> from the current `main` (or use a newer CI artifact) to run MAXplorer.
 
 ![Windows Explorer theme](docs/screenshots/release-dark.png)
 ![MAXplorer running on macOS 14](docs/screenshots/macos-smoke.png)
@@ -64,11 +64,18 @@ captured the screenshot above (Home view, real `/Users/runner` filesystem).
 - **Real app icons**: `.app` bundles in `/Applications` show their own icon, read from
   `Contents/Resources` (ICNS/PNG), cached, and rendered in every view and both themes.
   Bundles without a readable icon keep a built-in application glyph.
+- **Premium icon system**: Lucide functional icons with shared sizing/stroke tokens; a
+  typed file-type registry covering documents, images, media, archives, disk images,
+  development files, applications, fonts, certificates, databases, and configuration
+  files; theme-aware folder, storage, and transfer-status artwork; and lazy image
+  thumbnails with deterministic fallbacks. See
+  [docs/ICON_SYSTEM.md](docs/ICON_SYSTEM.md).
 - **Appearance**: two interchangeable interface themes — Windows 11 Explorer and macOS
   Finder — each with dark and light variants plus system/light/dark mode. The themes share
   all filesystem behavior and differ only in presentation. Finder-style traffic lights,
   toolbar, source-list sidebar, menus, selection, spacing, and typography are included.
-  Original SVG icons are used throughout (no emoji).
+  Lucide is used for interface chrome and original SVG artwork for files and folders
+  (no emoji).
 - **macOS integration**: real home folders, `/Volumes` drives, `/Applications` app list,
   Finder reveal, Terminal, TCC usage descriptions, and macOS permission guidance.
 - **Persistence**: tabs, location history, view mode, sorting, grouping, column widths,
@@ -154,8 +161,10 @@ without touching the user's normal folders.
 ```
 src/                       React + TypeScript UI
   components/              Shell, command bar, sidebar, file views, menus, dialogs
+    icons/                 AppIcon, FileTypeIcon, FolderIcon, StorageIcon, SyncStatusIcon
   hooks/                   Keyboard, theme, virtual list, marquee, window state
   lib/                     Typed API, formatting, sorting, history, tabs, persistence, theme
+    icons/                 File-type registry, native icon service, thumbnail service
   state/explorerStore.ts   Predictable Zustand application store
   styles/                  tokens.css (design tokens), app.css, finder.css (Finder overrides)
 src-tauri/                 Rust backend
@@ -201,6 +210,7 @@ See:
 - [docs/REFERENCE.md](docs/REFERENCE.md) — evidence, measurements, colors, uncertainty.
 - [docs/FEATURE_MATRIX.md](docs/FEATURE_MATRIX.md) — status of every studied feature.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — design decisions and contracts.
+- [docs/ICON_SYSTEM.md](docs/ICON_SYSTEM.md) — icon tokens, file registry, native icons, and thumbnails.
 - [docs/THEMES.md](docs/THEMES.md) — interface themes, persistence, and adding a theme.
 - [docs/MACOS_DMG.md](docs/MACOS_DMG.md) — DMG build, signing, notarization, Gatekeeper.
 - [docs/VALIDATION.md](docs/VALIDATION.md) — what was run, what was seen, what was not.

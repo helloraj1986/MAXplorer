@@ -1,5 +1,5 @@
 import { Icon } from "./Icon";
-import { FileGlyph } from "./FileGlyph";
+import { FolderIcon } from "./icons/FolderIcon";
 import { useExplorerStore } from "../state/explorerStore";
 import { beginTabDrag } from "../state/fileDrag";
 import { basename } from "../lib/format";
@@ -57,7 +57,7 @@ export function PaneTabList({ paneId }: { paneId: PaneId }) {
             {tab.location === HOME_LOCATION ? (
               <Icon name="home" size={16} />
             ) : (
-              <FileGlyph category="folder" size={16} />
+              <FolderIcon size={16} />
             )}
           </span>
           <span className="tab-title">{titleFor(tab.location)}</span>

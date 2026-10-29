@@ -49,6 +49,28 @@ informational, not a failure.
 This confirms the merged tree builds on macOS. It does **not** replace the pending
 interactive pass for the Finder theme and real `/Applications` icons.
 
+### Icon system verification (2026-10-29)
+
+The premium icon system was verified on the macOS development host:
+
+| Command / check | Result |
+| --- | --- |
+| `npm run typecheck` | Pass |
+| `npm test` | **161 passed** across 20 files |
+| `npm run test:cargo` | **28 passed** |
+| `npm run build` | Pass; 417.54 kB JS (118.19 kB gzip) / 81.42 kB CSS |
+| `git diff --check` | Clean |
+
+A temporary browser preview rendered the registry artwork, functional icons, folders,
+storage and transfer-status indicators in Windows light/dark and Finder dark. The preview
+files were removed after inspection. This was a visual component check, not a replacement
+for the pending Tauri-window macOS interaction pass.
+
+The new tests cover extension mapping, case-insensitive extensions, compound extensions,
+dotfiles, files without extensions, unknown files, MIME fallback, native `.app` icon
+failure, thumbnail failure fallback, folder theme switching, list/grid/details rendering,
+and accessibility labels.
+
 ### Rust tests
 
 `src-tauri/src/tests.rs` covers:
@@ -86,7 +108,13 @@ All destructive tests use `tempfile::tempdir()` and never touch user folders.
 - interface theme ids, names, normalization, appearance resolution, and `data-*` attributes;
 - theme row metrics used by the virtualized views;
 - persisted `interfaceTheme`/`theme` restoration, invalid-value fallback, and the pre-render
-  theme reader (`parseThemePreferences`).
+  theme reader (`parseThemePreferences`);
+- file-icon registry resolution for documents, media, archives, development formats,
+  applications, fonts, certificates, databases, configuration, compound extensions,
+  dotfiles, extensionless files, MIME hints and unknown fallbacks;
+- icon component rendering in details/list/grid views, folder theme switching, thumbnail
+  failure fallback, native `.app` icon success/failure, and decorative/labelled
+  accessibility states.
 
 ## 3. Interactive validation (running app)
 

@@ -38,8 +38,14 @@ src/
     ContextMenu.tsx           File and blank context menus + nested menus
     Menu.tsx                  Shared menu primitive with submenus/checkmarks/shortcuts
     Dialogs.tsx               Confirm, prompt, conflict, properties, open-with, options, themes
-    FileGlyph.tsx             Original SVG folder/file glyphs, real image thumbnails
-    Icon.tsx                  Original Fluent-style SVG icon set (no emoji)
+    FileGlyph.tsx             Compatibility facade over FileTypeIcon
+    Icon.tsx                  Compatibility facade over the Lucide AppIcon
+    icons/
+      AppIcon.tsx             Semantic Lucide mapping, sizing and stroke tokens
+      FileTypeIcon.tsx        Registry artwork, thumbnails, native app icons
+      FolderIcon.tsx          Theme-aware folder artwork and variants
+      StorageIcon.tsx         Volumes, network storage and connection state
+      SyncStatusIcon.tsx      Real transfer-state indicator
   hooks/
     useVirtualRows.ts         Fixed-height virtual rows with prefix offsets
     useElementSize.ts         ResizeObserver width/height
@@ -50,7 +56,11 @@ src/
     useWindowPersistence.ts   Logical size/position persistence
   lib/
     api.ts                    Typed Tauri invoke wrappers, error normalization
-    appIcons.ts               .app icon loading, in-memory cache, LRU eviction
+    appIcons.ts               Low-level .app icon loading and LRU cache
+    icons/
+      fileIconRegistry.ts     Typed extension/MIME/name-to-visual registry
+      nativeIconService.ts    Cached native .app artwork facade
+      thumbnailService.ts     Bounded thumbnail URL/failure cache
     types.ts                  Shared serialized contracts and UI models
     theme.ts                  Interface theme definitions, normalization, metrics, apply
     format.ts                 Windows-style sizes, dates, type names, paths
@@ -95,8 +105,8 @@ different tab location.
 
 ## Application bundle icons
 
-A macOS `.app` is a directory, so the listing marks it as a folder. `FileGlyph` detects the
-`.app` suffix and asks `read_app_icon` for a real icon:
+A macOS `.app` is a directory, so the listing marks it as a folder. `FileTypeIcon` detects
+the `.app` suffix and asks `read_app_icon` for a real icon:
 
 1. `app_icons.rs` reads `Contents/Info.plist` (XML or binary, via the `plist` crate) and
    looks for `CFBundleIconFile`/`CFBundleIconName` under `Contents/Resources`.
@@ -111,6 +121,25 @@ A macOS `.app` is a directory, so the listing marks it as a folder. `FileGlyph` 
 
 If no icon can be read, the row keeps the built-in application glyph. Both interface
 themes use the same real icons; only the surrounding chrome changes.
+
+## Icon system
+
+`docs/ICON_SYSTEM.md` is the detailed reference. The important boundaries are:
+
+- `components/icons/AppIcon.tsx` is the only chrome-icon entry point. It maps semantic
+  names to named `lucide-react` imports and applies shared size/stroke tokens.
+- `lib/icons/fileIconRegistry.ts` is a pure, typed resolver. It classifies by directory
+  flag, well-known dotfile/project names, compound extension, extension, MIME hint, then
+  deterministic fallback. It never opens or executes a file.
+- `components/icons/FileTypeIcon.tsx` renders registry artwork, uses native `.app` icons
+  when available, and uses the asset protocol for image thumbnails. Thumbnail failures
+  are cached and fall back to category artwork.
+- `FolderIcon`, `StorageIcon` and `SyncStatusIcon` keep theme-specific artwork and state
+  separate from behavior. The Windows folder is gold; the Finder folder is blue. Volume
+  connection state is a separate status dot. Sync state is only rendered from real
+  transfer state.
+- Thumbnail and native-icon caches are bounded; virtualized rows only render visible
+  artwork. Directory enumeration never waits for icon or thumbnail work.
 
 ## Filesystem correctness and safety
 
@@ -142,8 +171,9 @@ themes use the same real icons; only the surrounding chrome changes.
 - Details/list/grid views are virtualized, rendering only visible rows plus overscan.
 - Folder size scans are separate async commands with 20 s / 500k entry bounds and surface
   partial results.
-- Text previews read at most 128 KB; image previews use the WebView's native decoder with
-  lazy loading and fallback glyphs.
+- Text previews read at most 128 KB; image thumbnails use the WebView's native decoder
+  with lazy loading, bounded URL/failure caches, and registry-artwork fallbacks. Native
+  `.app` icon lookups are deduplicated and LRU-cached.
 - No byte copies happen in the UI process.
 
 ## State and persistence

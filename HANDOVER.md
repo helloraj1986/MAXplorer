@@ -4,10 +4,10 @@
 | --- | --- |
 | Document version | 1.2 |
 | Handover date | 2026-10-29 |
-| Project version | 0.1.0 (pre-rebrand release); current branch adds the MAXplorer identity |
+| Project version | 0.1.0 (pre-rebrand release); `main` now includes the MAXplorer identity and icon system |
 | Repository | https://github.com/helloraj1986/win11-explorer-macos (private) |
 | Release | https://github.com/helloraj1986/win11-explorer-macos/releases/tag/v0.1.0 |
-| Current branch | `feature/maxplorer-branding` (2026-10-29 rebrand) |
+| Current branch | `main` (premium icon system merged 2026-10-29) |
 
 ---
 
@@ -43,6 +43,9 @@ Since that release, the project has gained these changes:
   are shared; only tokens and layout CSS differ.
 - **Real `.app` icons** — application bundles in `/Applications` show their own ICNS/PNG
   artwork instead of a generic executable glyph.
+- **Premium icon system** — Lucide functional icons with shared sizing/stroke tokens, a
+  typed file-type registry, theme-aware folder/storage artwork, real transfer-state
+  indicators, and lazy image thumbnails. See `docs/ICON_SYSTEM.md`.
 - **Dual-pane workspace** — independent left/right panes, resizable/collapsible split,
   real streamed copy/move with conflict prompts and progress, read-only folder comparison,
   and optional synchronized navigation. See `docs/ARCHITECTURE.md` and
@@ -55,8 +58,14 @@ also reload every pane showing a source folder, and cut entries are dimmed like 
 See `docs/DEVELOPMENT_LOG.md` (Phase 11). The rebuilt bundle is on disk but has **not**
 been installed over `/Applications` yet, so the interactive macOS pass is still pending.
 
-Both changes are validated on the Windows development host (WebView2) and covered by unit
-tests. The published 0.1.0 DMG predates them.
+The latest merged work is the **premium icon system** (Phase 12): Lucide chrome icons,
+a typed file-type registry, Windows/Finder-aware folder and storage artwork, real
+transfer-state indicators, and lazy image thumbnails. `FileGlyph` and `Icon` remain as
+compatibility facades over `FileTypeIcon` and `AppIcon`. See `docs/ICON_SYSTEM.md`.
+
+All changes are validated on the Windows development host (WebView2) and on the macOS
+development host for typecheck/tests/build; the icon system was also visually inspected in
+a temporary browser preview. The published 0.1.0 DMG predates them.
 
 Verified before this handover:
 
@@ -68,9 +77,9 @@ Verified before this handover:
 - The owner's macOS `transferHistory` (read from the app's WKWebView localStorage)
   confirmed that cut+paste ran as `mode: move` / `completed`, which isolated the
   2026-10-29 report to stale source-pane reloads rather than a copy fallback.
-- `npm run typecheck`, `npm test` (**83 tests / 11 files**), `cargo test` (**28 tests**),
-  `npm run build` all passing on the development host (dual-pane feature pass plus the
-  cut/paste fix).
+- `npm run typecheck`, `npm test` (**161 tests / 20 files**), `cargo test` (**28 tests**),
+  `npm run build` all passing on the development host (dual-pane feature pass, cut/paste
+  fix, and premium icon system).
 - Windows release build exercised for UI/interaction validation.
 - Theme switching, persistence, keyboard activation, both appearances, and synthetic
   `.app` icons exercised in the Windows dev build; see `docs/VALIDATION.md`.
@@ -83,15 +92,15 @@ App Store sandboxing.
 
 Start here; everything else in this document is reference.
 
-1. `git pull` on `main` (the dual-theme and app-icon work is merged as `49085c7`; the
-   cut/paste source-pane fix may still be uncommitted - check `git status`).
+1. `git pull` on `main`. The dual-theme/app-icon work, cut/paste fix, and premium icon
+   system are merged; history is linear.
 2. Re-run the four checks in [§5](#tests-and-checks-run-before-every-push) to confirm the
    tree is clean.
 3. On a Mac, build and launch the current source, then run the pending interaction pass:
    switch to the Finder theme in both appearances, browse real `/Applications`, and confirm
-   real bundle icons, traffic lights, menus, and TCC prompts. Also cut a file in one pane,
-   paste it in the other, and confirm the source pane clears immediately and no copy is
-   left on disk.
+   real bundle icons, the new file/folder artwork, traffic lights, menus, and TCC prompts.
+   Also cut a file in one pane, paste it in the other, and confirm the source pane clears
+   immediately and no copy is left on disk.
 4. Record what you observe in `docs/VALIDATION.md` and add screenshots to
    `docs/screenshots/`. If anything fails, fix it before starting new features.
 5. Only then move on to the distribution work in [§10](#10-suggested-next-steps-prioritized).
@@ -141,10 +150,13 @@ src/                          React + TypeScript UI
     Dialogs.tsx               Create, rename, delete, conflict, properties, open-with, themes
     DetailsPane.tsx           Metadata + permissions pane
     PreviewPane.tsx           Image, text, and app-icon preview
-    FileGlyph.tsx / Icon.tsx  SVG glyph system plus real `.app` icons (no emoji)
+    FileGlyph.tsx / Icon.tsx  Compatibility facades over the central icon system
+    icons/                    AppIcon (Lucide), FileTypeIcon, FolderIcon, StorageIcon,
+                              SyncStatusIcon
   hooks/                      Keyboard, theme, virtual rows, marquee, window persistence
   lib/                        Typed IPC API, themes, app icons, formatting, sorting, history,
                               tabs, persistence
+    icons/                    File-type registry, native icon service, thumbnail service
   state/explorerStore.ts      Single Zustand store: panes, tabs, navigation, selection,
                               clipboard, transfers, dialogs
   styles/                     tokens.css + app.css + finder.css (scoped Finder layout)
@@ -202,9 +214,13 @@ Rules the codebase follows:
   or `"finder"` and is persisted independently from `theme` (`system`/`light`/`dark`).
   `data-ui-theme` and `data-theme` on `<html>` select tokens; `finder.css` only contains
   scoped layout overrides. Both themes call the same store actions and Tauri commands.
-- **App icons** are content, not chrome. `FileGlyph` asks the backend for a PNG data URL
-  for `.app` bundles; both themes use the same icons. If extraction fails, a built-in
-  application glyph is used.
+- **App icons** are content, not chrome. `FileTypeIcon` asks the backend for a PNG data
+  URL for `.app` bundles through `nativeIconService`; both themes use the same icons. If
+  extraction fails, built-in application artwork is used.
+- **Icon system** is centralized. `AppIcon` owns Lucide chrome icons and their
+  size/stroke/tone tokens; `lib/icons/fileIconRegistry.ts` owns file classification;
+  `FileTypeIcon`, `FolderIcon`, `StorageIcon`, and `SyncStatusIcon` own their visual
+  states. Theme switching changes tokens only.
 
 ### Tauri command surface (31 commands)
 
@@ -257,7 +273,7 @@ npm run tauri:dev
 
 ```bash
 npm run typecheck     # tsc --noEmit
-npm test              # vitest, 83 tests / 11 files
+npm test              # vitest, 161 tests / 20 files
 npm run test:cargo    # cargo test, 28 tests (filesystem, app icons, transfer, comparison)
 npm run build         # tsc -b && vite build
 ```
@@ -369,6 +385,13 @@ Application icons: `.app` bundles show their own icon in every view and both pan
 from `Contents/Info.plist` and `Contents/Resources/*.icns`, with a built-in application
 glyph when no icon is readable.
 
+Icon system: Lucide functional icons with shared sizing/stroke tokens; a typed registry
+for documents, images, media, archives, disk images, development files, applications,
+fonts, certificates, databases and configuration; Windows/Finder folder artwork; volume
+and connection-state artwork; real transfer-status indicators; lazy image thumbnails with
+fallbacks. `FileGlyph` and `Icon` remain compatibility facades. See
+`docs/ICON_SYSTEM.md`.
+
 Per-feature status, including approximations, is in `docs/FEATURE_MATRIX.md`; theme
 architecture is in `docs/THEMES.md`.
 
@@ -376,8 +399,9 @@ architecture is in `docs/THEMES.md`.
 
 ## 7. Development conventions
 
-- **No emoji.** Chrome iconography is original SVG in `Icon.tsx` / `FileGlyph.tsx`. Real
-  application artwork loaded from `.app` bundles is the only bitmap exception.
+- **No emoji.** Chrome iconography is Lucide through `AppIcon.tsx`; file/folder artwork is
+  original SVG through `FileTypeIcon`/`FolderIcon`. Real application artwork loaded from
+  `.app` bundles and image thumbnails are the bitmap exceptions.
 - **Themes change presentation, never behavior.** Add tokens and scoped CSS; do not fork
   store actions, Tauri commands, or filesystem code per theme. Keep
   `src/lib/theme.ts`, `index.html`, and the persisted `interfaceTheme` in sync.
@@ -434,6 +458,14 @@ Honest boundaries of 0.1.0, ordered by importance to a successor:
 14. **Background-tab staleness after a move.** The post-transfer refresh reloads the active
     tab of each affected pane. A background tab that shows a moved-from folder is only
     reloaded when it is activated, so it can briefly list a file that has already moved.
+15. **Native artwork is limited to `.app` bundles.** Arbitrary file/folder native icons
+    and QuickLook video thumbnails would require a new Rust/AppKit or QuickLook bridge.
+    Image thumbnails use the existing asset protocol and are decoded by the WebView, not
+    pre-sized by Rust.
+16. **Storage connection state is component-only.** `StorageIcon` supports disconnected
+    volumes, but the backend currently enumerates only existing `/Volumes` paths, so no
+    disconnected volume is listed. `SyncStatusIcon` is wired to real transfer state; there
+    is no background sync engine.
 
 ---
 
@@ -456,13 +488,13 @@ Honest boundaries of 0.1.0, ordered by importance to a successor:
 
 ## 10. Suggested next steps (prioritized)
 
-1. **Finish the macOS interaction pass for themes, app icons, and cut/paste** (the only
-   unverified user-facing work). Install the rebuilt bundle from
+1. **Finish the macOS interaction pass for themes, app icons, the icon system, and
+   cut/paste** (the only unverified user-facing work). Install the rebuilt bundle from
    `src-tauri/target/universal-apple-darwin/release/bundle/macos/` (or rebuild), then check
-   the Finder theme in light and dark, real `/Applications` icons, traffic lights, menus,
-   TCC prompts, drag/drop, and Open With; and cut in one dual pane, paste in the other, and
-   confirm the source pane clears at once with no copy left behind. Record evidence in
-   `docs/VALIDATION.md`.
+   the Finder theme in light and dark, real `/Applications` icons, the new file/folder
+   artwork, traffic lights, menus, TCC prompts, drag/drop, and Open With; and cut in one
+   dual pane, paste in the other, and confirm the source pane clears at once with no copy
+   left behind. Record evidence in `docs/VALIDATION.md`.
 2. **Developer ID signing + notarization** in CI, so the DMG opens without workarounds.
 3. **macOS UI smoke automation** (e.g. AppleScript/`osascript` or XCUITest driving the
    app): open a temp folder, switch views and themes, create a folder, rename, delete,
@@ -470,10 +502,12 @@ Honest boundaries of 0.1.0, ordered by importance to a successor:
 4. **Streamed operation progress** for copy/move (byte counts + cancel).
 5. **Undo for delete/rename/move** (operation journal).
 6. **Quick Look and PDF preview**, then Gallery.
-7. **Indexed search** (Spotlight `mdfind` bridge) as an opt-in alongside name search.
-8. **Properties tabs** (Details/Security equivalents) and ACL viewing.
-9. **CI speed**: cache `~/.cargo` and the Rust target directory (docs-only pushes are
-   already skipped).
+7. **Native artwork bridge**: expose AppKit/QuickLook icons and video thumbnails through
+   the Rust IPC layer, then use them in `FileTypeIcon` before falling back to the registry.
+8. **Indexed search** (Spotlight `mdfind` bridge) as an opt-in alongside name search.
+9. **Properties tabs** (Details/Security equivalents) and ACL viewing.
+10. **CI speed**: cache `~/.cargo` and the Rust target directory (docs-only pushes are
+    already skipped).
 
 ---
 
@@ -523,14 +557,15 @@ This is MAXplorer, a Tauri 2 / Rust / React desktop file manager that runs nativ
 macOS and operates on the real filesystem. It is feature-complete for its scope and
 confirmed working on a Mac, with a universal DMG published as `v0.1.0`. Since that release,
 `main` adds two interchangeable interface themes (Windows 11 and macOS Finder, each light
-and dark) and real `.app` bundle icons, both presentation-only and sharing the same
-behavior. It now also has an optional dual-pane workspace with independent pane state,
-real streaming copy/move with progress and conflict handling, read-only folder comparison,
-and synchronized navigation. The Rust backend owns all filesystem access; the React UI is
-a single Zustand store plus a component layer styled with design tokens. Tests and
-typechecking pass (83 frontend / 28 Rust), and CI builds and smoke-launches the DMG on
-macOS 14. The immediate work is to finish the macOS interaction pass for the themes,
-app icons, and cut/paste source-pane reload, then distribution polish — Developer ID
-signing and notarization — followed by macOS UI automation and streamed file operation
-progress. Everything you need to build,
-test, release, and extend it is in `README.md` and `docs/`.
+and dark), real `.app` bundle icons, and a premium icon system with Lucide chrome icons, a
+typed file-type registry, theme-aware folder/storage artwork, real transfer-state
+indicators, and lazy image thumbnails. It now also has an optional dual-pane workspace
+with independent pane state, real streaming copy/move with progress and conflict handling,
+read-only folder comparison, and synchronized navigation. The Rust backend owns all
+filesystem access; the React UI is a single Zustand store plus a component layer styled
+with design tokens. Tests and typechecking pass (161 frontend / 28 Rust), and CI builds
+and smoke-launches the DMG on macOS 14. The immediate work is to finish the macOS
+interaction pass for the themes, icons, and cut/paste source-pane reload, then distribution
+polish — Developer ID signing and notarization — followed by macOS UI automation, native
+AppKit/QuickLook artwork, and streamed file operation progress. Everything you need to
+build, test, release, and extend it is in `README.md` and `docs/`.
