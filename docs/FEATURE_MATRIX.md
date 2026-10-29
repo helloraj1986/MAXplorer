@@ -57,7 +57,7 @@ Status vocabulary:
 | File ops | Create folder | Standard Explorer | Verified/implemented | Created/renamed a test folder |
 | File ops | Create text file | New menu | Implemented | Immediate + rename prompt |
 | File ops | Create shortcut | Context menu | Implemented | Real symlink/alias on macOS |
-| File ops | Copy / cut / paste | Standard Explorer | Verified/implemented | Copied a file into a test folder |
+| File ops | Copy / cut / paste | Standard Explorer | Verified/implemented | Copy exercised in a test folder; cut+paste confirmed as a real move from macOS `transferHistory`; cut entries are dimmed and source panes reload after a move |
 | File ops | Rename | Context menu / F2 | Verified/implemented | Prompt validation + conflict error |
 | File ops | Move | Standard Explorer | Implemented | Same-volume rename or copy+delete fallback |
 | File ops | Duplicate | Context menu | Implemented | "` - Copy`" naming |
@@ -148,3 +148,21 @@ in that theme.
 Not re-tested interactively in the Finder theme on macOS: native TCC prompts, OS-level
 drag-and-drop from Finder, and Open With. The Windows dev build exercises the shared code
 paths; see [VALIDATION.md](VALIDATION.md) for the exact boundary.
+
+
+## Dual-pane mode
+
+| Area | Feature | Reference evidence | Status | Notes |
+| --- | --- | --- | --- | --- |
+| Dual pane | Two independent panes with tabs, history, address bars, sorting, filtering, selection, and errors | Standard dual-pane file managers; explicit request | Implemented | `panes.left` / `panes.right`; single-pane renders the left pane |
+| Dual pane | Draggable divider, keyboard resize, double-click reset, collapse/restore | Explicit request | Implemented | Ratio clamped 0.18–0.82; both panes cannot collapse |
+| Dual pane | Mode switching with preserved state | Explicit request | Implemented | Switching to single-pane keeps both pane snapshots |
+| Dual pane | Persistence of mode, pane folders/tabs, divider, sync preference, shortcuts, transfer history | Explicit request | Implemented | Version-1 snapshot extended with optional fields; legacy snapshots remain readable |
+| Dual pane | Active-pane shortcuts | Explicit request | Implemented | Tab switches panes in the file list; F5/F6 copy/move; Enter/Cmd+A/Cmd+R are pane-scoped |
+| Transfers | Streaming copy/move with conflicts, progress, speed, ETA, pause/resume/cancel/retry | Explicit request | Implemented | Rust `transfer.rs`; temp files; no silent overwrite; recursive guard |
+| Transfers | Copy-vs-move drag feedback and drop highlights | Explicit request | Implemented | Alt/Meta = copy; folders, blank space, Home, and pane tabs accept drops |
+| Transfers | Cut/paste feedback across panes | Standard Explorer | Implemented | Cut entries dim; a completed move reloads every pane showing a source folder, so the move cannot read as a copy |
+| Comparison | Read-only folder comparison, differences filter, optional content verification | Explicit request | Implemented | Rust `compare.rs`; comparison dock; no mutation commands |
+| Comparison | Row indicators in both panes | Explicit request | Implemented | Left-only / right-only / size / date / content dots |
+| Sync navigation | Relative folder mapping, disabled by default | Explicit request | Implemented | `deriveSyncAnchors` + `mapSynchronizedPath`; no-op on invalid mappings |
+| Tests | Temp-directory coverage for transfer/compare and pure helper tests | Explicit request | Implemented | 28 Rust tests; 83 frontend tests across 11 files |

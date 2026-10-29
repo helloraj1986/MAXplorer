@@ -3,6 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import { Icon } from "./Icon";
 import { MenuPanel, type MenuItem } from "./Menu";
 import { useExplorerStore } from "../state/explorerStore";
+import { acceleratorToDisplay } from "../lib/panes";
 import { HOME_LOCATION, type GroupBy, type ViewMode } from "../lib/types";
 
 type MenuName = "new" | "sort" | "view" | "more" | null;
@@ -27,18 +28,31 @@ export function CommandBar() {
   const [menu, setMenu] = useState<MenuName>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const platform = useExplorerStore((state) => state.platform);
-  const activeTab = useExplorerStore((state) => state.tabs.find((tab) => tab.id === state.activeTabId));
-  const selectedEntries = useExplorerStore(useShallow((state) => state.selectedEntries()));
+  const interfaceTheme = useExplorerStore((state) => state.interfaceTheme);
+  const activePane = useExplorerStore((state) => state.activePane);
+  const pane = useExplorerStore((state) => state.panes[state.activePane]);
+  const activeTab = useExplorerStore(
+    (state) => state.panes[state.activePane].tabs.find(
+      (tab) => tab.id === state.panes[state.activePane].activeTabId,
+    ),
+  );
+  const selectedEntries = useExplorerStore(
+    useShallow((state) => state.selectedEntries(state.activePane)),
+  );
   const clipboard = useExplorerStore((state) => state.clipboard);
-  const viewMode = useExplorerStore((state) => state.viewMode);
-  const sortKey = useExplorerStore((state) => state.sortKey);
-  const sortDirection = useExplorerStore((state) => state.sortDirection);
-  const groupBy = useExplorerStore((state) => state.groupBy);
-  const showHidden = useExplorerStore((state) => state.showHidden);
-  const showExtensions = useExplorerStore((state) => state.showExtensions);
+  const viewMode = pane.viewMode;
+  const sortKey = pane.sortKey;
+  const sortDirection = pane.sortDirection;
+  const groupBy = pane.groupBy;
+  const showHidden = pane.showHidden;
+  const showExtensions = pane.showExtensions;
   const detailsPane = useExplorerStore((state) => state.detailsPane);
   const previewPane = useExplorerStore((state) => state.previewPane);
-  const currentFolder = useExplorerStore((state) => state.currentFolder());
+  const dualPane = useExplorerStore((state) => state.dualPane);
+  const syncNavigation = useExplorerStore((state) => state.syncNavigation);
+  const comparison = useExplorerStore((state) => state.comparison);
+  const shortcuts = useExplorerStore((state) => state.shortcuts);
+  const currentFolder = useExplorerStore((state) => state.currentFolder(state.activePane));
   const isHome = activeTab?.location === HOME_LOCATION;
   const hasSelection = selectedEntries.length > 0;
   const singleSelection = selectedEntries.length === 1;
@@ -78,10 +92,20 @@ export function CommandBar() {
   const openTerminalHere = useExplorerStore((state) => state.openTerminalHere);
   const openDialog = useExplorerStore((state) => state.openDialog);
   const openProperties = useExplorerStore((state) => state.openProperties);
-  const currentEntries = useExplorerStore(useShallow((state) => state.currentEntries()));
+  const currentEntries = useExplorerStore(useShallow((state) => state.currentEntries(state.activePane)));
   const modifier = platform?.modifier === "cmd" ? "Cmd" : "Ctrl";
 
   const toggleMenu = (name: MenuName) => setMenu((current) => (current === name ? null : name));
+  const toggleDualPane = useExplorerStore((state) => state.toggleDualPane);
+  const setSyncNavigation = useExplorerStore((state) => state.setSyncNavigation);
+  const startComparison = useExplorerStore((state) => state.startComparison);
+  const setComparisonOpen = useExplorerStore((state) => state.setComparisonOpen);
+  const copyToOtherPane = useExplorerStore((state) => state.copyToOtherPane);
+  const moveToOtherPane = useExplorerStore((state) => state.moveToOtherPane);
+  const runSearch = useExplorerStore((state) => state.runSearch);
+  const modifierLabel = platform?.modifier === "cmd" ? "cmd" : "ctrl";
+  const shortcutText = (accelerator: string) =>
+    acceleratorToDisplay(accelerator, platform?.platform ?? "macos");
 
   const newItems: MenuItem[] = [
     {
@@ -89,40 +113,40 @@ export function CommandBar() {
       icon: "folder",
       disabled: isHome,
       shortcut: shortcutLabel(platform?.platform ?? "macos", `${modifier}+Shift+N`),
-      onClick: () => void promptNewFolder(),
+      onClick: () => void promptNewFolder(activePane),
     },
     {
       label: "Text Document",
       icon: "text",
       disabled: isHome,
-      onClick: () => void promptNewTextFile(),
+      onClick: () => void promptNewTextFile(activePane),
     },
     {
       label: "Shortcut",
       icon: "link",
       disabled: isHome || !hasSelection,
-      onClick: () => void createShortcut(),
+      onClick: () => void createShortcut(activePane),
     },
   ];
 
   const sortItems: MenuItem[] = [
-    { label: "Name", checked: sortKey === "name", onClick: () => setSortExplicit("name", sortKey === "name" ? sortDirection : "asc") },
+    { label: "Name", checked: sortKey === "name", onClick: () => setSortExplicit("name", sortKey === "name" ? sortDirection : "asc", activePane) },
     {
       label: "Date modified",
       checked: sortKey === "date",
-      onClick: () => setSortExplicit("date", sortKey === "date" ? sortDirection : "asc"),
+      onClick: () => setSortExplicit("date", sortKey === "date" ? sortDirection : "asc", activePane),
     },
-    { label: "Type", checked: sortKey === "type", onClick: () => setSortExplicit("type", sortKey === "type" ? sortDirection : "asc") },
-    { label: "Size", checked: sortKey === "size", onClick: () => setSortExplicit("size", sortKey === "size" ? sortDirection : "asc") },
+    { label: "Type", checked: sortKey === "type", onClick: () => setSortExplicit("type", sortKey === "type" ? sortDirection : "asc", activePane) },
+    { label: "Size", checked: sortKey === "size", onClick: () => setSortExplicit("size", sortKey === "size" ? sortDirection : "asc", activePane) },
     { type: "separator" },
-    { label: "Ascending", checked: sortDirection === "asc", onClick: () => setSortExplicit(sortKey, "asc") },
-    { label: "Descending", checked: sortDirection === "desc", onClick: () => setSortExplicit(sortKey, "desc") },
+    { label: "Ascending", checked: sortDirection === "asc", onClick: () => setSortExplicit(sortKey, "asc", activePane) },
+    { label: "Descending", checked: sortDirection === "desc", onClick: () => setSortExplicit(sortKey, "desc", activePane) },
     {
       label: "Group by",
       submenu: (["none", "type", "date", "size"] as GroupBy[]).map((value) => ({
         label: value === "none" ? "None" : value === "date" ? "Date modified" : value === "type" ? "Type" : "Size",
         checked: groupBy === value,
-        onClick: () => setGroupBy(value),
+        onClick: () => setGroupBy(value, activePane),
       })),
     },
   ];
@@ -132,14 +156,14 @@ export function CommandBar() {
       label: item.label,
       icon: item.icon,
       checked: viewMode === item.mode,
-      onClick: () => setView(item.mode),
+      onClick: () => setView(item.mode, activePane),
     })),
     { type: "separator" },
     {
       label: "Show",
       submenu: [
-        { label: "Hidden items", checked: showHidden, onClick: () => void setShowHidden(!showHidden) },
-        { label: "File name extensions", checked: showExtensions, onClick: () => setShowExtensions(!showExtensions) },
+        { label: "Hidden items", checked: showHidden, onClick: () => void setShowHidden(!showHidden, activePane) },
+        { label: "File name extensions", checked: showExtensions, onClick: () => setShowExtensions(!showExtensions, activePane) },
         { type: "separator" },
         { label: "Details pane", checked: detailsPane, onClick: () => setDetailsPane(!detailsPane) },
         { label: "Preview pane", checked: previewPane, onClick: () => setPreviewPane(!previewPane) },
@@ -148,25 +172,29 @@ export function CommandBar() {
   ];
 
   const moreItems: MenuItem[] = [
-    { label: "Select all", icon: "check", shortcut: shortcutLabel(platform?.platform ?? "macos", `${modifier}+A`), onClick: selectAll },
+    { label: "Select all", icon: "check", shortcut: `${interfaceTheme === "finder" ? "Cmd" : "Ctrl"}+A`, onClick: () => selectAll(activePane) },
     {
       label: "Invert selection",
       icon: "sync",
       disabled: !currentEntries.length,
       onClick: () => {
-        const selected = new Set(useExplorerStore.getState().activeTab().selection);
-        setSelection(currentEntries.filter((entry) => !selected.has(entry.path)).map((entry) => entry.path));
+        const selected = new Set(useExplorerStore.getState().activeTab(activePane).selection);
+        setSelection(
+          currentEntries.filter((entry) => !selected.has(entry.path)).map((entry) => entry.path),
+          undefined,
+          activePane,
+        );
       },
     },
     { type: "separator" },
-    { label: "Refresh", icon: "refresh", shortcut: "F5", onClick: () => void refresh() },
-    { label: "Open in Terminal", icon: "terminal", onClick: () => void openTerminalHere() },
+    { label: "Refresh", icon: "refresh", shortcut: "F5", onClick: () => void refresh(activePane) },
+    { label: "Open in Terminal", icon: "terminal", onClick: () => void openTerminalHere(activePane) },
     { type: "separator" },
     {
       label: "Show hidden items",
       icon: "eye",
       checked: showHidden,
-      onClick: () => void setShowHidden(!showHidden),
+      onClick: () => void setShowHidden(!showHidden, activePane),
     },
     {
       label: "Details pane",
@@ -180,6 +208,52 @@ export function CommandBar() {
       checked: previewPane,
       onClick: () => setPreviewPane(!previewPane),
     },
+    { type: "separator" },
+    {
+      label: dualPane ? "Leave dual-pane mode" : "Dual-pane mode",
+      icon: "columns",
+      shortcut: shortcutText(shortcuts.toggleDualPane),
+      checked: dualPane,
+      onClick: toggleDualPane,
+    },
+    ...(dualPane
+      ? [
+          {
+            label: "Copy to other pane",
+            icon: "copy" as const,
+            shortcut: shortcutText(shortcuts.copyToOtherPane),
+            disabled: !hasSelection,
+            onClick: () => void copyToOtherPane(),
+          },
+          {
+            label: "Move to other pane",
+            icon: "cut" as const,
+            shortcut: shortcutText(shortcuts.moveToOtherPane),
+            disabled: !hasSelection,
+            onClick: () => void moveToOtherPane(),
+          },
+          {
+            label: "Synchronized navigation",
+            icon: "sync" as const,
+            checked: syncNavigation,
+            onClick: () => setSyncNavigation(!syncNavigation),
+          },
+          {
+            label: "Compare folders",
+            icon: "compare" as const,
+            onClick: () => void startComparison(),
+          },
+          ...(comparison
+            ? [
+                {
+                  label: "Show folder comparison",
+                  icon: "details" as const,
+                  onClick: () => setComparisonOpen(true),
+                },
+              ]
+            : []),
+        ]
+      : []),
     { type: "separator" },
     { label: "Keyboard shortcuts", icon: "info", onClick: () => openDialog({ kind: "shortcuts" }) },
     { label: "Appearance and themes", icon: "palette", onClick: () => openDialog({ kind: "themes" }) },
@@ -209,10 +283,10 @@ export function CommandBar() {
         ) : null}
       </div>
       <div className="cmd-separator" />
-      <button type="button" className="cmd-btn" data-tooltip="Cut" aria-label="Cut" disabled={!hasSelection} onClick={cutSelection}>
+      <button type="button" className="cmd-btn" data-tooltip="Cut" aria-label="Cut" disabled={!hasSelection} onClick={() => cutSelection(activePane)}>
         <Icon name="cut" size={16} />
       </button>
-      <button type="button" className="cmd-btn" data-tooltip="Copy" aria-label="Copy" disabled={!hasSelection} onClick={copySelection}>
+      <button type="button" className="cmd-btn" data-tooltip="Copy" aria-label="Copy" disabled={!hasSelection} onClick={() => copySelection(activePane)}>
         <Icon name="copy" size={16} />
       </button>
       <button
@@ -221,7 +295,7 @@ export function CommandBar() {
         data-tooltip="Paste"
         aria-label="Paste"
         disabled={!clipboard || isHome}
-        onClick={() => void paste()}
+        onClick={() => void paste(activePane)}
       >
         <Icon name="paste" size={16} />
       </button>
@@ -231,7 +305,7 @@ export function CommandBar() {
         data-tooltip="Rename"
         aria-label="Rename"
         disabled={!singleSelection}
-        onClick={promptRename}
+        onClick={() => promptRename(activePane)}
       >
         <Icon name="rename" size={16} />
       </button>
@@ -241,7 +315,7 @@ export function CommandBar() {
         data-tooltip="Share"
         aria-label="Share"
         disabled={!hasSelection}
-        onClick={() => void shareSelection()}
+        onClick={() => void shareSelection(activePane)}
       >
         <Icon name="share" size={16} />
       </button>
@@ -251,7 +325,7 @@ export function CommandBar() {
         data-tooltip="Delete"
         aria-label="Delete"
         disabled={!hasSelection}
-        onClick={() => deleteSelection(false)}
+        onClick={() => deleteSelection(false, activePane)}
       >
         <Icon name="delete" size={16} />
       </button>

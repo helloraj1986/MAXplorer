@@ -293,3 +293,63 @@ Tooling added for reproducible mac builds:
   ad-hoc signing.
 - `docs/MACOS_DMG.md` — local Mac, CI, signing, notarization, Gatekeeper, and
   troubleshooting instructions.
+
+
+## Dual-pane mode validation (2026-10-28)
+
+Automated checks run from the repository root on the development host:
+
+| Check | Result | Notes |
+| --- | --- | --- |
+| `npm run typecheck` | Pass | No TypeScript errors |
+| `npm test` | Pass | 83 tests across 11 files (80 from the dual-pane pass plus 3 for the cut/paste fix) |
+| `cargo test` | Pass | 28 Rust tests (including 7 transfer and 3 comparison temp-directory tests) |
+| `npm run build` | Pass | `tsc -b && vite build` produced the production bundle |
+
+Test coverage added for this feature:
+
+- `src/lib/panes.test.ts` — split clamping, synchronized mapping/anchors, conflicts,
+  recursive-transfer guard, accelerator matching/display, legacy pane restore.
+- `src/lib/compare.test.ts` — comparison categories, differences-only filtering, per-pane
+  indicators, summary counts.
+- `src/lib/transfers.test.ts` — queued item creation, percent/ETA/speed formatting,
+  out-of-order progress, terminal statuses, result summaries.
+- `src/lib/persistence.test.ts` — dual-pane state, active pane, clamped divider, shortcuts,
+  transfer history, legacy fallback, invalid-value repair.
+- `src-tauri/src/transfer.rs` tests — recursive copy, move source removal, conflict
+  policies (`error`/`skip`/`rename`/`replace`), recursive-transfer rejection, relative
+  paths, non-directory destination, cancellation.
+- `src-tauri/src/compare.rs` tests — name/size/directory comparison without mutation,
+  optional byte verification, missing-folder errors.
+
+Not performed in this pass: interactive dual-pane click/drag verification on a Mac. The
+automated tests use isolated temp directories and the existing fixture set; Tauri command
+wiring compiles but should receive a manual macOS pass before release.
+
+
+## Cut/paste feedback fix (2026-10-29)
+
+Reported as "Cmd+X and Cmd+V copy-pastes instead of cut-and-pastes" on macOS.
+
+Diagnosis, using the app's own persisted state instead of a guess: the
+`transferHistory` entry in `win11-explorer-state-v1` (WKWebView localStorage for
+`com.replica.win11explorer`) showed the owner's four most recent operations as
+`mode: move`, `status: completed`. The filesystem move was correct; the view was not.
+
+Cause: `paste()` records the destination pane as the transfer's `sourcePane`, so only the
+pane that received the paste was reloaded. In dual-pane mode the pane the items were cut
+from kept listing them, and cut entries had no visual state, so the result looked like a
+copy.
+
+| Check | Result | Notes |
+| --- | --- | --- |
+| `npm run typecheck` | Pass | No TypeScript errors |
+| `npm test` | Pass | 83 tests across 11 files (3 new for `panesShowingSources`) |
+| `npm run build` | Pass | `tsc -b && vite build` produced the production bundle |
+| `npm run tauri build -- --target universal-apple-darwin` | Pass | Universal `.app` (7.20 MiB) and DMG (3.30 MiB) rebuilt from the fixed tree |
+
+Coverage added: `src/lib/panes.test.ts` — source folders map to the panes showing them
+(single pane, both panes, and no match). The universal bundle rebuild was **not** installed
+over `/Applications` (stopped at the owner's request), so the interactive macOS
+confirmation of the source-pane reload and the dimmed cut state is still outstanding.
+

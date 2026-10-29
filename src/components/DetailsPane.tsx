@@ -3,7 +3,7 @@ import { Icon } from "./Icon";
 import { FileGlyph } from "./FileGlyph";
 import { useExplorerStore } from "../state/explorerStore";
 import { basename, formatCount, formatDate, formatSize, plural, totalSize, typeName } from "../lib/format";
-import { HOME_LOCATION } from "../lib/types";
+import { HOME_LOCATION, type PaneId } from "../lib/types";
 
 function MetaRow({ label, value }: { label: string; value: string }) {
   if (!value) return null;
@@ -17,9 +17,11 @@ function MetaRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function DetailsPane() {
+export function DetailsPane({ paneId = "left" }: { paneId?: PaneId }) {
   const platform = useExplorerStore((state) => state.platform);
-  const activeTab = useExplorerStore((state) => state.tabs.find((tab) => tab.id === state.activeTabId));
+  const activeTab = useExplorerStore(
+    (state) => state.panes[paneId].tabs.find((tab) => tab.id === state.panes[paneId].activeTabId),
+  );
   const entries = activeTab?.searchResults ?? activeTab?.entries ?? [];
   const selection = useMemo(() => {
     const selected = new Set(activeTab?.selection ?? []);

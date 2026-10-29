@@ -58,6 +58,96 @@ pub enum ConflictPolicy {
     Skip,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TransferMode {
+    Copy,
+    Move,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferRequest {
+    pub id: u64,
+    pub paths: Vec<String>,
+    pub destination: String,
+    pub mode: TransferMode,
+    pub conflict: ConflictPolicy,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferProgress {
+    pub id: u64,
+    pub status: String,
+    pub phase: String,
+    pub current_file: Option<String>,
+    pub processed_bytes: u64,
+    pub total_bytes: u64,
+    pub processed_items: u64,
+    pub total_items: u64,
+    pub bytes_per_second: f64,
+    pub eta_seconds: Option<f64>,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferOutcome {
+    pub id: u64,
+    pub cancelled: bool,
+    pub paused: bool,
+    pub results: Vec<OperationResult>,
+    pub total_bytes: u64,
+    pub processed_bytes: u64,
+    pub total_items: u64,
+    pub processed_items: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComparisonEntry {
+    pub name: String,
+    pub left_path: Option<String>,
+    pub right_path: Option<String>,
+    pub left_size: Option<u64>,
+    pub right_size: Option<u64>,
+    pub left_modified: Option<i64>,
+    pub right_modified: Option<i64>,
+    pub is_dir: bool,
+    pub size_differs: bool,
+    pub modified_differs: bool,
+    /// `None` means content was not verified. `Some(false)` means the bytes
+    /// differ even though names and sizes matched.
+    pub content_equal: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderComparison {
+    pub left: String,
+    pub right: String,
+    pub entries: Vec<ComparisonEntry>,
+    pub left_only: u64,
+    pub right_only: u64,
+    pub different: u64,
+    pub identical: u64,
+    pub content_verified: u64,
+    pub cancelled: bool,
+    pub scanned: u64,
+    pub errors: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComparisonProgress {
+    pub request_id: u64,
+    pub scanned: u64,
+    pub total: u64,
+    pub current: Option<String>,
+    pub cancelled: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OperationResult {

@@ -1,22 +1,28 @@
 mod app_icons;
 mod commands;
+mod compare;
 mod error;
 mod listing;
 mod metadata;
 mod operations;
 mod paths;
 mod search;
+mod transfer;
 mod types;
 
 #[cfg(test)]
 mod tests;
 
+use compare::CompareState;
 use search::SearchState;
+use transfer::TransferState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(SearchState::default())
+        .manage(TransferState::default())
+        .manage(CompareState::default())
         .invoke_handler(tauri::generate_handler![
             commands::get_platform_info,
             commands::get_sidebar_locations,
@@ -34,6 +40,11 @@ pub fn run() {
             commands::move_paths,
             commands::delete_paths,
             commands::duplicate_paths,
+            commands::transfer_paths,
+            commands::cancel_transfer,
+            commands::pause_transfer,
+            commands::compare_folders,
+            commands::cancel_compare,
             commands::get_properties,
             commands::get_folder_stats,
             commands::read_text_preview,

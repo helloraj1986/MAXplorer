@@ -1,5 +1,22 @@
 import type { FileEntry } from "./types";
 
+/**
+ * Selection is stored as paths, which are stable for the lifetime of a file or
+ * folder and unique even when two visible items share a display name.
+ * This helper protects every entry point from duplicate paths.
+ */
+export function normalizeSelection(paths: readonly string[]): string[] {
+  if (!paths.length) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const path of paths) {
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    result.push(path);
+  }
+  return result;
+}
+
 export function selectionStats(entries: FileEntry[], selection: string[]): {
   count: number;
   bytes: number;
@@ -16,8 +33,27 @@ export function selectionStats(entries: FileEntry[], selection: string[]): {
 
 export function pruneSelection(entries: FileEntry[], selection: string[]): string[] {
   const available = new Set(entries.map((entry) => entry.path));
-  const next = selection.filter((path) => available.has(path));
+  const next = normalizeSelection(selection.filter((path) => available.has(path)));
   return next.length === selection.length ? selection : next;
+}
+
+/**
+ * Prunes both the selection and its anchor after a refresh. Leaving an anchor
+ * for a deleted item would make the next Shift-click silently fall back to a
+ * single-item selection instead of extending from a visible item.
+ */
+export function pruneSelectionState(
+  entries: FileEntry[],
+  selection: string[],
+  anchorPath: string | null,
+): { selection: string[]; anchorPath: string | null } {
+  const pruned = pruneSelection(entries, selection);
+  const anchorVisible =
+    anchorPath != null && entries.some((entry) => entry.path === anchorPath);
+  return {
+    selection: pruned,
+    anchorPath: anchorVisible ? anchorPath : pruned[pruned.length - 1] ?? null,
+  };
 }
 
 export function toggleSelection(

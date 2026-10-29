@@ -3,7 +3,7 @@ import { Icon } from "./Icon";
 import { FileGlyph } from "./FileGlyph";
 import { useExplorerStore } from "../state/explorerStore";
 import { basename, formatDate } from "../lib/format";
-import { HOME_LOCATION, type FileEntry, type RecentItem } from "../lib/types";
+import { HOME_LOCATION, type FileEntry, type PaneId, type RecentItem } from "../lib/types";
 
 function recentAsEntry(recent: RecentItem): FileEntry {
   return {
@@ -22,8 +22,9 @@ function recentAsEntry(recent: RecentItem): FileEntry {
   };
 }
 
-export function HomeView() {
+export function HomeView({ paneId = "left" }: { paneId?: PaneId }) {
   const platform = useExplorerStore((state) => state.platform);
+  const setActivePane = useExplorerStore((state) => state.setActivePane);
   const locations = useExplorerStore((state) => state.locations);
   const pinned = useExplorerStore((state) => state.pinned);
   const recents = useExplorerStore((state) => state.recents);
@@ -60,10 +61,20 @@ export function HomeView() {
   }, [locations, pinned]);
 
   return (
-    <div className="home-view" onContextMenu={(event) => {
-      event.preventDefault();
-      useExplorerStore.getState().showContextMenu({ kind: "blank", x: event.clientX, y: event.clientY });
-    }}>
+    <div
+      className="home-view"
+      onPointerDown={() => setActivePane(paneId)}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        useExplorerStore.getState().showContextMenu({
+          kind: "blank",
+          x: event.clientX,
+          y: event.clientY,
+          paneId,
+        });
+      }}
+      data-drop-pane={paneId}
+    >
       <div className="home-header">
         <div>
           <h1>Home</h1>
@@ -76,7 +87,7 @@ export function HomeView() {
           className="home-refresh"
           title="Refresh"
           aria-label="Refresh home"
-          onClick={() => useExplorerStore.getState().refresh()}
+          onClick={() => useExplorerStore.getState().refresh(paneId)}
         >
           <Icon name="refresh" size={16} />
         </button>
@@ -96,11 +107,11 @@ export function HomeView() {
                 role="button"
                 tabIndex={0}
                 title={item.path}
-                onClick={() => void navigate(item.path)}
+                onClick={() => void navigate(item.path, { paneId })}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
-                    void navigate(item.path);
+                    void navigate(item.path, { paneId });
                   }
                 }}
               >
@@ -150,11 +161,11 @@ export function HomeView() {
                 key={recent.path}
                 tabIndex={0}
                 title={recent.path}
-                onClick={() => void openEntry(recentAsEntry(recent))}
+                onClick={() => void openEntry(recentAsEntry(recent), paneId)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
-                    void openEntry(recentAsEntry(recent));
+                    void openEntry(recentAsEntry(recent), paneId);
                   }
                 }}
               >
@@ -175,7 +186,7 @@ export function HomeView() {
           <div className="home-empty">
             Files and folders you open will appear here. Browse your Mac to get started.
             <div className="home-empty-actions">
-              <button type="button" className="home-action" onClick={() => void navigate(platform?.home ?? "/")}>
+              <button type="button" className="home-action" onClick={() => void navigate(platform?.home ?? "/", { paneId })}>
                 <Icon name="home" size={14} />
                 Open Home folder
               </button>

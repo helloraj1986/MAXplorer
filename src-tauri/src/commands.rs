@@ -1,13 +1,16 @@
 use crate::app_icons;
+use crate::compare::{self, CompareState};
 use crate::error::AppError;
 use crate::listing;
 use crate::metadata;
 use crate::operations;
 use crate::paths::{expand_user, home_dir, normalize_path, parent_path};
 use crate::search::{self, SearchState};
+use crate::transfer::{self, TransferControl, TransferState};
 use crate::types::{
-    ApplicationInfo, ConflictPolicy, DirectoryListing, FolderStats, Location, OperationResult,
-    PlatformInfo, Properties, SearchResult, TextPreview,
+    ApplicationInfo, ConflictPolicy, DirectoryListing, FolderComparison, FolderStats, Location,
+    OperationResult, PlatformInfo, Properties, SearchResult, TextPreview, TransferOutcome,
+    TransferRequest,
 };
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -197,6 +200,76 @@ pub async fn duplicate_paths(paths: Vec<String>) -> Result<Vec<OperationResult>,
     let (paths, mut results) = operation_paths(paths);
     results.extend(blocking(move || Ok(operations::duplicate_paths(&paths))).await?);
     Ok(results)
+}
+
+#[tauri::command]
+pub async fn transfer_paths(
+    app: tauri::AppHandle,
+    state: State<'_, TransferState>,
+    request: TransferRequest,
+) -> Result<TransferOutcome, AppError> {
+    let id = request.id;
+    let control = Arc::new(TransferControl::new());
+    if let Ok(mut map) = state.controls.lock() {
+        map.insert(id, control.clone());
+    }
+    let outcome = blocking(move || transfer::run_transfer(app, request, control)).await;
+    if let Ok(mut map) = state.controls.lock() {
+        map.remove(&id);
+    }
+    outcome
+}
+
+#[tauri::command]
+pub fn cancel_transfer(state: State<'_, TransferState>, id: u64) {
+    if let Ok(map) = state.controls.lock() {
+        if let Some(control) = map.get(&id) {
+            control.cancel();
+        }
+    }
+}
+
+#[tauri::command]
+pub fn pause_transfer(state: State<'_, TransferState>, id: u64, paused: bool) {
+    if let Ok(map) = state.controls.lock() {
+        if let Some(control) = map.get(&id) {
+            control.set_paused(paused);
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn compare_folders(
+    app: tauri::AppHandle,
+    state: State<'_, CompareState>,
+    left: String,
+    right: String,
+    verify_content: bool,
+    request_id: u64,
+) -> Result<FolderComparison, AppError> {
+    let left = normalize_path(&left)?;
+    let right = normalize_path(&right)?;
+    let cancel = Arc::new(AtomicBool::new(false));
+    if let Ok(mut map) = state.cancels.lock() {
+        map.insert(request_id, cancel.clone());
+    }
+    let result = blocking(move || {
+        compare::compare_folders(app, &left, &right, verify_content, request_id, cancel)
+    })
+    .await;
+    if let Ok(mut map) = state.cancels.lock() {
+        map.remove(&request_id);
+    }
+    result
+}
+
+#[tauri::command]
+pub fn cancel_compare(state: State<'_, CompareState>, request_id: u64) {
+    if let Ok(map) = state.cancels.lock() {
+        if let Some(cancel) = map.get(&request_id) {
+            cancel.store(true, Ordering::Relaxed);
+        }
+    }
 }
 
 #[tauri::command]

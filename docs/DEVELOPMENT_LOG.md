@@ -139,3 +139,31 @@
   verification.
 - Still outstanding: the macOS interactive pass for the Finder theme, real
   `/Applications` icons, TCC prompts, OS drag/drop, and Open With.
+
+## Phase 11 - Cut/paste looked like a copy (2026-10-29)
+
+- Reported symptom: on macOS, Cmd+X then Cmd+V appears to copy the file instead of
+  moving it.
+- Ruled out the transfer path with evidence rather than guesswork. The persisted
+  `transferHistory` in the app's WebKit localStorage
+  (`~/Library/WebKit/com.replica.win11explorer/WebsiteData/.../LocalStorage`) showed the
+  owner's last four operations as `mode: move`, `status: completed`, so the filesystem
+  move really happened. The stale *view* made it look like a copy.
+- Root cause: `paste()` records the destination pane as the transfer's `sourcePane`
+  (`requestTransfer(..., { sourcePane: id, destinationPane: id })`), so only the pane that
+  received the paste was reloaded. In dual-pane mode (the owner's persisted layout) the
+  pane the items were cut from kept listing the moved files, so the file appeared in both
+  panes. Cut items also had no visual state, so a registered cut was invisible.
+- Added `panesShowingSources(folders, sources)` to `lib/panes.ts` and used it after a
+  completed move to refresh every pane showing a source folder, in addition to the
+  recorded source/destination panes.
+- Dimmed clipboard "cut" entries in details, list, and grid views (`FileArea` `cut` class,
+  `app.css` opacity/desaturation), matching Explorer's cut feedback.
+- Added 3 tests for the new helper: **83 frontend tests across 11 files**; typecheck and
+  `npm run build` clean.
+- Rebuilt the universal `.app`/DMG from the fixed tree
+  (`src-tauri/target/universal-apple-darwin/release/bundle/{macos,dmg}`). Installing it
+  over `/Applications/Windows 11 Explorer.app` was stopped at the owner's request, so the
+  interactive macOS pass for this fix is still pending.
+- Known residual: a *background* tab that shows a moved-from folder is only reloaded when
+  it is activated, because the post-transfer refresh reloads the active tab of each pane.

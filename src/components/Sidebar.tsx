@@ -63,7 +63,11 @@ export function Sidebar() {
   const platform = useExplorerStore((state) => state.platform);
   const locations = useExplorerStore((state) => state.locations);
   const pinned = useExplorerStore((state) => state.pinned);
-  const activeTab = useExplorerStore((state) => state.tabs.find((tab) => tab.id === state.activeTabId));
+  const activeTab = useExplorerStore(
+    (state) => state.panes[state.activePane].tabs.find(
+      (tab) => tab.id === state.panes[state.activePane].activeTabId,
+    ),
+  );
   const navigate = useExplorerStore((state) => state.navigate);
   const pinPath = useExplorerStore((state) => state.pinPath);
   const unpinPath = useExplorerStore((state) => state.unpinPath);
@@ -72,7 +76,6 @@ export function Sidebar() {
   const moveOrCopyPaths = useExplorerStore((state) => state.moveOrCopyPaths);
   const openDialog = useExplorerStore((state) => state.openDialog);
   const [expanded, setExpanded] = useState(true);
-  const [dropTarget, setDropTarget] = useState<string | null>(null);
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const standardLocations = useMemo(
@@ -101,36 +104,13 @@ export function Sidebar() {
     window.addEventListener("pointerup", up);
   };
 
-  const handleDrop = (event: React.DragEvent, destination: string) => {
-    event.preventDefault();
-    setDropTarget(null);
-    const raw = event.dataTransfer.getData("application/x-win11-explorer-paths");
-    if (!raw) return;
-    try {
-      const paths = JSON.parse(raw) as string[];
-      if (Array.isArray(paths) && paths.length) {
-        void moveOrCopyPaths(paths, destination, event.altKey ? "copy" : "cut");
-      }
-    } catch {
-      // Ignore malformed internal drag payloads.
-    }
-  };
-
-  const dragOver = (event: React.DragEvent, destination: string) => {
-    if (event.dataTransfer.types.includes("application/x-win11-explorer-paths")) {
-      event.preventDefault();
-      event.dataTransfer.dropEffect = event.altKey ? "copy" : "move";
-      setDropTarget(destination);
-    }
-  };
-
   const renderRow = (location: Location, options: { child?: boolean; pinnable?: boolean } = {}) => {
     const selected = current === location.path;
     const isPinned = pinned.includes(location.path);
     return (
       <div
         key={location.id}
-        className={`nav-row ${selected ? "selected" : ""} ${options.child ? "child" : ""} ${dropTarget === location.path ? "drop-target" : ""}`}
+        className={`nav-row ${selected ? "selected" : ""} ${options.child ? "child" : ""}`}
         role="treeitem"
         aria-selected={selected}
         tabIndex={0}
@@ -142,9 +122,8 @@ export function Sidebar() {
             void navigate(location.path);
           }
         }}
-        onDragOver={(event) => dragOver(event, location.path)}
-        onDragLeave={() => setDropTarget((value) => (value === location.path ? null : value))}
-        onDrop={(event) => handleDrop(event, location.path)}
+        data-drop-path={location.path}
+        data-drop-label={location.name}
       >
         {options.child ? <span className="nav-child-indent" aria-hidden="true" /> : null}
         <LocationIcon icon={location.icon} />
@@ -187,7 +166,7 @@ export function Sidebar() {
       return (
         <div
           key={`pinned-${path}`}
-          className={`nav-row ${current === path ? "selected" : ""} ${dropTarget === path ? "drop-target" : ""}`}
+          className={`nav-row ${current === path ? "selected" : ""}`}
           role="treeitem"
           aria-selected={current === path}
           tabIndex={0}
@@ -199,9 +178,8 @@ export function Sidebar() {
               void navigate(path);
             }
           }}
-          onDragOver={(event) => dragOver(event, path)}
-          onDragLeave={() => setDropTarget((value) => (value === path ? null : value))}
-          onDrop={(event) => handleDrop(event, path)}
+          data-drop-path={path}
+          data-drop-label={basename(path)}
         >
           <span className="sidebar-icon">
             <FileGlyph category="folder" size={16} />

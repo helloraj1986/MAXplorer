@@ -18,6 +18,16 @@ export type ThemeMode = "system" | "light" | "dark";
  */
 export type InterfaceTheme = "windows" | "finder";
 export type ConflictPolicy = "error" | "replace" | "rename" | "skip";
+export type PaneId = "left" | "right";
+export type TransferMode = "copy" | "move";
+export type TransferStatus =
+  | "queued"
+  | "scanning"
+  | "running"
+  | "paused"
+  | "completed"
+  | "failed"
+  | "cancelled";
 
 export interface FileEntry {
   name: string;
@@ -155,6 +165,132 @@ export interface TabState {
   searchScanned: number;
 }
 
+/**
+ * Navigation and view state for one side of the window. Single-pane mode uses
+ * the left pane; dual-pane mode gives each side its own tabs and preferences.
+ */
+export interface PaneState {
+  tabs: TabState[];
+  activeTabId: string;
+  viewMode: ViewMode;
+  sortKey: SortKey;
+  sortDirection: SortDirection;
+  groupBy: GroupBy;
+  showHidden: boolean;
+  showExtensions: boolean;
+  collapsed: boolean;
+}
+
+export interface ShortcutMap {
+  toggleDualPane: string;
+  copyToOtherPane: string;
+  moveToOtherPane: string;
+  switchPane: string;
+}
+
+export interface TransferProgress {
+  id: number;
+  status: string;
+  phase: string;
+  currentFile: string | null;
+  processedBytes: number;
+  totalBytes: number;
+  processedItems: number;
+  totalItems: number;
+  bytesPerSecond: number;
+  etaSeconds: number | null;
+  message: string | null;
+}
+
+export interface TransferOutcome {
+  id: number;
+  cancelled: boolean;
+  paused: boolean;
+  results: OperationResult[];
+  totalBytes: number;
+  processedBytes: number;
+  totalItems: number;
+  processedItems: number;
+}
+
+export interface TransferItem {
+  id: string;
+  numericId: number;
+  mode: TransferMode;
+  status: TransferStatus;
+  sourcePane: PaneId;
+  destinationPane: PaneId;
+  sources: string[];
+  destination: string;
+  conflict: ConflictPolicy;
+  createdAt: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+  phase: string;
+  currentFile: string | null;
+  processedBytes: number;
+  totalBytes: number;
+  processedItems: number;
+  totalItems: number;
+  bytesPerSecond: number;
+  etaSeconds: number | null;
+  message: string | null;
+  error: string | null;
+  results: OperationResult[];
+}
+
+export interface ComparisonProgress {
+  requestId: number;
+  scanned: number;
+  total: number;
+  current: string | null;
+  cancelled: boolean;
+}
+
+export interface ComparisonEntry {
+  name: string;
+  leftPath: string | null;
+  rightPath: string | null;
+  leftSize: number | null;
+  rightSize: number | null;
+  leftModified: number | null;
+  rightModified: number | null;
+  isDir: boolean;
+  sizeDiffers: boolean;
+  modifiedDiffers: boolean;
+  contentEqual: boolean | null;
+}
+
+export interface FolderComparison {
+  left: string;
+  right: string;
+  entries: ComparisonEntry[];
+  leftOnly: number;
+  rightOnly: number;
+  different: number;
+  identical: number;
+  contentVerified: number;
+  cancelled: boolean;
+  scanned: number;
+  errors: number;
+}
+
+export interface FolderComparisonState {
+  requestId: number;
+  left: string;
+  right: string;
+  verifyContent: boolean;
+  loading: boolean;
+  scanned: number;
+  total: number;
+  current: string | null;
+  result: FolderComparison | null;
+  cancelled: boolean;
+  error: string | null;
+  filterDifferences: boolean;
+  open: boolean;
+}
+
 export type DialogState =
   | {
       kind: "confirm";
@@ -180,6 +316,7 @@ export type DialogState =
       title: string;
       message: string;
       conflicts: string[];
+      destination?: string;
       onChoose: (policy: ConflictPolicy) => void | Promise<void>;
     }
   | {
@@ -208,8 +345,9 @@ export type ContextMenuState =
       y: number;
       path: string;
       isDir: boolean;
+      paneId?: PaneId;
     }
-  | { kind: "blank"; x: number; y: number };
+  | { kind: "blank"; x: number; y: number; paneId?: PaneId };
 
 export interface ToastMessage {
   id: string;
@@ -225,9 +363,41 @@ export interface OperationState {
   detail?: string;
 }
 
+export interface PersistedTab {
+  id: string;
+  location: string;
+  history: string[];
+  historyIndex: number;
+}
+
+export interface PersistedPaneState {
+  tabs: PersistedTab[];
+  activeTabId: string;
+  viewMode: ViewMode;
+  sortKey: SortKey;
+  sortDirection: SortDirection;
+  groupBy: GroupBy;
+  showHidden: boolean;
+  showExtensions: boolean;
+  collapsed: boolean;
+}
+
+export interface TransferHistoryItem {
+  id: string;
+  mode: TransferMode;
+  status: TransferStatus;
+  sources: string[];
+  destination: string;
+  completedAt: number;
+  totalBytes: number;
+  processedBytes: number;
+  message: string | null;
+}
+
 export interface PersistedState {
   version: 1;
-  tabs: Array<Pick<TabState, "id" | "location" | "history" | "historyIndex">>;
+  /** Legacy mirror of the left pane, kept so older builds can read new data. */
+  tabs: PersistedTab[];
   activeTabId: string;
   viewMode: ViewMode;
   sortKey: SortKey;
@@ -243,6 +413,13 @@ export interface PersistedState {
   sidebarWidth: number;
   pinned: string[];
   recents: RecentItem[];
+  dualPane: boolean;
+  activePane: PaneId;
+  splitRatio: number;
+  syncNavigation: boolean;
+  panes: Record<PaneId, PersistedPaneState>;
+  shortcuts: ShortcutMap;
+  transferHistory: TransferHistoryItem[];
 }
 
 export const HOME_LOCATION = "win11://home";

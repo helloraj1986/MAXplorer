@@ -52,7 +52,8 @@ captured the screenshot above (Home view, real `/Users/runner` filesystem).
 - **File operations**: create folder, create text file, create shortcut (symlink), copy,
   cut, paste, rename, duplicate, move, drag to folder, send to Desktop/Documents/Downloads,
   delete to Trash, and permanent delete. Name conflicts offer replace, keep both, skip,
-  or cancel. Destructive operations are confirmed.
+  or cancel. Destructive operations are confirmed. Cut entries are dimmed, and a completed
+  move reloads the source folder in both panes so it never looks like a copy.
 - **Context menus**: file/folder context menu, blank-area context menu, New/Sort/View/
   Group submenus, and nested Send to. All displayed actions are functional.
 - **Details and preview**: metadata, permissions, owner IDs on macOS, folder size scan,

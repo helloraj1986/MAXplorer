@@ -81,6 +81,8 @@ export type IconName =
   | "sync"
   | "sidebar"
   | "panel"
+  | "columns"
+  | "compare"
   | "fullscreen"
   | "renameFile"
   | "palette"
@@ -519,6 +521,19 @@ const ICONS: Record<IconName, ReactNode> = {
     <>
       <rect x="3.5" y="4.5" width="13" height="11" rx="1" />
       <path d="M12 4.5v11" />
+    </>
+  ),
+  columns: (
+    <>
+      <rect x="3" y="4.5" width="6" height="11" rx="1" />
+      <rect x="11" y="4.5" width="6" height="11" rx="1" />
+    </>
+  ),
+  compare: (
+    <>
+      <rect x="3" y="5" width="5.5" height="10" rx="1" />
+      <rect x="11.5" y="5" width="5.5" height="10" rx="1" />
+      <path d="M9 7.5h2M9 12.5h2" />
     </>
   ),
   fullscreen: (

@@ -1,21 +1,58 @@
-import type { InterfaceTheme, PersistedState, TabState, ThemeMode } from "./types";
+import type {
+  GroupBy,
+  InterfaceTheme,
+  PaneId,
+  PersistedPaneState,
+  PersistedState,
+  PersistedTab,
+  ShortcutMap,
+  SortDirection,
+  SortKey,
+  TabState,
+  ThemeMode,
+  TransferHistoryItem,
+  ViewMode,
+} from "./types";
 import { HOME_LOCATION } from "./types";
 import { DEFAULT_INTERFACE_THEME, normalizeInterfaceTheme, normalizeThemeMode } from "./theme";
+import { DEFAULT_SHORTCUTS, clampSplitRatio, normalizeAccelerator } from "./panes";
 
 export const STORAGE_KEY = "win11-explorer-state-v1";
 export const WINDOW_STORAGE_KEY = "win11-explorer-window-v1";
 
-export function defaultPersisted(tab: Pick<TabState, "id" | "location" | "history" | "historyIndex">): PersistedState {
+const DEFAULT_PANE: Omit<PersistedPaneState, "tabs" | "activeTabId"> = {
+  viewMode: "details",
+  sortKey: "name",
+  sortDirection: "asc",
+  groupBy: "none",
+  showHidden: false,
+  showExtensions: true,
+  collapsed: false,
+};
+
+function defaultPane(tab: Pick<TabState, "id" | "location" | "history" | "historyIndex">): PersistedPaneState {
   return {
-    version: 1,
     tabs: [tab],
     activeTabId: tab.id,
-    viewMode: "details",
-    sortKey: "name",
-    sortDirection: "asc",
-    groupBy: "none",
-    showHidden: false,
-    showExtensions: true,
+    ...DEFAULT_PANE,
+  };
+}
+
+export function defaultPersisted(
+  tab: Pick<TabState, "id" | "location" | "history" | "historyIndex">,
+): PersistedState {
+  const left = defaultPane(tab);
+  const right = defaultPane({ ...tab, id: `${tab.id}-right` });
+  return {
+    version: 1,
+    tabs: left.tabs,
+    activeTabId: left.activeTabId,
+    viewMode: left.viewMode,
+    sortKey: left.sortKey,
+    sortDirection: left.sortDirection,
+    groupBy: left.groupBy,
+    showHidden: left.showHidden,
+    showExtensions: left.showExtensions,
     detailsPane: false,
     previewPane: false,
     theme: "system",
@@ -30,6 +67,13 @@ export function defaultPersisted(tab: Pick<TabState, "id" | "location" | "histor
     sidebarWidth: 204,
     pinned: [],
     recents: [],
+    dualPane: false,
+    activePane: "left",
+    splitRatio: 0.5,
+    syncNavigation: false,
+    panes: { left, right },
+    shortcuts: { ...DEFAULT_SHORTCUTS },
+    transferHistory: [],
   };
 }
 
@@ -47,6 +91,90 @@ const SORT_KEYS = new Set(["name", "date", "type", "size"]);
 const GROUP_BY = new Set(["none", "type", "date", "size"]);
 const THEMES = new Set(["system", "light", "dark"]);
 
+function parseTabs(value: unknown): PersistedTab[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (tab): tab is PersistedTab =>
+        !!tab &&
+        typeof tab === "object" &&
+        typeof (tab as PersistedTab).id === "string" &&
+        typeof (tab as PersistedTab).location === "string" &&
+        Array.isArray((tab as PersistedTab).history) &&
+        (tab as PersistedTab).history.every((item) => typeof item === "string") &&
+        typeof (tab as PersistedTab).historyIndex === "number",
+    )
+    .map((tab) => ({
+      ...tab,
+      location: tab.location || HOME_LOCATION,
+      history: tab.history.length ? tab.history : [tab.location || HOME_LOCATION],
+      historyIndex: Math.max(0, Math.min(tab.historyIndex, Math.max(0, tab.history.length - 1))),
+    }));
+}
+
+function parsePane(value: unknown): PersistedPaneState | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Partial<PersistedPaneState>;
+  const tabs = parseTabs(raw.tabs);
+  if (!tabs.length) return null;
+  const activeTabId =
+    typeof raw.activeTabId === "string" && tabs.some((tab) => tab.id === raw.activeTabId)
+      ? raw.activeTabId
+      : tabs[0].id;
+  return {
+    tabs,
+    activeTabId,
+    viewMode: VIEW_MODES.has(raw.viewMode ?? "") ? raw.viewMode! : "details",
+    sortKey: SORT_KEYS.has(raw.sortKey ?? "") ? raw.sortKey! : "name",
+    sortDirection: raw.sortDirection === "desc" ? "desc" : "asc",
+    groupBy: GROUP_BY.has(raw.groupBy ?? "") ? raw.groupBy! : "none",
+    showHidden: Boolean(raw.showHidden),
+    showExtensions: raw.showExtensions !== false,
+    collapsed: Boolean(raw.collapsed),
+  };
+}
+
+function parseShortcutMap(value: unknown): ShortcutMap {
+  if (!value || typeof value !== "object") return { ...DEFAULT_SHORTCUTS };
+  const raw = value as Partial<Record<keyof ShortcutMap, unknown>>;
+  const read = (key: keyof ShortcutMap) =>
+    typeof raw[key] === "string"
+      ? normalizeAccelerator(raw[key] as string, DEFAULT_SHORTCUTS[key])
+      : DEFAULT_SHORTCUTS[key];
+  return {
+    toggleDualPane: read("toggleDualPane"),
+    copyToOtherPane: read("copyToOtherPane"),
+    moveToOtherPane: read("moveToOtherPane"),
+    switchPane: read("switchPane"),
+  };
+}
+
+const TRANSFER_STATUSES = new Set([
+  "queued",
+  "scanning",
+  "running",
+  "paused",
+  "completed",
+  "failed",
+  "cancelled",
+]);
+
+function parseTransferHistory(value: unknown): TransferHistoryItem[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (item): item is TransferHistoryItem =>
+        !!item &&
+        typeof item === "object" &&
+        typeof (item as TransferHistoryItem).id === "string" &&
+        typeof (item as TransferHistoryItem).destination === "string" &&
+        Array.isArray((item as TransferHistoryItem).sources) &&
+        typeof (item as TransferHistoryItem).completedAt === "number" &&
+        TRANSFER_STATUSES.has((item as TransferHistoryItem).status),
+    )
+    .slice(0, 40);
+}
+
 /**
  * Pure parser for a persisted snapshot. Returns `null` for missing, malformed,
  * or incompatible data so callers can fall back to defaults.
@@ -56,29 +184,33 @@ export function parsePersisted(raw: string | null): PersistedState | null {
   try {
     const value = JSON.parse(raw) as Partial<PersistedState>;
     if (!value || value.version !== 1) return null;
-    const tabs = Array.isArray(value.tabs)
-      ? value.tabs
-          .filter(
-            (tab): tab is PersistedState["tabs"][number] =>
-              !!tab &&
-              typeof tab.id === "string" &&
-              typeof tab.location === "string" &&
-              Array.isArray(tab.history) &&
-              tab.history.every((item) => typeof item === "string") &&
-              typeof tab.historyIndex === "number",
-          )
-          .map((tab) => ({
-            ...tab,
-            location: tab.location || HOME_LOCATION,
-            history: tab.history.length ? tab.history : [tab.location || HOME_LOCATION],
-            historyIndex: Math.max(0, Math.min(tab.historyIndex, Math.max(0, tab.history.length - 1))),
-          }))
-      : [];
-    if (!tabs.length) return null;
-    const activeTabId =
-      typeof value.activeTabId === "string" && tabs.some((tab) => tab.id === value.activeTabId)
-        ? value.activeTabId
-        : tabs[0].id;
+    const legacyTabs = parseTabs(value.tabs);
+    const parsedPanes = value.panes as Partial<Record<PaneId, unknown>> | undefined;
+    const left =
+      parsePane(parsedPanes?.left) ??
+      (legacyTabs.length
+        ? {
+            tabs: legacyTabs,
+            activeTabId:
+              typeof value.activeTabId === "string" &&
+              legacyTabs.some((tab) => tab.id === value.activeTabId)
+                ? value.activeTabId
+                : legacyTabs[0].id,
+            viewMode: VIEW_MODES.has(value.viewMode ?? "") ? (value.viewMode as ViewMode) : "details",
+            sortKey: SORT_KEYS.has(value.sortKey ?? "") ? (value.sortKey as SortKey) : "name",
+            sortDirection: (value.sortDirection === "desc" ? "desc" : "asc") as SortDirection,
+            groupBy: GROUP_BY.has(value.groupBy ?? "") ? (value.groupBy as GroupBy) : "none",
+            showHidden: Boolean(value.showHidden),
+            showExtensions: value.showExtensions !== false,
+            collapsed: false,
+          }
+        : null);
+    if (!left) return null;
+    const right = parsePane(parsedPanes?.right) ?? {
+      ...left,
+      tabs: left.tabs.map((tab) => ({ ...tab, id: `${tab.id}-right` })),
+      activeTabId: `${left.activeTabId}-right`,
+    };
     const columnWidths =
       value.columnWidths && typeof value.columnWidths === "object"
         ? {
@@ -91,14 +223,14 @@ export function parsePersisted(raw: string | null): PersistedState | null {
         : { name: 272, date: 144, type: 120, size: 80, location: 260 };
     return {
       version: 1,
-      tabs,
-      activeTabId,
-      viewMode: VIEW_MODES.has(value.viewMode ?? "") ? value.viewMode! : "details",
-      sortKey: SORT_KEYS.has(value.sortKey ?? "") ? value.sortKey! : "name",
-      sortDirection: value.sortDirection === "desc" ? "desc" : "asc",
-      groupBy: GROUP_BY.has(value.groupBy ?? "") ? value.groupBy! : "none",
-      showHidden: Boolean(value.showHidden),
-      showExtensions: value.showExtensions !== false,
+      tabs: left.tabs,
+      activeTabId: left.activeTabId,
+      viewMode: left.viewMode,
+      sortKey: left.sortKey,
+      sortDirection: left.sortDirection,
+      groupBy: left.groupBy,
+      showHidden: left.showHidden,
+      showExtensions: left.showExtensions,
       detailsPane: Boolean(value.detailsPane),
       previewPane: Boolean(value.previewPane),
       theme: THEMES.has(value.theme ?? "") ? value.theme! : "system",
@@ -120,6 +252,15 @@ export function parsePersisted(raw: string | null): PersistedState | null {
             )
             .slice(0, 30)
         : [],
+      dualPane: value.dualPane === true,
+      activePane: value.activePane === "right" ? "right" : "left",
+      splitRatio: clampSplitRatio(
+        typeof value.splitRatio === "number" ? value.splitRatio : 0.5,
+      ),
+      syncNavigation: value.syncNavigation === true,
+      panes: { left, right },
+      shortcuts: parseShortcutMap(value.shortcuts),
+      transferHistory: parseTransferHistory(value.transferHistory),
     };
   } catch {
     return null;

@@ -1,14 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "./Icon";
 import { MenuPanel } from "./Menu";
 import { useExplorerStore } from "../state/explorerStore";
+import { useElementSize } from "../hooks/useElementSize";
 import { basename, breadcrumbs } from "../lib/format";
 import { copyTextToClipboard } from "../lib/clipboard";
-import { HOME_LOCATION } from "../lib/types";
+import { HOME_LOCATION, type PaneId } from "../lib/types";
 
-export function NavigationBar() {
+export function NavigationBar({ paneId }: { paneId?: PaneId }) {
+  const activePane = useExplorerStore((state) => state.activePane);
+  const id = paneId ?? activePane;
   const platform = useExplorerStore((state) => state.platform);
-  const activeTab = useExplorerStore((state) => state.tabs.find((tab) => tab.id === state.activeTabId));
+  const activeTab = useExplorerStore((state) => state.panes[id].tabs.find((tab) => tab.id === state.panes[id].activeTabId));
   const breadcrumbItems = useMemo(
     () =>
       breadcrumbs(
@@ -34,6 +37,19 @@ export function NavigationBar() {
   const addressRef = useRef<HTMLInputElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const addressWrapRef = useRef<HTMLDivElement>(null);
+  const crumbsRef = useRef<HTMLDivElement>(null);
+  const { ref: navbarRef, width: navbarWidth } = useElementSize<HTMLDivElement>();
+
+  // Panes can be dragged very narrow in dual-pane mode, so the bar adapts to its
+  // own width instead of the window width.
+  const density: "regular" | "compact" | "narrow" | "tiny" =
+    navbarWidth === 0 || navbarWidth >= 900
+      ? "regular"
+      : navbarWidth >= 620
+        ? "compact"
+        : navbarWidth >= 440
+          ? "narrow"
+          : "tiny";
 
   const location = activeTab?.location ?? HOME_LOCATION;
   const canBack = (activeTab?.historyIndex ?? 0) > 0;
@@ -45,6 +61,7 @@ export function NavigationBar() {
 
   useEffect(() => {
     const focusAddress = () => {
+      if (useExplorerStore.getState().activePane !== id) return;
       setDraft(location === HOME_LOCATION ? "Home" : location);
       setEditing(true);
       setAddressError(null);
@@ -54,6 +71,7 @@ export function NavigationBar() {
       }, 0);
     };
     const focusSearch = () => {
+      if (useExplorerStore.getState().activePane !== id) return;
       window.setTimeout(() => {
         searchRef.current?.focus();
         searchRef.current?.select();
@@ -65,7 +83,7 @@ export function NavigationBar() {
       window.removeEventListener("explorer:focus-address", focusAddress);
       window.removeEventListener("explorer:focus-search", focusSearch);
     };
-  }, [location]);
+  }, [id, location]);
 
   useEffect(() => {
     if (!editing) return;
@@ -88,15 +106,23 @@ export function NavigationBar() {
     return () => window.removeEventListener("pointerdown", close, true);
   }, [addressMenu]);
 
+  // When the path does not fit, keep the current folder in view instead of the
+  // root end of the trail.
+  useLayoutEffect(() => {
+    const element = crumbsRef.current;
+    if (!element) return;
+    element.scrollLeft = element.scrollWidth;
+  }, [location, navbarWidth, editing]);
+
   const submitAddress = async () => {
     const value = draft.trim();
     if (!value) return;
     if (value === "Home" || value === "home") {
       setEditing(false);
-      await navigate(HOME_LOCATION);
+      await navigate(HOME_LOCATION, { paneId: id });
       return;
     }
-    const ok = await navigate(value);
+    const ok = await navigate(value, { paneId: id });
     if (ok) {
       setEditing(false);
       setAddressError(null);
@@ -117,14 +143,19 @@ export function NavigationBar() {
   };
 
   return (
-    <div className="navbar">
+    <div
+      className="navbar"
+      data-density={density}
+      ref={navbarRef}
+      onPointerDown={() => useExplorerStore.getState().setActivePane(id)}
+    >
       <button
         type="button"
         className="nav-btn"
         aria-label="Back"
         title="Back (Alt+Left)"
         disabled={!canBack}
-        onClick={() => void goBack()}
+        onClick={() => void goBack(id)}
       >
         <Icon name="back" size={16} />
       </button>
@@ -134,7 +165,7 @@ export function NavigationBar() {
         aria-label="Forward"
         title="Forward (Alt+Right)"
         disabled={!canForward}
-        onClick={() => void goForward()}
+        onClick={() => void goForward(id)}
       >
         <Icon name="forward" size={16} />
       </button>
@@ -144,7 +175,7 @@ export function NavigationBar() {
         aria-label="Up"
         title="Up one level (Alt+Up)"
         disabled={!canUp}
-        onClick={() => void goUp()}
+        onClick={() => void goUp(id)}
       >
         <Icon name="up" size={16} />
       </button>
@@ -185,10 +216,14 @@ export function NavigationBar() {
               }}
             />
           ) : (
-            <div className="breadcrumbs" onDoubleClick={() => {
-              setDraft(location === HOME_LOCATION ? "Home" : location);
-              setEditing(true);
-            }}>
+            <div
+              className="breadcrumbs"
+              ref={crumbsRef}
+              onDoubleClick={() => {
+                setDraft(location === HOME_LOCATION ? "Home" : location);
+                setEditing(true);
+              }}
+            >
               {breadcrumbItems.map((crumb, index) => (
                 <span className="crumb-wrap" key={`${crumb.path}-${index}`}>
                   <button
@@ -197,7 +232,7 @@ export function NavigationBar() {
                     title={crumb.path}
                     onClick={() => {
                       setAddressError(null);
-                      void navigate(crumb.path);
+                      void navigate(crumb.path, { paneId: id });
                     }}
                   >
                     {index === 0 && platform?.platform !== "macos" ? (
@@ -256,11 +291,14 @@ export function NavigationBar() {
         className={`nav-btn refresh-btn ${activeTab?.loading ? "spinning" : ""}`}
         aria-label="Refresh"
         title="Refresh (F5)"
-        onClick={() => void refresh()}
+        onClick={() => void refresh(id)}
       >
         <Icon name="refresh" size={16} />
       </button>
-      <div className={`search-box ${activeTab?.searchLoading ? "loading" : ""}`}>
+      <div
+        className={`search-box ${activeTab?.searchLoading ? "loading" : ""}`}
+        onClick={() => searchRef.current?.focus()}
+      >
         <span className="search-icon" aria-hidden="true">
           {activeTab?.searchLoading ? (
             <Icon name="spinner" size={16} className="spin" />
@@ -276,14 +314,14 @@ export function NavigationBar() {
           placeholder={`Search ${folderName}`}
           aria-label={`Search ${folderName}`}
           spellCheck={false}
-          onChange={(event) => setSearchQuery(event.target.value)}
+          onChange={(event) => setSearchQuery(event.target.value, id)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();
-              void runSearch();
+              void runSearch(id);
             } else if (event.key === "Escape") {
               event.preventDefault();
-              clearSearch();
+              clearSearch(id);
               searchRef.current?.blur();
             }
           }}
@@ -295,7 +333,7 @@ export function NavigationBar() {
             aria-label="Clear search"
             title="Clear search"
             onClick={() => {
-              clearSearch();
+              clearSearch(id);
               searchRef.current?.focus();
             }}
           >

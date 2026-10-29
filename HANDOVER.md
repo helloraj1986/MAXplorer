@@ -2,8 +2,8 @@
 
 | Field | Value |
 | --- | --- |
-| Document version | 1.1 |
-| Handover date | 2026-10-28 |
+| Document version | 1.2 |
+| Handover date | 2026-10-29 |
 | Project version | 0.1.0 (released); main now includes the dual-theme and app-icon work |
 | Repository | https://github.com/helloraj1986/win11-explorer-macos (private) |
 | Release | https://github.com/helloraj1986/win11-explorer-macos/releases/tag/v0.1.0 |
@@ -34,13 +34,24 @@ The project is **feature-complete for the scoped feature set**. The shipped 0.1.
 launches, renders the Windows 11 shell, and browses real macOS folders; the project owner
 confirmed it working on a Mac on 2026-10-28.
 
-Since that release, `main` has gained two presentation-level changes:
+Since that release, `main` has gained these changes:
 
 - **Dual interface themes** — Windows 11 Explorer and macOS Finder, each in light and dark,
   switchable at runtime from the Appearance dialog. Behavior, state, and filesystem access
   are shared; only tokens and layout CSS differ.
 - **Real `.app` icons** — application bundles in `/Applications` show their own ICNS/PNG
   artwork instead of a generic executable glyph.
+- **Dual-pane workspace** — independent left/right panes, resizable/collapsible split,
+  real streamed copy/move with conflict prompts and progress, read-only folder comparison,
+  and optional synchronized navigation. See `docs/ARCHITECTURE.md` and
+  `docs/FEATURE_MATRIX.md`.
+
+Latest fix in the working tree (2026-10-29): Cmd+X then Cmd+V looked like a copy on macOS.
+The move itself worked; `paste()` attributed the transfer to the destination pane, so the
+pane the items came from kept listing them, and cut items had no visual state. Moves now
+also reload every pane showing a source folder, and cut entries are dimmed like Explorer.
+See `docs/DEVELOPMENT_LOG.md` (Phase 11). The rebuilt bundle is on disk but has **not**
+been installed over `/Applications` yet, so the interactive macOS pass is still pending.
 
 Both changes are validated on the Windows development host (WebView2) and covered by unit
 tests. The published 0.1.0 DMG predates them.
@@ -52,31 +63,38 @@ Verified before this handover:
 - macOS 14 CI build of the merged `main` tree succeeded on 2026-10-28 (run `40648095307`,
   5m19s: typecheck, 49 frontend tests, 18 Rust tests, universal build, DMG verification).
 - Owner-confirmed interactive run on a Mac for the 0.1.0 baseline.
-- `npm run typecheck`, `npm test` (**49 tests / 8 files**), `cargo test` (**18 tests**),
-  `npm run build` all passing on the Windows development host.
+- The owner's macOS `transferHistory` (read from the app's WKWebView localStorage)
+  confirmed that cut+paste ran as `mode: move` / `completed`, which isolated the
+  2026-10-29 report to stale source-pane reloads rather than a copy fallback.
+- `npm run typecheck`, `npm test` (**83 tests / 11 files**), `cargo test` (**28 tests**),
+  `npm run build` all passing on the development host (dual-pane feature pass plus the
+  cut/paste fix).
 - Windows release build exercised for UI/interaction validation.
 - Theme switching, persistence, keyboard activation, both appearances, and synthetic
   `.app` icons exercised in the Windows dev build; see `docs/VALIDATION.md`.
 
 Not verified (see [§8](#8-known-limitations-and-risks)): a formal macOS interaction pass
-for the theme and app-icon work, Developer ID signing, notarization, and Mac App Store
-sandboxing.
+for the theme, app-icon, and cut/paste work; Developer ID signing, notarization; and Mac
+App Store sandboxing.
 
 ### Next session at a glance
 
 Start here; everything else in this document is reference.
 
-1. `git pull` on `main` (the dual-theme and app-icon work is merged as `49085c7`).
+1. `git pull` on `main` (the dual-theme and app-icon work is merged as `49085c7`; the
+   cut/paste source-pane fix may still be uncommitted - check `git status`).
 2. Re-run the four checks in [§5](#tests-and-checks-run-before-every-push) to confirm the
    tree is clean.
 3. On a Mac, build and launch the current source, then run the pending interaction pass:
    switch to the Finder theme in both appearances, browse real `/Applications`, and confirm
-   real bundle icons, traffic lights, menus, and TCC prompts.
+   real bundle icons, traffic lights, menus, and TCC prompts. Also cut a file in one pane,
+   paste it in the other, and confirm the source pane clears immediately and no copy is
+   left on disk.
 4. Record what you observe in `docs/VALIDATION.md` and add screenshots to
    `docs/screenshots/`. If anything fails, fix it before starting new features.
 5. Only then move on to the distribution work in [§10](#10-suggested-next-steps-prioritized).
 
-Do not assume the published `v0.1.0` DMG reflects `main`: it predates both changes.
+Do not assume the published `v0.1.0` DMG reflects `main`: it predates these changes.
 
 ---
 
@@ -125,12 +143,15 @@ src/                          React + TypeScript UI
   hooks/                      Keyboard, theme, virtual rows, marquee, window persistence
   lib/                        Typed IPC API, themes, app icons, formatting, sorting, history,
                               tabs, persistence
-  state/explorerStore.ts      Single Zustand store: tabs, navigation, selection, operations
+  state/explorerStore.ts      Single Zustand store: panes, tabs, navigation, selection,
+                              clipboard, transfers, dialogs
   styles/                     tokens.css + app.css + finder.css (scoped Finder layout)
 src-tauri/                    Rust backend
-  src/commands.rs             All 26 Tauri commands; platform launching
+  src/commands.rs             All 31 Tauri commands; platform launching
   src/listing.rs              Directory reads, metadata, hidden files, symlinks
   src/operations.rs           Copy/move/rename/delete/duplicate/conflict resolution
+  src/transfer.rs             Streamed copy/move queue: 256 KB chunks, progress, pause/cancel
+  src/compare.rs              Read-only folder comparison with optional byte verification
   src/search.rs               Bounded, cancellable recursive name search
   src/metadata.rs             Properties, folder stats, text preview, sidebar locations
   src/app_icons.rs            `.app` icon lookup, ICNS extraction, PNG data URLs
@@ -169,7 +190,7 @@ Rules the codebase follows:
 - **Errors are coded**, not stringly-typed: `src-tauri/src/error.rs` maps I/O failures to
   permission / not-found / conflict / invalid-name / protected-path / generic, and the UI
   renders distinct states (including an "Open System Settings" action for TCC denials).
-- **One store, explicit actions.** `explorerStore.ts` (~42 KB) is the only state owner;
+- **One store, explicit actions.** `explorerStore.ts` (~70 KB) is the only state owner;
   components subscribe via selectors. Adding a feature means adding a store action, not
   local component state.
 
@@ -183,7 +204,7 @@ Rules the codebase follows:
   for `.app` bundles; both themes use the same icons. If extraction fails, a built-in
   application glyph is used.
 
-### Tauri command surface (26 commands)
+### Tauri command surface (31 commands)
 
 | Group | Commands |
 | --- | --- |
@@ -192,6 +213,8 @@ Rules the codebase follows:
 | Search | `search_files`, `cancel_search` |
 | Create | `create_folder`, `create_text_file`, `create_symlink` |
 | Modify | `rename_path`, `copy_paths`, `move_paths`, `delete_paths`, `duplicate_paths` |
+| Transfer | `transfer_paths`, `cancel_transfer`, `pause_transfer` |
+| Compare | `compare_folders`, `cancel_compare` |
 | Inspect | `get_properties`, `get_folder_stats`, `read_text_preview`, `list_applications`, `read_app_icon` |
 | Launch | `open_path`, `reveal_path`, `open_terminal`, `open_with`, `open_system_settings` |
 
@@ -232,8 +255,8 @@ npm run tauri:dev
 
 ```bash
 npm run typecheck     # tsc --noEmit
-npm test              # vitest, 49 tests / 8 files
-npm run test:cargo    # cargo test, 18 tests (10 filesystem + 8 app icons)
+npm test              # vitest, 83 tests / 11 files
+npm run test:cargo    # cargo test, 28 tests (filesystem, app icons, transfer, comparison)
 npm run build         # tsc -b && vite build
 ```
 
@@ -328,6 +351,11 @@ Send to submenus, details pane (metadata, permissions, owner IDs, folder size), 
 System Settings deep-link for denied permissions, dark/light/system appearance, and full
 state persistence.
 
+Cut and paste: a completed move reloads every pane that is showing one of the source
+folders, not only the pane that received the paste, so a move cannot be mistaken for a
+copy. Entries on the clipboard in cut mode are dimmed in details, list, and icon views
+until they are pasted or the cut is replaced.
+
 Interface themes: **Windows 11 Explorer** and **macOS Finder**, each in light and dark.
 The Finder theme adds traffic lights backed by the same Tauri window APIs, a unified
 toolbar, a source-list sidebar with a footer entry to the Appearance dialog, 28/24 px rows,
@@ -378,8 +406,9 @@ Honest boundaries of 0.1.0, ordered by importance to a successor:
 4. **Search is name-based** and bounded (500 results / 8 s / 200,000 entries), skipping
    `Library`, `.git`, `node_modules`. No indexed content search.
 5. **No undo stack.** Delete confirms and moves to Trash; there is no Windows-style Undo.
-6. **Copy/move progress is indeterminate** — operations run off the UI thread and report
-   completion, but bytes are not streamed.
+6. **Copy/move progress is streaming but coarse.** `transfer.rs` streams 256 KB chunks and
+   reports speed/ETA, but the size/item scan runs before the operation starts; there is no
+   per-file pause between chunks.
 7. **Omitted features:** Gallery, Quick Look, PDF preview, compressed folders, column filter
    dropdowns, Properties tabs beyond General, ACL editing.
 8. **Share** copies the path and offers Reveal in Finder instead of the macOS share sheet.
@@ -400,6 +429,9 @@ Honest boundaries of 0.1.0, ordered by importance to a successor:
 13. **CI cost control is partial.** Docs-only and `reference/`-only pushes are skipped, but
     any source change still rebuilds the universal DMG (~6 min of macOS runner time). Cargo
     and target caching are not configured.
+14. **Background-tab staleness after a move.** The post-transfer refresh reloads the active
+    tab of each affected pane. A background tab that shows a moved-from folder is only
+    reloaded when it is activated, so it can briefly list a file that has already moved.
 
 ---
 
@@ -422,9 +454,12 @@ Honest boundaries of 0.1.0, ordered by importance to a successor:
 
 ## 10. Suggested next steps (prioritized)
 
-1. **Finish the macOS interaction pass for themes and app icons** (the only unverified
-   user-facing work): Finder theme in light and dark, real `/Applications` icons, traffic
-   lights, menus, TCC prompts, drag/drop, and Open With. Record evidence in
+1. **Finish the macOS interaction pass for themes, app icons, and cut/paste** (the only
+   unverified user-facing work). Install the rebuilt bundle from
+   `src-tauri/target/universal-apple-darwin/release/bundle/macos/` (or rebuild), then check
+   the Finder theme in light and dark, real `/Applications` icons, traffic lights, menus,
+   TCC prompts, drag/drop, and Open With; and cut in one dual pane, paste in the other, and
+   confirm the source pane clears at once with no copy left behind. Record evidence in
    `docs/VALIDATION.md`.
 2. **Developer ID signing + notarization** in CI, so the DMG opens without workarounds.
 3. **macOS UI smoke automation** (e.g. AppleScript/`osascript` or XCUITest driving the
@@ -487,10 +522,13 @@ on macOS and operates on the real filesystem. It is feature-complete for its sco
 confirmed working on a Mac, with a universal DMG published as `v0.1.0`. Since that release,
 `main` adds two interchangeable interface themes (Windows 11 and macOS Finder, each light
 and dark) and real `.app` bundle icons, both presentation-only and sharing the same
-behavior. The Rust backend owns all filesystem access through 26 typed commands; the React
-UI is a single Zustand store plus a component layer styled with design tokens. Tests and
-typechecking pass (49 frontend / 18 Rust), and CI builds and smoke-launches the DMG on
-macOS 14. The immediate work is to finish the macOS interaction pass for the themes and
-app icons, then distribution polish — Developer ID signing and notarization — followed by
-macOS UI automation and streamed file operation progress. Everything you need to build,
+behavior. It now also has an optional dual-pane workspace with independent pane state,
+real streaming copy/move with progress and conflict handling, read-only folder comparison,
+and synchronized navigation. The Rust backend owns all filesystem access; the React UI is
+a single Zustand store plus a component layer styled with design tokens. Tests and
+typechecking pass (83 frontend / 28 Rust), and CI builds and smoke-launches the DMG on
+macOS 14. The immediate work is to finish the macOS interaction pass for the themes,
+app icons, and cut/paste source-pane reload, then distribution polish — Developer ID
+signing and notarization — followed by macOS UI automation and streamed file operation
+progress. Everything you need to build,
 test, release, and extend it is in `README.md` and `docs/`.

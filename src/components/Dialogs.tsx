@@ -238,6 +238,11 @@ function ConflictDialog({ dialog, close }: { dialog: Extract<DialogState, { kind
       }
     >
       <p className="dialog-message">{dialog.message}</p>
+      {dialog.destination ? (
+        <p className="conflict-destination">
+          Destination: <code>{dialog.destination}</code>
+        </p>
+      ) : null}
       <div className="conflict-list">
         {dialog.conflicts.slice(0, 8).map((name) => (
           <div className="conflict-row" key={name}>
@@ -669,20 +674,36 @@ function ThemesDialog({ close }: { close: () => void }) {
 
 function PreferencesDialog({ close }: { close: () => void }) {
   const theme = useExplorerStore((state) => state.theme);
-  const viewMode = useExplorerStore((state) => state.viewMode);
-  const showHidden = useExplorerStore((state) => state.showHidden);
-  const showExtensions = useExplorerStore((state) => state.showExtensions);
+  const activePane = useExplorerStore((state) => state.activePane);
+  const pane = useExplorerStore((state) => state.panes[state.activePane]);
+  const viewMode = pane.viewMode;
+  const showHidden = pane.showHidden;
+  const showExtensions = pane.showExtensions;
   const detailsPane = useExplorerStore((state) => state.detailsPane);
   const previewPane = useExplorerStore((state) => state.previewPane);
+  const dualPane = useExplorerStore((state) => state.dualPane);
+  const syncNavigation = useExplorerStore((state) => state.syncNavigation);
+  const shortcuts = useExplorerStore((state) => state.shortcuts);
+  const platform = useExplorerStore((state) => state.platform);
   const setTheme = useExplorerStore((state) => state.setTheme);
   const setViewMode = useExplorerStore((state) => state.setViewMode);
   const setShowHidden = useExplorerStore((state) => state.setShowHidden);
   const setShowExtensions = useExplorerStore((state) => state.setShowExtensions);
   const setDetailsPane = useExplorerStore((state) => state.setDetailsPane);
   const setPreviewPane = useExplorerStore((state) => state.setPreviewPane);
+  const setDualPane = useExplorerStore((state) => state.setDualPane);
+  const setSyncNavigation = useExplorerStore((state) => state.setSyncNavigation);
+  const setShortcut = useExplorerStore((state) => state.setShortcut);
+  const resetShortcuts = useExplorerStore((state) => state.resetShortcuts);
   const clearRecents = useExplorerStore((state) => state.clearRecents);
   const openDialog = useExplorerStore((state) => state.openDialog);
   const interfaceTheme = useExplorerStore((state) => state.interfaceTheme);
+  const shortcutRows: Array<{ key: keyof typeof shortcuts; label: string }> = [
+    { key: "toggleDualPane", label: "Toggle dual-pane mode" },
+    { key: "copyToOtherPane", label: "Copy to other pane" },
+    { key: "moveToOtherPane", label: "Move to other pane" },
+    { key: "switchPane", label: "Switch active pane" },
+  ];
 
   return (
     <Modal
@@ -728,7 +749,7 @@ function PreferencesDialog({ close }: { close: () => void }) {
           <select
             value={viewMode}
             onChange={(event) => {
-              setViewMode(event.target.value as ViewMode);
+              setViewMode(event.target.value as ViewMode, activePane);
             }}
           >
             <option value="details">Details</option>
@@ -748,7 +769,7 @@ function PreferencesDialog({ close }: { close: () => void }) {
               type="checkbox"
               checked={showHidden}
               onChange={(event) => {
-                void setShowHidden(event.target.checked);
+                void setShowHidden(event.target.checked, activePane);
               }}
             />
             <span>Hidden items</span>
@@ -758,7 +779,7 @@ function PreferencesDialog({ close }: { close: () => void }) {
               type="checkbox"
               checked={showExtensions}
               onChange={(event) => {
-                setShowExtensions(event.target.checked);
+                setShowExtensions(event.target.checked, activePane);
               }}
             />
             <span>File name extensions</span>
@@ -783,6 +804,48 @@ function PreferencesDialog({ close }: { close: () => void }) {
             />
             <span>Preview pane</span>
           </label>
+        </section>
+        <section>
+          <h3>Dual-pane mode</h3>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={dualPane}
+              onChange={(event) => {
+                setDualPane(event.target.checked);
+              }}
+            />
+            <span>Show two file panes side by side</span>
+          </label>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={syncNavigation}
+              onChange={(event) => {
+                setSyncNavigation(event.target.checked);
+              }}
+            />
+            <span>Synchronize navigation using the panes' relative folders</span>
+          </label>
+          <p className="preferences-hint">
+            Accelerators use Mod for {platform?.modifier === "cmd" ? "Command" : "Control"}, for example
+            Mod+Shift+M or F5. Changes apply immediately.
+          </p>
+          <div className="shortcut-settings">
+            {shortcutRows.map((row) => (
+              <label className="shortcut-setting" key={row.key}>
+                <span>{row.label}</span>
+                <input
+                  value={shortcuts[row.key]}
+                  spellCheck={false}
+                  onChange={(event) => setShortcut(row.key, event.target.value)}
+                />
+              </label>
+            ))}
+          </div>
+          <button type="button" className="link-button" onClick={resetShortcuts}>
+            Reset shortcuts
+          </button>
         </section>
         <section>
           <h3>Privacy</h3>

@@ -198,7 +198,8 @@
 
 [data-ui-theme="finder"] .chrome > .navbar > .address-wrap {
   order: 2;
-  flex: 1;
+  flex: 1 1 240px;
+  min-width: 96px;
   margin: 0 10px;
 }
 
@@ -735,8 +736,54 @@
 /* ------------------------------------------------------- Responsive layout */
 
 @media (max-width: 980px) {
-  [data-ui-theme="finder"] .chrome > .navbar > .search-box {
+  [data-ui-theme="finder"] .chrome > .navbar:not([data-density="tiny"]) > .search-box {
     flex-basis: 160px;
     min-width: 110px;
   }
+}
+
+/* ------------------------------------------------- Dual pane (Finder theme) */
+
+[data-ui-theme="finder"] .pane-head {
+  background: var(--finder-toolbar);
+  border-bottom-color: var(--finder-separator);
+}
+
+[data-ui-theme="finder"] .pane-tab-strip .tab {
+  border-radius: 6px;
+}
+
+[data-ui-theme="finder"] .pane-splitter {
+  background: var(--finder-toolbar);
+}
+
+[data-ui-theme="finder"] .pane-splitter-grip {
+  background: var(--finder-separator);
+}
+
+[data-ui-theme="finder"] .pane-rail {
+  background: var(--finder-toolbar);
+  border-color: var(--finder-separator);
+}
+
+[data-ui-theme="finder"] .pane-shell > .navbar {
+  background: var(--finder-toolbar);
+  border-bottom: 1px solid var(--finder-separator);
+  height: 42px;
+  flex-basis: 42px;
+  padding: 0 8px;
+}
+
+[data-ui-theme="finder"] .pane-shell > .navbar .address-wrap {
+  flex: 1 1 240px;
+  min-width: 96px;
+}
+
+[data-ui-theme="finder"] .pane-shell.active {
+  box-shadow: inset 0 0 0 1px var(--finder-separator);
+}
+
+[data-ui-theme="finder"] .comparison-panel,
+[data-ui-theme="finder"] .transfer-panel {
+  border-color: var(--finder-separator);
 }

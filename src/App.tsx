@@ -5,12 +5,16 @@ import { CommandBar } from "./components/CommandBar";
 import { NavigationBar } from "./components/NavigationBar";
 import { Sidebar } from "./components/Sidebar";
 import { FileArea } from "./components/FileArea";
+import { DualPaneWorkspace } from "./components/DualPaneWorkspace";
 import { DetailsPane } from "./components/DetailsPane";
 import { PreviewPane } from "./components/PreviewPane";
 import { StatusBar } from "./components/StatusBar";
+import { TransferPanel } from "./components/TransferPanel";
+import { ComparisonPanel } from "./components/ComparisonPanel";
 import { ContextMenu } from "./components/ContextMenu";
 import { Dialogs } from "./components/Dialogs";
 import { Toasts } from "./components/Toasts";
+import { FileDragOverlay } from "./components/FileDragOverlay";
 import { OperationOverlay } from "./components/OperationOverlay";
 import { Icon } from "./components/Icon";
 import { useExplorerStore } from "./state/explorerStore";
@@ -26,7 +30,12 @@ export default function App() {
   const fatalError = useExplorerStore((state) => state.fatalError);
   const detailsPane = useExplorerStore((state) => state.detailsPane);
   const previewPane = useExplorerStore((state) => state.previewPane);
-  const activeTab = useExplorerStore((state) => state.tabs.find((tab) => tab.id === state.activeTabId));
+  const dualPane = useExplorerStore((state) => state.dualPane);
+  const activeTab = useExplorerStore(
+    (state) => state.panes[state.activePane].tabs.find(
+      (tab) => tab.id === state.panes[state.activePane].activeTabId,
+    ),
+  );
   const platform = useExplorerStore((state) => state.platform);
   const interfaceTheme = useExplorerStore((state) => state.interfaceTheme);
   const [osDropActive, setOsDropActive] = useState(false);
@@ -62,9 +71,7 @@ export default function App() {
         } else if (event.payload.type === "drop") {
           setOsDropActive(false);
           const store = useExplorerStore.getState();
-          const tab = store.activeTab();
-          const destination =
-            tab.location === HOME_LOCATION ? store.platform?.home : tab.location;
+          const destination = store.currentFolder();
           if (!destination || !event.payload.paths.length) return;
           void store.moveOrCopyPaths(event.payload.paths, destination, "copy");
         }
@@ -132,25 +139,32 @@ export default function App() {
   return (
     <div className={`app-shell ${osDropActive ? "os-drop-active" : ""}`}>
       <TitleBar />
-      <div className="chrome">
+      <div className={`chrome ${dualPane ? "dual-chrome" : ""}`}>
         <CommandBar />
-        <NavigationBar />
+        {!dualPane ? <NavigationBar /> : null}
       </div>
       <div className="main-area">
         <Sidebar />
-        <div className="workspace">
-          <div className="file-pane">
-            <FileArea />
+        {dualPane ? (
+          <DualPaneWorkspace />
+        ) : (
+          <div className="workspace">
+            <div className="file-pane">
+              <FileArea />
+            </div>
+            {detailsPane ? <DetailsPane /> : null}
+            {previewPane ? <PreviewPane /> : null}
           </div>
-          {detailsPane ? <DetailsPane /> : null}
-          {previewPane ? <PreviewPane /> : null}
-        </div>
+        )}
       </div>
+      <ComparisonPanel />
       <StatusBar />
       <ContextMenu />
       <Dialogs />
       <OperationOverlay />
       <Toasts />
+      <TransferPanel />
+      <FileDragOverlay />
       {osDropActive ? (
         <div className="os-drop-overlay">
           <div className="os-drop-card">

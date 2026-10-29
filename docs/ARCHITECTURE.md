@@ -85,7 +85,9 @@ src-tauri/src/
    run blocking filesystem work on `spawn_blocking`.
 4. Rust returns serialized camelCase structs or an `AppError` object.
 5. Store merges only responses that still match the tab's location/request generation.
-6. File mutations refresh the affected listing and show a result toast.
+6. File mutations refresh the affected listing and show a result toast. A completed move
+   also reloads every pane that shows one of the source folders, because a paste records
+   the destination pane as the transfer source.
 7. Persistence subscribes to the store and debounces a validated snapshot.
 
 Search is cancellable by request ID. A stale result cannot overwrite a newer query or a
@@ -154,6 +156,9 @@ live in the store.
 
 Persisted (versioned) fields exclude derived/transient state. Invalid stored values are
 rejected or clamped. Window bounds are stored separately and clamped to the visible screen.
+Dual-pane fields (`dualPane`, `activePane`, `splitRatio`, `syncNavigation`, `panes`,
+`shortcuts`, `transferHistory`) are optional extensions of the same version-1 snapshot;
+legacy snapshots without `panes` are read as a left pane plus a fresh right pane.
 The theme pair is also read by a tiny inline bootstrap in `index.html` (mirrored in
 `main.tsx`) so the first paint already uses the saved design; theme changes are applied by
 mutating `data-ui-theme` / `data-theme` on `<html>`, without remounting the shell.
@@ -181,6 +186,43 @@ Finder shell ─────┘
   touches tabs, navigation, selection, search, or file operations.
 - Persistence is part of the existing snapshot (`interfaceTheme` + `theme`), so switching
   is debounced and restored exactly like the other preferences.
+
+## Dual-pane mode
+
+`PaneId` is `"left" | "right"`; every pane owns its tabs, active tab, view/sort/group,
+hidden/extension preferences, and collapsed state. Single-pane mode renders the left pane
+in the original shell, so existing behavior and details/preview panes are unchanged.
+
+- `DualPaneWorkspace.tsx` renders the split, a pointer/keyboard splitter, and collapse
+  rails. The ratio is clamped to 0.18–0.82; either pane can be collapsed, but both cannot
+  collapse at once. `App.tsx` keeps the global title bar, command bar, sidebar, comparison
+  dock, and status bar outside the panes.
+- `PaneTabs.tsx`, `NavigationBar.tsx`, `FileArea.tsx`, `HomeView.tsx`, and the keyboard
+  hooks accept an explicit `paneId`; the active pane is the default target. Tab/shortcut
+  actions are active-pane scoped.
+- `lib/panes.ts` contains the pure helpers: pane creation, split clamping, synchronized
+  path mapping, conflict detection, recursive-transfer guard, accelerator parsing, and
+  persistence mapping. `deriveSyncAnchors` only maps between related folder trees and
+  returns `null` for unrelated or Home locations, so synchronized navigation stays a
+  no-op until a valid mapping exists.
+- Transfers are queued in the store and executed by real Rust code in `transfer.rs`
+  (`transfer_paths`, `cancel_transfer`, `pause_transfer`). Files stream in 256 KB chunks to
+  a temporary `.part` file and are renamed into place only after a successful sync; moves
+  remove the source only after success. Conflicts are resolved by the backend policy
+  (`error`/`replace`/`rename`/`skip`) and are never silent. Progress is emitted as
+  `transfer-progress`, including speed and ETA. The store's clipboard carries `copy` or
+  `cut`; cut entries are dimmed in every view, and `panesShowingSources` decides which
+  panes to reload after a move so the operation never reads as a copy.
+- Folder comparison is read-only. `compare.rs` lists both folders, compares names, sizes,
+  timestamps, and optionally file bytes, and emits `compare-progress`. `ComparisonPanel`
+  exposes differences-only filtering and content-verification; no comparison command
+  mutates the filesystem.
+- Drag payloads carry `application/x-win11-explorer-paths` plus the source pane. Folder
+  rows, blank pane space, Home, and pane tabs accept the payload; Alt/Meta means copy and
+  the default is move. Drop hints mirror the effective operation.
+- Defaults: `Mod+Shift+M` toggles dual-pane, `F5` copies to the opposite pane, `F6` moves,
+  and `Tab` switches panes while the file list has focus. All are editable in Preferences
+  and persisted. In single-pane mode F5 keeps its original refresh meaning.
 
 ## macOS integration
 

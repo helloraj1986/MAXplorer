@@ -1,7 +1,12 @@
-import { useCallback, useRef, useState } from "react";
-import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, RefObject } from "react";
-import type { FileEntry } from "../lib/types";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, RefObject } from "react";
+import type { FileEntry, PaneId } from "../lib/types";
 import { displayName } from "../lib/format";
+import {
+  hasAdditiveSelectionModifier,
+  selectionIntent,
+  selectionModifierFor,
+} from "../lib/interaction";
 import { useExplorerStore } from "../state/explorerStore";
 
 export interface FileNavigationOptions {
@@ -9,6 +14,13 @@ export interface FileNavigationOptions {
   columns?: number;
   scrollToPath: (path: string) => void;
   containerRef: RefObject<HTMLDivElement>;
+  paneId?: PaneId;
+}
+
+/** A modifier click already changed selection on pointerdown. */
+interface SuppressedClick {
+  path: string;
+  until: number;
 }
 
 export function useFileNavigation({
@@ -16,16 +28,23 @@ export function useFileNavigation({
   columns = 1,
   scrollToPath,
   containerRef,
+  paneId,
 }: FileNavigationOptions) {
-  const platform = useExplorerStore((state) => state.platform);
-  const showExtensions = useExplorerStore((state) => state.showExtensions);
-  const activeTab = useExplorerStore((state) => state.tabs.find((tab) => tab.id === state.activeTabId));
+  const interfaceTheme = useExplorerStore((state) => state.interfaceTheme);
+  const activePane = useExplorerStore((state) => state.activePane);
+  const id = paneId ?? activePane;
+  const showExtensions = useExplorerStore((state) => state.panes[id].showExtensions);
+  const activeTab = useExplorerStore(
+    (state) => state.panes[id].tabs.find((tab) => tab.id === state.panes[id].activeTabId),
+  );
   const setSelection = useExplorerStore((state) => state.setSelection);
   const toggleAt = useExplorerStore((state) => state.toggleAt);
   const selectRangeTo = useExplorerStore((state) => state.selectRangeTo);
   const openEntry = useExplorerStore((state) => state.openEntry);
   const [focusedPath, setFocusedPath] = useState<string | null>(null);
   const typeAhead = useRef({ value: "", time: 0 });
+  const suppressedClick = useRef<SuppressedClick | null>(null);
+  const collapseOnClick = useRef<string | null>(null);
 
   const selected = activeTab?.selection ?? [];
   const anchor = activeTab?.anchorPath ?? null;
@@ -33,38 +52,90 @@ export function useFileNavigation({
   const selectEntry = useCallback(
     (entry: FileEntry, additive: boolean) => {
       if (additive) {
-        const current = useExplorerStore.getState().activeTab().selection;
+        const current = useExplorerStore.getState().activeTab(id).selection;
         if (current.includes(entry.path)) {
-          setSelection(current.filter((path) => path !== entry.path), entry.path);
+          setSelection(current.filter((path) => path !== entry.path), entry.path, id);
         } else {
-          setSelection([...current, entry.path], entry.path);
+          setSelection([...current, entry.path], entry.path, id);
         }
       } else {
-        setSelection([entry.path], entry.path);
+        setSelection([entry.path], entry.path, id);
       }
       setFocusedPath(entry.path);
       scrollToPath(entry.path);
     },
-    [scrollToPath, setSelection],
+    [id, scrollToPath, setSelection],
+  );
+
+  const focusEntry = useCallback(
+    (entry: FileEntry) => {
+      setFocusedPath(entry.path);
+      scrollToPath(entry.path);
+    },
+    [scrollToPath],
+  );
+
+  /**
+   * Selection is committed on pointerdown, matching Windows Explorer and
+   * avoiding WebKit's macOS-specific Control-click quirks. The trailing click
+   * is used only to collapse a multi-selection to the item that was pressed.
+   */
+  const handleRowPointerDown = useCallback(
+    (event: ReactPointerEvent, entry: FileEntry) => {
+      if (event.button !== 0) return;
+      containerRef.current?.focus({ preventScroll: true });
+      const intent = selectionIntent(event, interfaceTheme);
+      suppressedClick.current = null;
+      collapseOnClick.current = null;
+
+      if (intent === "range") {
+        selectRangeTo(entry, hasAdditiveSelectionModifier(event, interfaceTheme), id);
+        suppressedClick.current = { path: entry.path, until: performance.now() + 1200 };
+      } else if (intent === "toggle") {
+        toggleAt(entry, id);
+        suppressedClick.current = { path: entry.path, until: performance.now() + 1200 };
+      } else {
+        const current = useExplorerStore.getState().activeTab(id).selection;
+        if (current.includes(entry.path)) {
+          // Keep a multi-selection intact so pressing a selected item can drag
+          // the whole group. A completed click collapses it below.
+          if (current.length > 1) collapseOnClick.current = entry.path;
+        } else {
+          setSelection([entry.path], entry.path, id);
+        }
+      }
+      focusEntry(entry);
+    },
+    [containerRef, focusEntry, id, interfaceTheme, selectRangeTo, setSelection, toggleAt],
   );
 
   const handleRowClick = useCallback(
     (event: ReactMouseEvent, entry: FileEntry) => {
-      containerRef.current?.focus();
-      const modifier = platform?.modifier === "cmd" ? event.metaKey || event.ctrlKey : event.ctrlKey || event.metaKey;
-      if (event.shiftKey) {
-        selectRangeTo(entry, modifier);
-        setFocusedPath(entry.path);
-        scrollToPath(entry.path);
-      } else if (modifier) {
-        toggleAt(entry);
-        setFocusedPath(entry.path);
-        scrollToPath(entry.path);
-      } else {
-        selectEntry(entry, false);
+      containerRef.current?.focus({ preventScroll: true });
+      const suppressed = suppressedClick.current;
+      if (
+        suppressed &&
+        suppressed.path === entry.path &&
+        performance.now() <= suppressed.until
+      ) {
+        suppressedClick.current = null;
+        collapseOnClick.current = null;
+        return;
       }
+      suppressedClick.current = null;
+
+      const intent = selectionIntent(event, interfaceTheme);
+      if (intent === "range") {
+        selectRangeTo(entry, hasAdditiveSelectionModifier(event, interfaceTheme), id);
+      } else if (intent === "toggle") {
+        toggleAt(entry, id);
+      } else if (collapseOnClick.current === entry.path) {
+        setSelection([entry.path], entry.path, id);
+      }
+      collapseOnClick.current = null;
+      focusEntry(entry);
     },
-    [containerRef, platform?.modifier, scrollToPath, selectEntry, selectRangeTo, toggleAt],
+    [containerRef, focusEntry, id, interfaceTheme, selectRangeTo, setSelection, toggleAt],
   );
 
   const currentIndex = useCallback(() => {
@@ -74,21 +145,20 @@ export function useFileNavigation({
   }, [anchor, entries, focusedPath, selected]);
 
   const moveTo = useCallback(
-    (index: number, extend: boolean, toggle: boolean) => {
+    (index: number, extend: boolean, additive: boolean) => {
       if (!entries.length) return;
       const clamped = Math.max(0, Math.min(entries.length - 1, index));
       const entry = entries[clamped];
-      setFocusedPath(entry.path);
       if (extend) {
-        selectRangeTo(entry, toggle);
-      } else if (toggle) {
-        toggleAt(entry);
-      } else {
-        setSelection([entry.path], entry.path);
+        selectRangeTo(entry, additive, id);
+      } else if (!additive) {
+        setSelection([entry.path], entry.path, id);
       }
-      scrollToPath(entry.path);
+      // With the additive modifier, arrows move keyboard focus without changing
+      // the selection; Space toggles the focused item (Windows Explorer).
+      focusEntry(entry);
     },
-    [entries, scrollToPath, selectRangeTo, setSelection, toggleAt],
+    [entries, focusEntry, id, selectRangeTo, setSelection],
   );
 
   const onKeyDown = useCallback(
@@ -96,54 +166,59 @@ export function useFileNavigation({
       if (event.target instanceof HTMLInputElement) return;
       const index = currentIndex();
       const extend = event.shiftKey;
-      const toggle = event.ctrlKey || event.metaKey;
+      const modifier = selectionModifierFor(interfaceTheme);
+      const additive = modifier === "meta" ? event.metaKey : event.ctrlKey || event.metaKey;
       switch (event.key) {
         case "ArrowDown":
           event.preventDefault();
-          moveTo(index < 0 ? 0 : index + columns, extend, toggle);
+          moveTo(index < 0 ? 0 : index + columns, extend, additive);
           return;
         case "ArrowUp":
           event.preventDefault();
-          moveTo(index < 0 ? 0 : index - columns, extend, toggle);
+          moveTo(index < 0 ? 0 : index - columns, extend, additive);
           return;
         case "ArrowRight":
           event.preventDefault();
-          moveTo(index < 0 ? 0 : index + 1, extend, toggle);
+          moveTo(index < 0 ? 0 : index + 1, extend, additive);
           return;
         case "ArrowLeft":
           event.preventDefault();
-          moveTo(index < 0 ? 0 : index - 1, extend, toggle);
+          moveTo(index < 0 ? 0 : index - 1, extend, additive);
           return;
         case "Home":
           event.preventDefault();
-          moveTo(0, extend, toggle);
+          moveTo(0, extend, additive);
           return;
         case "End":
           event.preventDefault();
-          moveTo(entries.length - 1, extend, toggle);
+          moveTo(entries.length - 1, extend, additive);
           return;
         case "PageDown":
           event.preventDefault();
-          moveTo(index < 0 ? 10 : index + 10, extend, toggle);
+          moveTo(index < 0 ? 10 : index + 10, extend, additive);
           return;
         case "PageUp":
           event.preventDefault();
-          moveTo(index < 0 ? 0 : index - 10, extend, toggle);
+          moveTo(index < 0 ? 0 : index - 10, extend, additive);
           return;
         case " ":
           event.preventDefault();
           if (index >= 0) {
-            toggleAt(entries[index]);
+            toggleAt(entries[index], id);
             setFocusedPath(entries[index].path);
           }
           return;
-        case "Enter":
-          if (selected.length) {
+        case "Enter": {
+          const focusPath = focusedPath ?? anchor ?? selected[selected.length - 1] ?? null;
+          const target = focusPath
+            ? entries.find((entry) => entry.path === focusPath)
+            : undefined;
+          if (target) {
             event.preventDefault();
-            const target = entries.find((entry) => entry.path === selected[selected.length - 1]);
-            if (target) void openEntry(target);
+            void openEntry(target, id);
           }
           return;
+        }
         default:
           break;
       }
@@ -164,7 +239,21 @@ export function useFileNavigation({
         }
       }
     },
-    [columns, currentIndex, entries, moveTo, openEntry, selectEntry, selected, showExtensions, toggleAt],
+    [
+      anchor,
+      columns,
+      currentIndex,
+      entries,
+      focusedPath,
+      id,
+      interfaceTheme,
+      moveTo,
+      openEntry,
+      selectEntry,
+      selected,
+      showExtensions,
+      toggleAt,
+    ],
   );
 
   const onFocus = useCallback(() => {
@@ -173,5 +262,26 @@ export function useFileNavigation({
     }
   }, [entries, selected.length]);
 
-  return { onKeyDown, handleRowClick, selectEntry, focusedPath, onFocus };
+  // Pane switching and Escape dispatch a focus request so keyboard navigation
+  // resumes in the file list even when focus was elsewhere. Only the pane named
+  // in the event detail (or the active pane for a detail-less request) reacts.
+  useEffect(() => {
+    const focusList = (event: Event) => {
+      const detail = (event as CustomEvent<{ paneId?: PaneId }>).detail;
+      if (detail?.paneId && detail.paneId !== id) return;
+      if (!detail?.paneId && useExplorerStore.getState().activePane !== id) return;
+      containerRef.current?.focus({ preventScroll: true });
+    };
+    window.addEventListener("explorer:focus-list", focusList);
+    return () => window.removeEventListener("explorer:focus-list", focusList);
+  }, [containerRef, id]);
+
+  return {
+    onKeyDown,
+    handleRowClick,
+    handleRowPointerDown,
+    selectEntry,
+    focusedPath,
+    onFocus,
+  };
 }

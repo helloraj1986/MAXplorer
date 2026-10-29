@@ -1,5 +1,7 @@
 import { useEffect } from "react";
 import { useExplorerStore } from "../state/explorerStore";
+import { matchesShortcut } from "../lib/panes";
+import { hasSelectAllModifier } from "../lib/interaction";
 import type { ViewMode } from "../lib/types";
 
 const VIEW_SHORTCUTS: Record<string, ViewMode> = {
@@ -29,10 +31,13 @@ function focusEvent(name: string): void {
 
 export function useKeyboardShortcuts(): void {
   const platform = useExplorerStore((state) => state.platform);
+  const interfaceTheme = useExplorerStore((state) => state.interfaceTheme);
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       const state = useExplorerStore.getState();
       const modifier = platform?.modifier === "cmd" ? event.metaKey : event.ctrlKey;
+      const modifierKey = platform?.modifier === "cmd" ? "cmd" : "ctrl";
+      const activePane = state.activePane;
       const editable = isEditable(event.target);
       const key = event.key;
       const lower = key.toLowerCase();
@@ -48,16 +53,38 @@ export function useKeyboardShortcuts(): void {
           event.preventDefault();
           return;
         }
-        if (state.activeTab().searchQuery || state.activeTab().searchResults) {
-          state.clearSearch();
+        if (state.activeTab(activePane).searchQuery || state.activeTab(activePane).searchResults) {
+          state.clearSearch(activePane);
           event.preventDefault();
           return;
+        }
+        if (state.activeTab(activePane).selection.length) {
+          state.clearSelection(activePane);
+          event.preventDefault();
         }
         focusEvent("explorer:focus-list");
         return;
       }
 
       if (editable) return;
+
+      // Pane switching is intentionally limited to the file browser so Tab
+      // keeps its normal meaning in inputs, dialogs, and menus.
+      if (
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        isFileList(event.target) &&
+        matchesShortcut(event, state.shortcuts.switchPane, modifierKey)
+      ) {
+        const target = activePane === "left" ? "right" : "left";
+        if (state.dualPane && !state.panes[target].collapsed) {
+          event.preventDefault();
+          state.setActivePane(target);
+          window.dispatchEvent(new CustomEvent("explorer:focus-list", { detail: { paneId: target } }));
+        }
+        return;
+      }
 
       // The file list owns these keys while it has focus.
       if (
@@ -67,19 +94,26 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
+      if (
+        matchesShortcut(event, state.shortcuts.toggleDualPane, modifierKey)
+      ) {
+        event.preventDefault();
+        state.toggleDualPane();
+        return;
+      }
       if (modifier && !event.shiftKey && lower === "t") {
         event.preventDefault();
-        void state.newTab();
+        void state.newTab(undefined, activePane);
         return;
       }
       if (modifier && lower === "w") {
         event.preventDefault();
-        void state.closeActiveTab();
+        void state.closeActiveTab(activePane);
         return;
       }
       if (modifier && key === "Tab") {
         event.preventDefault();
-        void state.cycleActiveTab(event.shiftKey ? -1 : 1);
+        void state.cycleActiveTab(event.shiftKey ? -1 : 1, activePane);
         return;
       }
       if (modifier && lower === "l") {
@@ -94,42 +128,42 @@ export function useKeyboardShortcuts(): void {
       }
       if (modifier && lower === "n" && event.shiftKey) {
         event.preventDefault();
-        void state.promptNewFolder();
+        void state.promptNewFolder(activePane);
         return;
       }
       if (modifier && lower === "n" && !event.shiftKey) {
         event.preventDefault();
-        void state.newTab();
+        void state.newTab(undefined, activePane);
         return;
       }
-      if (modifier && lower === "a") {
+      if (lower === "a" && !event.shiftKey && hasSelectAllModifier(event, interfaceTheme)) {
         event.preventDefault();
-        state.selectAll();
+        state.selectAll(activePane);
         return;
       }
       if (modifier && lower === "c" && event.shiftKey) {
         event.preventDefault();
-        void state.copyAsPath();
+        void state.copyAsPath(activePane);
         return;
       }
       if (modifier && lower === "c") {
         event.preventDefault();
-        state.copySelection();
+        state.copySelection(activePane);
         return;
       }
       if (modifier && lower === "x") {
         event.preventDefault();
-        state.cutSelection();
+        state.cutSelection(activePane);
         return;
       }
       if (modifier && lower === "v") {
         event.preventDefault();
-        void state.paste();
+        void state.paste(activePane);
         return;
       }
       if (modifier && lower === "r") {
         event.preventDefault();
-        void state.refresh();
+        void state.refresh(activePane);
         return;
       }
       if (modifier && lower === "i") {
@@ -139,27 +173,27 @@ export function useKeyboardShortcuts(): void {
       }
       if (modifier && event.shiftKey && VIEW_SHORTCUTS[event.code]) {
         event.preventDefault();
-        state.setViewMode(VIEW_SHORTCUTS[event.code]);
+        state.setViewMode(VIEW_SHORTCUTS[event.code], activePane);
         return;
       }
       if (modifier && lower === "d" && event.shiftKey) {
         event.preventDefault();
-        state.deleteSelection(false);
+        state.deleteSelection(false, activePane);
         return;
       }
       if (event.altKey && key === "ArrowLeft") {
         event.preventDefault();
-        void state.goBack();
+        void state.goBack(activePane);
         return;
       }
       if (event.altKey && key === "ArrowRight") {
         event.preventDefault();
-        void state.goForward();
+        void state.goForward(activePane);
         return;
       }
       if (event.altKey && key === "ArrowUp") {
         event.preventDefault();
-        void state.goUp();
+        void state.goUp(activePane);
         return;
       }
       if (event.altKey && key === "Enter") {
@@ -179,44 +213,54 @@ export function useKeyboardShortcuts(): void {
       }
       if (event.altKey && /^[1-9]$/.test(key)) {
         const index = Number(key) - 1;
-        const tab = state.tabs[index];
+        const tab = state.panes[activePane].tabs[index];
         if (tab) {
           event.preventDefault();
-          void state.activateTab(tab.id);
+          void state.activateTab(tab.id, activePane);
         }
+        return;
+      }
+      if (state.dualPane && matchesShortcut(event, state.shortcuts.copyToOtherPane, modifierKey)) {
+        event.preventDefault();
+        void state.copyToOtherPane();
+        return;
+      }
+      if (state.dualPane && matchesShortcut(event, state.shortcuts.moveToOtherPane, modifierKey)) {
+        event.preventDefault();
+        void state.moveToOtherPane();
         return;
       }
       if (key === "F5") {
         event.preventDefault();
-        void state.refresh();
+        void state.refresh(activePane);
         return;
       }
       if (key === "F2") {
         event.preventDefault();
-        state.promptRename();
+        state.promptRename(activePane);
         return;
       }
       if (key === "Delete") {
         event.preventDefault();
-        state.deleteSelection(event.shiftKey);
+        state.deleteSelection(event.shiftKey, activePane);
         return;
       }
       if (key === "Backspace") {
-        if (state.activeTab().searchQuery) return;
+        if (state.activeTab(activePane).searchQuery) return;
         event.preventDefault();
-        void state.goUp();
+        void state.goUp(activePane);
         return;
       }
       if (key === "Enter" && !modifier) {
-        const selected = state.selectedEntries();
+        const selected = state.selectedEntries(activePane);
         if (selected.length === 1) {
           event.preventDefault();
-          void state.openEntry(selected[0]);
+          void state.openEntry(selected[0], activePane);
         }
         return;
       }
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [platform?.modifier]);
+  }, [interfaceTheme, platform?.modifier]);
 }

@@ -5,11 +5,15 @@ import { FileGlyph } from "./FileGlyph";
 import { useExplorerStore } from "../state/explorerStore";
 import { api, assetUrl } from "../lib/api";
 import { formatDate, formatSize, isImageEntry, isTextEntry, typeName } from "../lib/format";
-import type { TextPreview } from "../lib/types";
+import type { PaneId, TextPreview } from "../lib/types";
 
-export function PreviewPane() {
-  const activeTab = useExplorerStore((state) => state.tabs.find((tab) => tab.id === state.activeTabId));
-  const selected = useExplorerStore(useShallow((state) => state.selectedEntries()));
+export function PreviewPane({ paneId = "left" }: { paneId?: PaneId }) {
+  const activeTab = useExplorerStore(
+    (state) => state.panes[paneId].tabs.find((tab) => tab.id === state.panes[paneId].activeTabId),
+  );
+  const selected = useExplorerStore(
+    useShallow((state) => state.selectedEntries(paneId)),
+  );
   const openEntry = useExplorerStore((state) => state.openEntry);
   const [textPreview, setTextPreview] = useState<TextPreview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -38,7 +42,7 @@ export function PreviewPane() {
       <div className="preview-header">
         <span>Preview</span>
         {entry ? (
-          <button type="button" className="preview-open" onClick={() => void openEntry(entry)}>
+          <button type="button" className="preview-open" onClick={() => void openEntry(entry, paneId)}>
             <Icon name="open" size={13} />
             Open
           </button>

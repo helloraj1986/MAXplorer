@@ -449,8 +449,10 @@ select:focus-visible,
 }
 
 .address-wrap {
-  flex: 1;
-  min-width: 0;
+  /* The path keeps a floor so it never collapses when a pane is narrow; the
+     search box is the part that gives up width first. */
+  flex: 1 1 240px;
+  min-width: 96px;
   position: relative;
   display: flex;
   margin-left: 7px;
@@ -504,6 +506,8 @@ select:focus-visible,
   display: flex;
   align-items: center;
   flex: 0 0 auto;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .crumb {
@@ -515,6 +519,15 @@ select:focus-visible,
   border-radius: 4px;
   color: var(--text-2);
   font-size: 12px;
+  white-space: nowrap;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.crumb > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -588,8 +601,8 @@ select:focus-visible,
 
 .search-box {
   height: 32px;
-  flex: 0 1 610px;
-  min-width: 180px;
+  flex: 0 3 610px;
+  min-width: 120px;
   display: flex;
   align-items: center;
   background: var(--field);
@@ -644,6 +657,70 @@ select:focus-visible,
 
 .search-clear:hover {
   background: var(--hover);
+}
+
+/* Narrow navigation bars (a dual-pane pane dragged small, or a small window).
+   The bar measures itself, so these tiers also apply per pane. The path keeps
+   its room; each tier hands less width to the search field. */
+.navbar[data-density="compact"] .search-box {
+  flex-basis: 320px;
+  min-width: 120px;
+}
+
+.navbar[data-density="narrow"] .refresh-btn {
+  display: none;
+}
+
+.navbar[data-density="narrow"] .address-wrap {
+  margin-left: 2px;
+}
+
+.navbar[data-density="narrow"] .search-box {
+  flex-basis: 240px;
+  min-width: 120px;
+}
+
+.navbar[data-density="tiny"] {
+  gap: 2px;
+  padding: 0 6px;
+}
+
+.navbar[data-density="tiny"] .nav-btn {
+  flex-basis: 30px;
+  width: 30px;
+}
+
+.navbar[data-density="tiny"] .refresh-btn,
+.navbar[data-density="tiny"] .address-folder,
+.navbar[data-density="tiny"] .address-dropdown {
+  display: none;
+}
+
+.navbar[data-density="tiny"] .address-wrap {
+  margin-left: 0;
+}
+
+.navbar[data-density="tiny"] .search-box {
+  flex: 0 0 34px;
+  min-width: 34px;
+  overflow: hidden;
+  cursor: text;
+}
+
+.navbar[data-density="tiny"] .search-icon {
+  flex-basis: 34px;
+}
+
+/* Clicking the icon-only field expands it across the bar while it has focus. */
+.navbar[data-density="tiny"] .search-box:focus-within {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  min-width: 0;
+  z-index: 30;
+  box-shadow: var(--shadow-1);
 }
 
 /* Main area */
@@ -1188,6 +1265,7 @@ select:focus-visible,
 
 .details-row.selected {
   background: var(--selected);
+  box-shadow: inset 0 0 0 1px var(--selection-border);
 }
 
 .details-row.selected:hover {
@@ -1240,6 +1318,23 @@ select:focus-visible,
   opacity: 0.62;
 }
 
+/* Items on the clipboard in cut mode stay in place but fade, like Explorer. */
+.details-row.cut .entry-icon,
+.details-row.cut .entry-name,
+.list-row.cut .entry-icon,
+.list-row.cut .entry-name,
+.grid-item.cut .grid-icon,
+.grid-item.cut .grid-name,
+.grid-item.cut .grid-meta {
+  opacity: 0.45;
+}
+
+.details-row.cut .entry-icon,
+.list-row.cut .entry-icon,
+.grid-item.cut .grid-icon {
+  filter: grayscale(0.55);
+}
+
 .group-row {
   position: absolute;
   left: 0;
@@ -1282,6 +1377,7 @@ select:focus-visible,
 
 .list-row.selected {
   background: var(--selected);
+  box-shadow: inset 0 0 0 1px var(--selection-border);
 }
 
 .list-row.selected:hover {
@@ -1334,6 +1430,7 @@ select:focus-visible,
 
 .grid-item.selected {
   background: var(--selected);
+  box-shadow: inset 0 0 0 1px var(--selection-border);
 }
 
 .grid-item.selected:hover {
@@ -1511,11 +1608,36 @@ select:focus-visible,
 }
 
 .marquee-box {
-  position: fixed;
-  z-index: 70;
-  border: 1px solid var(--accent);
+  position: absolute;
+  z-index: 60;
+  border: 1px solid var(--accent-border);
   background: var(--accent-soft);
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
   pointer-events: none;
+  will-change: left, top, width, height;
+}
+
+/* Keyboard focus is distinct from selection: a focused row keeps a visible
+   outline even when it is the only selected item, and deselected focus remains
+   legible while the pointer is elsewhere. */
+.details-row.focused,
+.list-row.focused,
+.grid-item.focused {
+  outline: 1px solid var(--accent-border);
+  outline-offset: -1px;
+}
+
+.details-row.selected.focused,
+.list-row.selected.focused,
+.grid-item.selected.focused {
+  outline-color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee-box {
+    transition: none;
+  }
 }
 
 /* Search summary and states */
@@ -3295,4 +3417,892 @@ select:focus-visible,
   .recent-path {
     display: none;
   }
+}
+
+/* ------------------------------------------------------------- Dual pane */
+
+.dual-pane {
+  align-items: stretch;
+}
+
+.dual-pane-slot {
+  /* The right slot absorbs the remaining width; the left slot gets an inline
+     flex-basis from the split ratio and must not grow, or the divider would be
+     pushed away from the pointer by the shared free space. */
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.pane-shell {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  position: relative;
+}
+
+.pane-shell.active {
+  box-shadow: inset 0 0 0 1px var(--accent-border);
+}
+
+.pane-head {
+  flex: 0 0 31px;
+  height: 31px;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding-left: 6px;
+  background: var(--mica);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  z-index: 12;
+}
+
+.pane-tab-strip {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+
+.pane-tab-strip .tabs {
+  flex: 1;
+  height: 100%;
+}
+
+.pane-tab-strip .tab {
+  height: 26px;
+  min-width: 104px;
+  max-width: 172px;
+  font-size: 11.5px;
+  border-radius: 6px 6px 0 0;
+}
+
+.pane-tab-strip .tab-new {
+  width: 24px;
+  height: 24px;
+  margin: 0 2px 2px;
+}
+
+.pane-head-actions {
+  display: flex;
+  align-items: center;
+  padding: 0 4px 3px;
+}
+
+.pane-collapse,
+.pane-expand {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  color: var(--text-3);
+}
+
+.pane-collapse:hover,
+.pane-expand:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.pane-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pane-shell > .navbar {
+  flex: 0 0 auto;
+}
+
+.pane-splitter {
+  flex: 0 0 6px;
+  align-self: stretch;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  touch-action: none;
+  position: relative;
+}
+
+.pane-splitter-grip {
+  width: 1px;
+  height: 34px;
+  border-radius: 1px;
+  background: var(--border-strong);
+}
+
+.pane-splitter:hover,
+.pane-splitter:focus-visible {
+  background: var(--accent-soft);
+  outline: none;
+}
+
+.pane-splitter:hover .pane-splitter-grip,
+.pane-splitter:focus-visible .pane-splitter-grip {
+  background: var(--accent);
+}
+
+body.resizing-panes {
+  cursor: col-resize;
+  user-select: none;
+}
+
+body.resizing-panes .pane-splitter {
+  background: var(--accent-soft);
+}
+
+.pane-rail {
+  flex: 0 0 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  cursor: pointer;
+  background: var(--mica);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
+.pane-rail:hover {
+  background: var(--hover);
+}
+
+.pane-rail-label {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 10.5px;
+  color: var(--text-3);
+  max-height: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane-drop-hint {
+  position: absolute;
+  inset: 10px;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 2px dashed var(--accent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent-soft) 82%, transparent);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  pointer-events: none;
+  backdrop-filter: blur(2px);
+}
+
+.pane-drop-hint.move {
+  border-color: var(--text-2);
+}
+
+/* Internal pointer drag (HTML5 drag events are not delivered by the Tauri
+   webview while native file drops are enabled). */
+.file-drag-ghost {
+  position: fixed;
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 260px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--menu-border);
+  background: var(--menu);
+  box-shadow: var(--shadow-2);
+  color: var(--text);
+  font-size: 12px;
+  pointer-events: none;
+  animation: fade-in 90ms ease-out;
+}
+
+.file-drag-ghost-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.file-drag-ghost-count {
+  flex: 0 0 auto;
+  min-width: 16px;
+  padding: 1px 4px;
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.file-drop-frame {
+  position: fixed;
+  z-index: 890;
+  border: 2px dashed var(--accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-soft) 60%, transparent);
+  pointer-events: none;
+}
+
+.file-drop-frame-label {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  max-width: calc(100% - 16px);
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent-soft) 85%, var(--surface));
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body.file-dragging,
+body.file-dragging * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
+body.file-dragging.file-drag-copy,
+body.file-dragging.file-drag-copy * {
+  cursor: copy !important;
+}
+
+.titlebar-dual-toggle {
+  width: 28px;
+  height: 26px;
+  align-self: center;
+  margin-right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: var(--text-2);
+}
+
+.titlebar-dual-toggle:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.titlebar-dual-toggle.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.dual-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  align-self: center;
+  padding: 0 10px;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Comparison row indicators */
+.compare-dot {
+  display: inline-block;
+  flex: 0 0 6px;
+  width: 6px;
+  height: 6px;
+  margin-left: 5px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+
+.compare-dot.compare-leftOnly,
+.comparison-badge.leftOnly {
+  background: #d9982f;
+  color: #3a2600;
+}
+
+.compare-dot.compare-rightOnly,
+.comparison-badge.rightOnly {
+  background: #3f8ee0;
+  color: #06172b;
+}
+
+.compare-dot.compare-size,
+.comparison-badge.size {
+  background: #9a6ce0;
+  color: #16052c;
+}
+
+.compare-dot.compare-modified,
+.comparison-badge.modified {
+  background: #4aa96c;
+  color: #04170a;
+}
+
+.compare-dot.compare-content,
+.comparison-badge.content {
+  background: #e05c5c;
+  color: #2b0505;
+}
+
+.comparison-badge.identical {
+  background: var(--hover);
+  color: var(--text-2);
+}
+
+/* Transfer panel */
+.transfer-panel {
+  position: fixed;
+  right: 12px;
+  bottom: calc(var(--statusbar-height) + 10px);
+  z-index: 90;
+  width: 372px;
+  max-width: calc(100vw - 24px);
+  max-height: min(58vh, 560px);
+  display: flex;
+  flex-direction: column;
+  background: var(--menu);
+  border: 1px solid var(--menu-border);
+  border-radius: 10px;
+  box-shadow: var(--menu-shadow);
+  overflow: hidden;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+.transfer-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 10px 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.transfer-header strong {
+  font-size: 12.5px;
+}
+
+.transfer-subtitle {
+  margin-left: 8px;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.transfer-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.transfer-close {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  color: var(--text-3);
+}
+
+.transfer-close:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.transfer-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.transfer-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 26px 18px;
+  color: var(--text-3);
+  text-align: center;
+  font-size: 12px;
+}
+
+.transfer-empty p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.transfer-item {
+  padding: 8px 9px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+}
+
+.transfer-item + .transfer-item {
+  margin-top: 4px;
+}
+
+.transfer-item:hover {
+  background: var(--hover);
+}
+
+.transfer-item.failed {
+  border-color: color-mix(in srgb, #e05c5c 50%, transparent);
+}
+
+.transfer-item-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  min-width: 0;
+}
+
+.transfer-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 0 0 auto;
+}
+
+.transfer-status {
+  color: var(--text-2);
+}
+
+.transfer-destination {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+  text-align: right;
+}
+
+.transfer-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.transfer-action {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--text-2);
+}
+
+.transfer-action:hover {
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+.transfer-progress-track {
+  height: 4px;
+  margin: 7px 0 5px;
+  border-radius: 2px;
+  background: var(--hover);
+  overflow: hidden;
+}
+
+.transfer-progress-track > span {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 140ms linear;
+}
+
+.transfer-progress-track > span.indeterminate {
+  opacity: 0.5;
+  animation: transfer-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes transfer-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.75; }
+}
+
+.transfer-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--text-3);
+  font-size: 10.5px;
+}
+
+.transfer-current {
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+  font-size: 10.5px;
+}
+
+.transfer-error {
+  margin-top: 5px;
+  color: #e05c5c;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.transfer-message {
+  margin-top: 4px;
+  color: var(--text-2);
+  font-size: 10.5px;
+}
+
+.transfer-history {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--border);
+  padding: 7px 10px 9px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.transfer-history h3 {
+  margin: 0 0 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+}
+
+.transfer-history-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+.transfer-history-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transfer-history-status {
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+.transfer-history-status.completed {
+  color: #4aa96c;
+}
+
+.transfer-history-status.failed {
+  color: #e05c5c;
+}
+
+/* Comparison panel */
+.comparison-panel {
+  flex: 0 0 auto;
+  max-height: 42vh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-raised);
+  border-top: 1px solid var(--border);
+  position: relative;
+  z-index: 6;
+}
+
+.comparison-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px 7px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.comparison-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.comparison-paths {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.comparison-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.comparison-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-2);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.comparison-filter input {
+  accent-color: var(--accent);
+}
+
+.comparison-progress {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+.comparison-progress .transfer-progress-track {
+  width: 140px;
+  flex: 0 0 140px;
+  margin: 0;
+}
+
+.comparison-current {
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comparison-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  color: #e05c5c;
+  font-size: 11px;
+}
+
+.comparison-table {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 8px 6px;
+}
+
+.comparison-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 1.4fr) minmax(110px, 1fr) minmax(110px, 1fr) 108px;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11.5px;
+}
+
+.comparison-row.head {
+  min-height: 22px;
+  color: var(--text-3);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-bottom: 1px solid var(--border);
+}
+
+.comparison-row:not(.head):hover {
+  background: var(--hover);
+}
+
+.comparison-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.comparison-row small {
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+.comparison-row em {
+  color: var(--text-3);
+  font-style: normal;
+}
+
+.comparison-name {
+  color: var(--text);
+}
+
+.comparison-scroll {
+  flex: 1;
+  min-height: 40px;
+  overflow-y: auto;
+}
+
+.comparison-badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.comparison-empty {
+  padding: 18px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.comparison-hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  color: var(--text-3);
+  font-size: 11px;
+  border-top: 1px solid var(--border);
+}
+
+/* Status bar pane indicator */
+.status-pane-chip {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.status-pane-chip.right {
+  background: var(--hover);
+  color: var(--text-2);
+}
+
+/* Shortcut settings */
+.shortcut-settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 6px 14px;
+  margin: 8px 0;
+}
+
+.shortcut-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.shortcut-setting input {
+  width: 132px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+}
+
+.shortcut-setting input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.preferences-hint {
+  margin: 6px 0 2px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.conflict-destination {
+  margin: 8px 0 0;
+  color: var(--text-2);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+@media (max-width: 900px) {
+  .transfer-panel {
+    width: min(340px, calc(100vw - 20px));
+  }
+
+  .comparison-row {
+    grid-template-columns: minmax(120px, 1.2fr) minmax(80px, 1fr) minmax(80px, 1fr) 92px;
+  }
+}
+
+.status-transfers {
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  margin-right: 4px;
+  border-radius: 11px;
+  color: var(--text-2);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.status-transfers:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.tab.file-drop-target {
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }

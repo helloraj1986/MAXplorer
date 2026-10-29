@@ -1,10 +1,13 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AppError,
   ApplicationInfo,
+  ComparisonProgress,
   ConflictPolicy,
   DirectoryListing,
   FileEntry,
+  FolderComparison,
   FolderStats,
   Location,
   OperationResult,
@@ -12,6 +15,9 @@ import type {
   Properties,
   SearchResult,
   TextPreview,
+  TransferMode,
+  TransferOutcome,
+  TransferProgress,
 } from "./types";
 
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -80,6 +86,33 @@ export const api = {
     call<OperationResult[]>("copy_paths", { paths, destination, conflict }),
   movePaths: (paths: string[], destination: string, conflict: ConflictPolicy) =>
     call<OperationResult[]>("move_paths", { paths, destination, conflict }),
+  transferPaths: (request: {
+    id: number;
+    paths: string[];
+    destination: string;
+    mode: TransferMode;
+    conflict: ConflictPolicy;
+  }) => call<TransferOutcome>("transfer_paths", { request }),
+  cancelTransfer: (id: number) => call<void>("cancel_transfer", { id }),
+  pauseTransfer: (id: number, paused: boolean) =>
+    call<void>("pause_transfer", { id, paused }),
+  compareFolders: (
+    left: string,
+    right: string,
+    verifyContent: boolean,
+    requestId: number,
+  ) => call<FolderComparison>("compare_folders", { left, right, verifyContent, requestId }),
+  cancelCompare: (requestId: number) => call<void>("cancel_compare", { requestId }),
+  onTransferProgress: (handler: (progress: TransferProgress) => void): Promise<UnlistenFn> => {
+    if (!isTauri) return Promise.resolve(() => undefined);
+    return listen<TransferProgress>("transfer-progress", (event) => handler(event.payload));
+  },
+  onCompareProgress: (
+    handler: (progress: ComparisonProgress) => void,
+  ): Promise<UnlistenFn> => {
+    if (!isTauri) return Promise.resolve(() => undefined);
+    return listen<ComparisonProgress>("compare-progress", (event) => handler(event.payload));
+  },
   deletePaths: (paths: string[], permanent: boolean) =>
     call<OperationResult[]>("delete_paths", { paths, permanent }),
   duplicatePaths: (paths: string[]) => call<OperationResult[]>("duplicate_paths", { paths }),

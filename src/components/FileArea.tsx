@@ -4,12 +4,17 @@ import { Icon } from "./Icon";
 import { FileGlyph } from "./FileGlyph";
 import { HomeView } from "./HomeView";
 import { useExplorerStore } from "../state/explorerStore";
+import { beginFileDrag } from "../state/fileDrag";
 import { useVirtualRows } from "../hooks/useVirtualRows";
 import { useFileNavigation } from "../hooks/useFileNavigation";
 import { useElementSize } from "../hooks/useElementSize";
 import { useThemeMetrics } from "../hooks/useTheme";
 import { useMarqueeSelection } from "../hooks/useMarqueeSelection";
 import { api } from "../lib/api";
+import {
+  hasAdditiveSelectionModifier,
+  isSelectionContextMenuGesture,
+} from "../lib/interaction";
 import {
   basename,
   displayName,
@@ -21,7 +26,19 @@ import {
   typeName,
 } from "../lib/format";
 import { groupEntries, sortEntries } from "../lib/sort";
-import { HOME_LOCATION, type FileEntry, type GroupBy, type SortKey, type ViewMode } from "../lib/types";
+import {
+  comparisonCategoryLabel,
+  comparisonIndicators,
+  type ComparisonCategory,
+} from "../lib/compare";
+import {
+  HOME_LOCATION,
+  type FileEntry,
+  type GroupBy,
+  type PaneId,
+  type SortKey,
+  type ViewMode,
+} from "../lib/types";
 
 interface ColumnDef {
   key: SortKey | "location";
@@ -30,9 +47,19 @@ interface ColumnDef {
   sortable: boolean;
 }
 
-function useSelectionSet(): Set<string> {
-  const selection = useExplorerStore((state) => state.tabs.find((tab) => tab.id === state.activeTabId)?.selection);
+function useSelectionSet(paneId: PaneId): Set<string> {
+  const selection = useExplorerStore(
+    (state) => state.panes[paneId].tabs.find((tab) => tab.id === state.panes[paneId].activeTabId)?.selection,
+  );
   return useMemo(() => new Set(selection ?? []), [selection]);
+}
+
+/** Paths that were cut and are waiting for a paste. Explorer dims them. */
+function useCutSet(): Set<string> {
+  const paths = useExplorerStore((state) =>
+    state.clipboard?.mode === "cut" ? state.clipboard.paths : null,
+  );
+  return useMemo(() => new Set(paths ?? []), [paths]);
 }
 
 function displayPath(path: string, home: string): string {
@@ -48,45 +75,68 @@ function entryTooltip(entry: FileEntry): string {
   return parts.filter(Boolean).join("\n");
 }
 
-function setDragData(event: React.DragEvent, entry: FileEntry, selection: string[], selected: Set<string>): string[] {
-  const paths = selected.has(entry.path) && selection.length ? selection : [entry.path];
-  event.dataTransfer.setData("application/x-win11-explorer-paths", JSON.stringify(paths));
-  event.dataTransfer.setData("text/plain", paths.join("\n"));
-  event.dataTransfer.effectAllowed = "copyMove";
-  if (!selected.has(entry.path)) {
-    useExplorerStore.getState().setSelection([entry.path], entry.path);
+function openContextMenu(
+  event: React.MouseEvent,
+  entry: FileEntry,
+  selected: Set<string>,
+  paneId: PaneId,
+): void {
+  const store = useExplorerStore.getState();
+  if (isSelectionContextMenuGesture(event, store.interfaceTheme)) {
+    // On macOS WebKit turns Ctrl+primary-click into a contextmenu event with
+    // button 0. In Windows interaction mode that gesture is a selection toggle,
+    // not a secondary click, so it must not open a menu.
+    event.preventDefault();
+    event.stopPropagation();
+    return;
   }
-  return paths;
-}
-
-function parseDragPaths(event: React.DragEvent): string[] {
-  const raw = event.dataTransfer.getData("application/x-win11-explorer-paths");
-  if (!raw) return [];
-  try {
-    const value = JSON.parse(raw) as unknown;
-    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function openContextMenu(event: React.MouseEvent, entry: FileEntry, selected: Set<string>): void {
   event.preventDefault();
   event.stopPropagation();
-  const store = useExplorerStore.getState();
   if (!selected.has(entry.path)) {
-    store.setSelection([entry.path], entry.path);
+    store.setSelection([entry.path], entry.path, paneId);
   }
-  store.showContextMenu({ kind: "item", x: event.clientX, y: event.clientY, path: entry.path, isDir: entry.isDir });
+  store.showContextMenu({
+    kind: "item",
+    x: event.clientX,
+    y: event.clientY,
+    path: entry.path,
+    isDir: entry.isDir,
+    paneId,
+  });
 }
 
-function openBlankContextMenu(event: React.MouseEvent): void {
+function openBlankContextMenu(event: React.MouseEvent, paneId: PaneId): void {
   const target = event.target as HTMLElement;
   if (target.closest("[data-path]")) return;
-  event.preventDefault();
   const store = useExplorerStore.getState();
-  store.clearSelection();
-  store.showContextMenu({ kind: "blank", x: event.clientX, y: event.clientY });
+  if (isSelectionContextMenuGesture(event, store.interfaceTheme)) {
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+  event.preventDefault();
+  // Both the file list and the content area listen for background menus; stop
+  // the event here so the menu and the selection policy run exactly once.
+  event.stopPropagation();
+  store.clearSelection(paneId);
+  store.showContextMenu({ kind: "blank", x: event.clientX, y: event.clientY, paneId });
+}
+
+/** Primary drags arm file dragging; modifier clicks are selection gestures. */
+function shouldArmFileDrag(event: React.PointerEvent): boolean {
+  if (event.button !== 0 || event.shiftKey) return false;
+  return !hasAdditiveSelectionModifier(event, useExplorerStore.getState().interfaceTheme);
+}
+
+function CompareDot({ category }: { category: ComparisonCategory | undefined }) {
+  if (!category || category === "identical") return null;
+  return (
+    <span
+      className={`compare-dot compare-${category}`}
+      title={comparisonCategoryLabel(category)}
+      aria-label={comparisonCategoryLabel(category)}
+    />
+  );
 }
 
 function ColumnHeader({
@@ -181,22 +231,27 @@ function DetailsView({
   entries,
   groups,
   isSearch,
+  paneId,
+  indicators,
 }: {
   entries: FileEntry[];
   groups: ReturnType<typeof groupEntries>;
   isSearch: boolean;
+  paneId: PaneId;
+  indicators: Map<string, ComparisonCategory>;
 }) {
-  const showExtensions = useExplorerStore((state) => state.showExtensions);
+  const showExtensions = useExplorerStore((state) => state.panes[paneId].showExtensions);
   const columnWidths = useExplorerStore((state) => state.columnWidths);
-  const sortKey = useExplorerStore((state) => state.sortKey);
-  const sortDirection = useExplorerStore((state) => state.sortDirection);
+  const sortKey = useExplorerStore((state) => state.panes[paneId].sortKey);
+  const sortDirection = useExplorerStore((state) => state.panes[paneId].sortDirection);
   const setSort = useExplorerStore((state) => state.setSort);
   const setColumnWidth = useExplorerStore((state) => state.setColumnWidth);
   const platform = useExplorerStore((state) => state.platform);
-  const clearSelection = useExplorerStore((state) => state.clearSelection);
-  const selection = useExplorerStore((state) => state.tabs.find((tab) => tab.id === state.activeTabId)?.selection ?? []);
-  const selected = useSelectionSet();
-  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const selection = useExplorerStore(
+    (state) => state.panes[paneId].tabs.find((tab) => tab.id === state.panes[paneId].activeTabId)?.selection ?? [],
+  );
+  const selected = useSelectionSet(paneId);
+  const cut = useCutSet();
   const headerInnerRef = useRef<HTMLDivElement>(null);
   const home = platform?.home ?? "";
 
@@ -253,8 +308,9 @@ function DetailsView({
     entries,
     scrollToPath,
     containerRef: virtual.containerRef,
+    paneId,
   });
-  const marquee = useMarqueeSelection();
+  const marquee = useMarqueeSelection(paneId);
 
   const handleScroll = () => {
     virtual.onScroll();
@@ -270,7 +326,7 @@ function DetailsView({
         columns={columns}
         sortKey={sortKey}
         sortDirection={sortDirection}
-        onSort={setSort}
+        onSort={(key) => setSort(key, paneId)}
         onResize={setColumnWidth}
         innerRef={headerInnerRef}
       />
@@ -279,21 +335,16 @@ function DetailsView({
         ref={virtual.containerRef}
         onScroll={handleScroll}
         onPointerDown={marquee.onPointerDown}
-        onContextMenu={openBlankContextMenu}
+        onContextMenu={(event) => openBlankContextMenu(event, paneId)}
         tabIndex={0}
         onFocus={navigation.onFocus}
-        onClick={(event) => {
-          if (event.target === event.currentTarget) {
-            clearSelection();
-            event.currentTarget.focus();
-          }
-        }}
         aria-label="Files"
         role="grid"
+        aria-multiselectable="true"
         aria-rowcount={entries.length}
         aria-colcount={columns.length}
       >
-        {marquee.rect ? <div className="marquee-box" style={marquee.rect} /> : null}
+        <div className="marquee-box" ref={marquee.marqueeRef} hidden />
         <div className="virtual-canvas" style={{ height: Math.max(virtual.totalHeight, 1), width: totalWidth }}>
           {virtual.visibleRows.map(({ row, top }) => {
             if (row.kind === "group") {
@@ -301,43 +352,35 @@ function DetailsView({
             }
             const entry = row.entry;
             const isSelected = selected.has(entry.path);
+            const indicator = indicators.get(entry.path);
             return (
               <div
                 key={row.key}
-                className={`details-row ${isSelected ? "selected" : ""} ${entry.isHidden ? "hidden-item" : ""} ${dropTarget === entry.path ? "drop-target" : ""}`}
+                className={`details-row ${isSelected ? "selected" : ""} ${navigation.focusedPath === entry.path ? "focused" : ""} ${cut.has(entry.path) ? "cut" : ""} ${entry.isHidden ? "hidden-item" : ""} ${indicator ? `compare-${indicator}` : ""}`}
                 style={{ top, width: totalWidth, gridTemplateColumns: columns.map((column) => `${column.width}px`).join(" ") }}
                 role="row"
                 data-path={entry.path}
+                data-drop-path={entry.isDir ? entry.path : undefined}
+                data-drop-label={entry.isDir ? entry.name : undefined}
                 aria-selected={isSelected}
                 tabIndex={-1}
                 title={entryTooltip(entry)}
-                draggable
-                onDragStart={(event) => setDragData(event, entry, selection, selected)}
-                onDragOver={(event) => {
-                  if (entry.isDir && event.dataTransfer.types.includes("application/x-win11-explorer-paths")) {
-                    event.preventDefault();
-                    event.dataTransfer.dropEffect = event.altKey ? "copy" : "move";
-                    setDropTarget(entry.path);
-                  }
-                }}
-                onDragLeave={() => setDropTarget((value) => (value === entry.path ? null : value))}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  setDropTarget(null);
-                  const paths = parseDragPaths(event);
-                  if (entry.isDir && paths.length) {
-                    void useExplorerStore.getState().moveOrCopyPaths(paths, entry.path, event.altKey ? "copy" : "cut");
+                onPointerDown={(event) => {
+                  navigation.handleRowPointerDown(event, entry);
+                  if (shouldArmFileDrag(event)) {
+                    beginFileDrag(event, entry, selection, selected, paneId);
                   }
                 }}
                 onClick={(event) => navigation.handleRowClick(event, entry)}
-                onDoubleClick={() => void useExplorerStore.getState().openEntry(entry)}
-                onContextMenu={(event) => openContextMenu(event, entry, selected)}
+                onDoubleClick={() => void useExplorerStore.getState().openEntry(entry, paneId)}
+                onContextMenu={(event) => openContextMenu(event, entry, selected, paneId)}
               >
                 <div className="details-name">
                   <span className="entry-icon">
                     <FileGlyph entry={entry} size={18} />
                   </span>
                   <span className="entry-name">{displayName(entry, showExtensions)}</span>
+                  <CompareDot category={indicator} />
                 </div>
                 <div className="details-text">{formatDate(entry.modified)}</div>
                 <div className="details-text">{typeName(entry)}</div>
@@ -354,13 +397,26 @@ function DetailsView({
   );
 }
 
-function ListView({ entries, groups, isSearch }: { entries: FileEntry[]; groups: ReturnType<typeof groupEntries>; isSearch: boolean }) {
-  const showExtensions = useExplorerStore((state) => state.showExtensions);
+function ListView({
+  entries,
+  groups,
+  isSearch,
+  paneId,
+  indicators,
+}: {
+  entries: FileEntry[];
+  groups: ReturnType<typeof groupEntries>;
+  isSearch: boolean;
+  paneId: PaneId;
+  indicators: Map<string, ComparisonCategory>;
+}) {
+  const showExtensions = useExplorerStore((state) => state.panes[paneId].showExtensions);
   const platform = useExplorerStore((state) => state.platform);
-  const selection = useExplorerStore((state) => state.tabs.find((tab) => tab.id === state.activeTabId)?.selection ?? []);
-  const selected = useSelectionSet();
-  const clearSelection = useExplorerStore((state) => state.clearSelection);
-  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const selection = useExplorerStore(
+    (state) => state.panes[paneId].tabs.find((tab) => tab.id === state.panes[paneId].activeTabId)?.selection ?? [],
+  );
+  const selected = useSelectionSet(paneId);
+  const cut = useCutSet();
   const home = platform?.home ?? "";
   const themeMetrics = useThemeMetrics();
 
@@ -394,8 +450,8 @@ function ListView({ entries, groups, isSearch }: { entries: FileEntry[]; groups:
     },
     [rowIndexByPath, virtual],
   );
-  const navigation = useFileNavigation({ entries, scrollToPath, containerRef: virtual.containerRef });
-  const marquee = useMarqueeSelection();
+  const navigation = useFileNavigation({ entries, scrollToPath, containerRef: virtual.containerRef, paneId });
+  const marquee = useMarqueeSelection(paneId);
 
   return (
     <div className="file-view list-view" onKeyDown={navigation.onKeyDown}>
@@ -404,19 +460,14 @@ function ListView({ entries, groups, isSearch }: { entries: FileEntry[]; groups:
         ref={virtual.containerRef}
         onScroll={virtual.onScroll}
         onPointerDown={marquee.onPointerDown}
-        onContextMenu={openBlankContextMenu}
+        onContextMenu={(event) => openBlankContextMenu(event, paneId)}
         tabIndex={0}
         onFocus={navigation.onFocus}
-        onClick={(event) => {
-          if (event.target === event.currentTarget) {
-            clearSelection();
-            event.currentTarget.focus();
-          }
-        }}
         aria-label="Files"
         role="list"
+        aria-multiselectable="true"
       >
-        {marquee.rect ? <div className="marquee-box" style={marquee.rect} /> : null}
+        <div className="marquee-box" ref={marquee.marqueeRef} hidden />
         <div className="virtual-canvas" style={{ height: Math.max(virtual.totalHeight, 1) }}>
           {virtual.visibleRows.map(({ row, top }) => {
             if (row.kind === "group") {
@@ -424,41 +475,33 @@ function ListView({ entries, groups, isSearch }: { entries: FileEntry[]; groups:
             }
             const entry = row.entry;
             const isSelected = selected.has(entry.path);
+            const indicator = indicators.get(entry.path);
             return (
               <div
                 key={row.key}
-                className={`list-row ${isSelected ? "selected" : ""} ${entry.isHidden ? "hidden-item" : ""} ${dropTarget === entry.path ? "drop-target" : ""}`}
+                className={`list-row ${isSelected ? "selected" : ""} ${navigation.focusedPath === entry.path ? "focused" : ""} ${cut.has(entry.path) ? "cut" : ""} ${entry.isHidden ? "hidden-item" : ""} ${indicator ? `compare-${indicator}` : ""}`}
                 style={{ top }}
                 role="listitem"
                 data-path={entry.path}
+                data-drop-path={entry.isDir ? entry.path : undefined}
+                data-drop-label={entry.isDir ? entry.name : undefined}
                 aria-selected={isSelected}
                 title={entryTooltip(entry)}
-                draggable
-                onDragStart={(event) => setDragData(event, entry, selection, selected)}
-                onDragOver={(event) => {
-                  if (entry.isDir && event.dataTransfer.types.includes("application/x-win11-explorer-paths")) {
-                    event.preventDefault();
-                    event.dataTransfer.dropEffect = event.altKey ? "copy" : "move";
-                    setDropTarget(entry.path);
-                  }
-                }}
-                onDragLeave={() => setDropTarget((value) => (value === entry.path ? null : value))}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  setDropTarget(null);
-                  const paths = parseDragPaths(event);
-                  if (entry.isDir && paths.length) {
-                    void useExplorerStore.getState().moveOrCopyPaths(paths, entry.path, event.altKey ? "copy" : "cut");
+                onPointerDown={(event) => {
+                  navigation.handleRowPointerDown(event, entry);
+                  if (shouldArmFileDrag(event)) {
+                    beginFileDrag(event, entry, selection, selected, paneId);
                   }
                 }}
                 onClick={(event) => navigation.handleRowClick(event, entry)}
-                onDoubleClick={() => void useExplorerStore.getState().openEntry(entry)}
-                onContextMenu={(event) => openContextMenu(event, entry, selected)}
+                onDoubleClick={() => void useExplorerStore.getState().openEntry(entry, paneId)}
+                onContextMenu={(event) => openContextMenu(event, entry, selected, paneId)}
               >
                 <span className="entry-icon">
                   <FileGlyph entry={entry} size={16} />
                 </span>
                 <span className="entry-name">{displayName(entry, showExtensions)}</span>
+                <CompareDot category={indicator} />
                 {isSearch ? <span className="list-path">{displayPath(parentPath(entry.path) ?? "", home)}</span> : null}
               </div>
             );
@@ -497,11 +540,25 @@ function metricsFor(mode: ViewMode): GridMetrics {
   }
 }
 
-function GridView({ entries, groups, mode }: { entries: FileEntry[]; groups: ReturnType<typeof groupEntries>; mode: ViewMode }) {
-  const showExtensions = useExplorerStore((state) => state.showExtensions);
-  const selection = useExplorerStore((state) => state.tabs.find((tab) => tab.id === state.activeTabId)?.selection ?? []);
-  const selected = useSelectionSet();
-  const clearSelection = useExplorerStore((state) => state.clearSelection);
+function GridView({
+  entries,
+  groups,
+  mode,
+  paneId,
+  indicators,
+}: {
+  entries: FileEntry[];
+  groups: ReturnType<typeof groupEntries>;
+  mode: ViewMode;
+  paneId: PaneId;
+  indicators: Map<string, ComparisonCategory>;
+}) {
+  const showExtensions = useExplorerStore((state) => state.panes[paneId].showExtensions);
+  const selection = useExplorerStore(
+    (state) => state.panes[paneId].tabs.find((tab) => tab.id === state.panes[paneId].activeTabId)?.selection ?? [],
+  );
+  const selected = useSelectionSet(paneId);
+  const cut = useCutSet();
   const size = useElementSize<HTMLDivElement>();
   const metrics = metricsFor(mode);
   const available = Math.max(0, size.width - 28);
@@ -510,7 +567,6 @@ function GridView({ entries, groups, mode }: { entries: FileEntry[]; groups: Ret
       ? 1
       : Math.max(1, Math.floor((available + metrics.gapX) / (metrics.cellWidth + metrics.gapX)));
   const cellWidth = metrics.mode === "content" ? Math.max(260, available) : metrics.cellWidth;
-  const [dropTarget, setDropTarget] = useState<string | null>(null);
 
   type GridRow =
     | { kind: "group"; key: string; height: number; label: string; count: number }
@@ -556,8 +612,9 @@ function GridView({ entries, groups, mode }: { entries: FileEntry[]; groups: Ret
     columns,
     scrollToPath,
     containerRef: virtual.containerRef,
+    paneId,
   });
-  const marquee = useMarqueeSelection();
+  const marquee = useMarqueeSelection(paneId);
 
   return (
     <div className="file-view grid-view" onKeyDown={navigation.onKeyDown} ref={size.ref}>
@@ -566,19 +623,14 @@ function GridView({ entries, groups, mode }: { entries: FileEntry[]; groups: Ret
         ref={virtual.containerRef}
         onScroll={virtual.onScroll}
         onPointerDown={marquee.onPointerDown}
-        onContextMenu={openBlankContextMenu}
+        onContextMenu={(event) => openBlankContextMenu(event, paneId)}
         tabIndex={0}
         onFocus={navigation.onFocus}
-        onClick={(event) => {
-          if (event.target === event.currentTarget) {
-            clearSelection();
-            event.currentTarget.focus();
-          }
-        }}
         aria-label="Files"
         role="list"
+        aria-multiselectable="true"
       >
-        {marquee.rect ? <div className="marquee-box" style={marquee.rect} /> : null}
+        <div className="marquee-box" ref={marquee.marqueeRef} hidden />
         <div className="virtual-canvas grid-canvas" style={{ height: Math.max(virtual.totalHeight, 1) }}>
           {virtual.visibleRows.map(({ row, top }) => {
             if (row.kind === "group") {
@@ -597,43 +649,37 @@ function GridView({ entries, groups, mode }: { entries: FileEntry[]; groups: Ret
               >
                 {row.items.map((entry) => {
                   const isSelected = selected.has(entry.path);
+                  const indicator = indicators.get(entry.path);
                   return (
                     <div
                       key={entry.path}
-                      className={`grid-item ${metrics.mode} ${mode} ${isSelected ? "selected" : ""} ${entry.isHidden ? "hidden-item" : ""} ${dropTarget === entry.path ? "drop-target" : ""}`}
+                      className={`grid-item ${metrics.mode} ${mode} ${isSelected ? "selected" : ""} ${navigation.focusedPath === entry.path ? "focused" : ""} ${cut.has(entry.path) ? "cut" : ""} ${entry.isHidden ? "hidden-item" : ""} ${indicator ? `compare-${indicator}` : ""}`}
                       style={{ width: cellWidth, height: metrics.cellHeight }}
                       role="listitem"
                       data-path={entry.path}
+                      data-drop-path={entry.isDir ? entry.path : undefined}
+                      data-drop-label={entry.isDir ? entry.name : undefined}
                       aria-selected={isSelected}
                       tabIndex={-1}
                       title={entryTooltip(entry)}
-                      draggable
-                      onDragStart={(event) => setDragData(event, entry, selection, selected)}
-                      onDragOver={(event) => {
-                        if (entry.isDir && event.dataTransfer.types.includes("application/x-win11-explorer-paths")) {
-                          event.preventDefault();
-                          event.dataTransfer.dropEffect = event.altKey ? "copy" : "move";
-                          setDropTarget(entry.path);
-                        }
-                      }}
-                      onDragLeave={() => setDropTarget((value) => (value === entry.path ? null : value))}
-                      onDrop={(event) => {
-                        event.preventDefault();
-                        setDropTarget(null);
-                        const paths = parseDragPaths(event);
-                        if (entry.isDir && paths.length) {
-                          void useExplorerStore.getState().moveOrCopyPaths(paths, entry.path, event.altKey ? "copy" : "cut");
+                      onPointerDown={(event) => {
+                        navigation.handleRowPointerDown(event, entry);
+                        if (shouldArmFileDrag(event)) {
+                          beginFileDrag(event, entry, selection, selected, paneId);
                         }
                       }}
                       onClick={(event) => navigation.handleRowClick(event, entry)}
-                      onDoubleClick={() => void useExplorerStore.getState().openEntry(entry)}
-                      onContextMenu={(event) => openContextMenu(event, entry, selected)}
+                      onDoubleClick={() => void useExplorerStore.getState().openEntry(entry, paneId)}
+                      onContextMenu={(event) => openContextMenu(event, entry, selected, paneId)}
                     >
                       <span className="grid-icon" style={{ width: metrics.iconSize, height: metrics.iconSize }}>
                         <FileGlyph entry={entry} size={metrics.iconSize} thumbnail={metrics.mode === "grid" || metrics.mode === "tiles"} />
                       </span>
                       <span className="grid-text">
-                        <span className="grid-name">{displayName(entry, showExtensions)}</span>
+                        <span className="grid-name">
+                          {displayName(entry, showExtensions)}
+                          <CompareDot category={indicator} />
+                        </span>
                         {metrics.mode !== "grid" || mode === "small" ? (
                           <>
                             <span className="grid-meta">{typeName(entry)}</span>
@@ -685,7 +731,7 @@ function LoadingState({ mode }: { mode: ViewMode }) {
   );
 }
 
-function EmptyState({ search, query }: { search: boolean; query: string }) {
+function EmptyState({ search, query, paneId }: { search: boolean; query: string; paneId: PaneId }) {
   return (
     <div className="file-area-state empty-state">
       <div className="empty-icon">
@@ -698,11 +744,11 @@ function EmptyState({ search, query }: { search: boolean; query: string }) {
           : "Drag files here, or use New to create something in this folder."}
       </p>
       {search ? (
-        <button type="button" className="state-button" onClick={() => useExplorerStore.getState().clearSearch()}>
+        <button type="button" className="state-button" onClick={() => useExplorerStore.getState().clearSearch(paneId)}>
           Clear search
         </button>
       ) : (
-        <button type="button" className="state-button" onClick={() => void useExplorerStore.getState().promptNewFolder()}>
+        <button type="button" className="state-button" onClick={() => void useExplorerStore.getState().promptNewFolder(paneId)}>
           <Icon name="folder" size={14} />
           New folder
         </button>
@@ -711,8 +757,10 @@ function EmptyState({ search, query }: { search: boolean; query: string }) {
   );
 }
 
-function ErrorState() {
-  const tab = useExplorerStore((state) => state.tabs.find((item) => item.id === state.activeTabId));
+function ErrorState({ paneId }: { paneId: PaneId }) {
+  const tab = useExplorerStore(
+    (state) => state.panes[paneId].tabs.find((item) => item.id === state.panes[paneId].activeTabId),
+  );
   const refresh = useExplorerStore((state) => state.refresh);
   const revealSelection = useExplorerStore((state) => state.revealSelection);
   const error = tab?.error;
@@ -726,7 +774,7 @@ function ErrorState() {
       <p>{error?.message ?? "The location is unavailable."}</p>
       {error?.path ? <code className="error-path">{error.path}</code> : null}
       <div className="state-actions">
-        <button type="button" className="state-button primary" onClick={() => void refresh()}>
+        <button type="button" className="state-button primary" onClick={() => void refresh(paneId)}>
           <Icon name="refresh" size={14} />
           Try again
         </button>
@@ -742,7 +790,7 @@ function ErrorState() {
             Open System Settings
           </button>
         ) : (
-          <button type="button" className="state-button" onClick={() => void revealSelection()}>
+          <button type="button" className="state-button" onClick={() => void revealSelection(paneId)}>
             <Icon name="open" size={14} />
             Show in Finder
           </button>
@@ -752,15 +800,24 @@ function ErrorState() {
   );
 }
 
-export function FileArea() {
-  const activeTab = useExplorerStore((state) => state.tabs.find((tab) => tab.id === state.activeTabId));
-  const viewMode = useExplorerStore((state) => state.viewMode);
-  const sortKey = useExplorerStore((state) => state.sortKey);
-  const sortDirection = useExplorerStore((state) => state.sortDirection);
-  const groupBy = useExplorerStore((state) => state.groupBy);
+export function FileArea({ paneId = "left" }: { paneId?: PaneId }) {
+  const pane = useExplorerStore((state) => state.panes[paneId]);
+  const activeTab = useExplorerStore(
+    (state) => state.panes[paneId].tabs.find((tab) => tab.id === state.panes[paneId].activeTabId),
+  );
+  const viewMode = pane.viewMode;
+  const sortKey = pane.sortKey;
+  const sortDirection = pane.sortDirection;
+  const groupBy = pane.groupBy;
   const detailsPane = useExplorerStore((state) => state.detailsPane);
+  const comparison = useExplorerStore((state) => state.comparison);
+  const currentFolder = useExplorerStore((state) => state.currentFolder(paneId));
   const clearSearch = useExplorerStore((state) => state.clearSearch);
   const refresh = useExplorerStore((state) => state.refresh);
+  const indicators = useMemo(
+    () => comparisonIndicators(comparison?.result ?? null)[paneId],
+    [comparison, paneId],
+  );
 
   const isHome = activeTab?.location === HOME_LOCATION;
   const isSearch = activeTab?.searchResults != null;
@@ -773,7 +830,7 @@ export function FileArea() {
   const groups = useMemo(() => groupEntries(sorted, groupBy), [groupBy, sorted]);
 
   if (isHome && !isSearch) {
-    return <HomeView />;
+    return <HomeView paneId={paneId} />;
   }
 
   if (activeTab?.loading && !activeTab.entries.length) {
@@ -785,11 +842,15 @@ export function FileArea() {
   }
 
   if (activeTab?.error) {
-    return <ErrorState />;
+    return <ErrorState paneId={paneId} />;
   }
 
   return (
-    <div className={`content-area ${detailsPane ? "with-details" : ""}`} onContextMenu={openBlankContextMenu}>
+    <div
+      className={`content-area ${detailsPane ? "with-details" : ""}`}
+      onContextMenu={(event) => openBlankContextMenu(event, paneId)}
+      data-drop-pane={paneId}
+    >
       {isSearch ? (
         <div className="search-summary">
           <span>
@@ -800,7 +861,7 @@ export function FileArea() {
               {activeTab?.searchTruncated ? " (first results)" : ""}
             </span>
           </span>
-          <button type="button" className="search-summary-clear" onClick={clearSearch}>
+          <button type="button" className="search-summary-clear" onClick={() => clearSearch(paneId)}>
             <Icon name="close" size={10} />
             Clear
           </button>
@@ -810,7 +871,7 @@ export function FileArea() {
         <div className="truncation-banner">
           <Icon name="warning" size={14} />
           Some items are not shown because this folder is very large.
-          <button type="button" className="link-button" onClick={() => void refresh()}>
+          <button type="button" className="link-button" onClick={() => void refresh(paneId)}>
             Refresh
           </button>
         </div>
@@ -822,13 +883,13 @@ export function FileArea() {
         </div>
       ) : null}
       {baseEntries.length === 0 ? (
-        <EmptyState search={isSearch} query={activeTab?.searchQuery ?? ""} />
+        <EmptyState search={isSearch} query={activeTab?.searchQuery ?? ""} paneId={paneId} />
       ) : viewMode === "details" ? (
-        <DetailsView entries={sorted} groups={groups} isSearch={isSearch} />
+        <DetailsView entries={sorted} groups={groups} isSearch={isSearch} paneId={paneId} indicators={indicators} />
       ) : viewMode === "list" ? (
-        <ListView entries={sorted} groups={groups} isSearch={isSearch} />
+        <ListView entries={sorted} groups={groups} isSearch={isSearch} paneId={paneId} indicators={indicators} />
       ) : (
-        <GridView entries={sorted} groups={groups} mode={viewMode} />
+        <GridView entries={sorted} groups={groups} mode={viewMode} paneId={paneId} indicators={indicators} />
       )}
     </div>
   );

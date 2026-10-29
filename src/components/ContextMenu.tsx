@@ -3,7 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import { MenuPanel, type MenuItem } from "./Menu";
 import { useExplorerStore } from "../state/explorerStore";
 import { basename, parentPath } from "../lib/format";
-import { HOME_LOCATION, type GroupBy, type SortKey, type ViewMode } from "../lib/types";
+import { HOME_LOCATION, type GroupBy, type PaneId, type SortKey, type ViewMode } from "../lib/types";
 
 const VIEW_ITEMS: Array<{ mode: ViewMode; label: string; icon: "grid" | "list" | "details" | "view" }> = [
   { mode: "extraLarge", label: "Extra large icons", icon: "grid" },
@@ -16,36 +16,40 @@ const VIEW_ITEMS: Array<{ mode: ViewMode; label: string; icon: "grid" | "list" |
   { mode: "content", label: "Content", icon: "view" },
 ];
 
-function viewMenuItems(): MenuItem[] {
+function viewMenuItems(paneId: PaneId): MenuItem[] {
   const state = useExplorerStore.getState();
+  const pane = state.pane(paneId);
   return VIEW_ITEMS.map((item) => ({
     label: item.label,
     icon: item.icon,
-    checked: state.viewMode === item.mode,
-    onClick: () => state.setViewMode(item.mode),
+    checked: pane.viewMode === item.mode,
+    onClick: () => state.setViewMode(item.mode, paneId),
   }));
 }
 
-function sortMenuItems(): MenuItem[] {
+function sortMenuItems(paneId: PaneId): MenuItem[] {
   const state = useExplorerStore.getState();
-  const choose = (key: SortKey) => state.setSortExplicit(key, state.sortKey === key ? state.sortDirection : "asc");
+  const pane = state.pane(paneId);
+  const choose = (key: SortKey) =>
+    state.setSortExplicit(key, pane.sortKey === key ? pane.sortDirection : "asc", paneId);
   return [
-    { label: "Name", checked: state.sortKey === "name", onClick: () => choose("name") },
-    { label: "Date modified", checked: state.sortKey === "date", onClick: () => choose("date") },
-    { label: "Type", checked: state.sortKey === "type", onClick: () => choose("type") },
-    { label: "Size", checked: state.sortKey === "size", onClick: () => choose("size") },
+    { label: "Name", checked: pane.sortKey === "name", onClick: () => choose("name") },
+    { label: "Date modified", checked: pane.sortKey === "date", onClick: () => choose("date") },
+    { label: "Type", checked: pane.sortKey === "type", onClick: () => choose("type") },
+    { label: "Size", checked: pane.sortKey === "size", onClick: () => choose("size") },
     { type: "separator" },
-    { label: "Ascending", checked: state.sortDirection === "asc", onClick: () => state.setSortExplicit(state.sortKey, "asc") },
-    { label: "Descending", checked: state.sortDirection === "desc", onClick: () => state.setSortExplicit(state.sortKey, "desc") },
+    { label: "Ascending", checked: pane.sortDirection === "asc", onClick: () => state.setSortExplicit(pane.sortKey, "asc", paneId) },
+    { label: "Descending", checked: pane.sortDirection === "desc", onClick: () => state.setSortExplicit(pane.sortKey, "desc", paneId) },
   ];
 }
 
-function groupMenuItems(): MenuItem[] {
+function groupMenuItems(paneId: PaneId): MenuItem[] {
   const state = useExplorerStore.getState();
+  const pane = state.pane(paneId);
   return (["none", "type", "date", "size"] as GroupBy[]).map((value) => ({
     label: value === "none" ? "None" : value === "date" ? "Date modified" : value === "type" ? "Type" : "Size",
-    checked: state.groupBy === value,
-    onClick: () => state.setGroupBy(value),
+    checked: pane.groupBy === value,
+    onClick: () => state.setGroupBy(value, paneId),
   }));
 }
 
@@ -53,9 +57,15 @@ export function ContextMenu() {
   const menu = useExplorerStore((state) => state.contextMenu);
   const hideContextMenu = useExplorerStore((state) => state.hideContextMenu);
   const platform = useExplorerStore((state) => state.platform);
+  const activePane = useExplorerStore((state) => state.activePane);
+  const paneId: PaneId = (menu?.paneId ?? activePane) as PaneId;
   const isPinned = useExplorerStore((state) => state.isPinned);
-  const selectedEntries = useExplorerStore(useShallow((state) => state.selectedEntries()));
-  const activeTab = useExplorerStore((state) => state.tabs.find((tab) => tab.id === state.activeTabId));
+  const selectedEntries = useExplorerStore(
+    useShallow((state) => state.selectedEntries(paneId)),
+  );
+  const activeTab = useExplorerStore(
+    (state) => state.panes[paneId].tabs.find((tab) => tab.id === state.panes[paneId].activeTabId),
+  );
   const locations = useExplorerStore((state) => state.locations);
   const clipboard = useExplorerStore((state) => state.clipboard);
   const isHome = activeTab?.location === HOME_LOCATION;
@@ -93,31 +103,31 @@ export function ContextMenu() {
           icon: "paste",
           shortcut: platform?.platform === "macos" ? "CmdV" : "Ctrl+V",
           disabled: !clipboard || isHome,
-          onClick: () => void state.paste(),
+          onClick: () => void state.paste(paneId),
         },
         { type: "separator" },
-        { label: "View", icon: "view", submenu: viewMenuItems() },
-        { label: "Sort by", icon: "sort", submenu: sortMenuItems() },
-        { label: "Group by", icon: "view", submenu: groupMenuItems() },
+        { label: "View", icon: "view", submenu: viewMenuItems(paneId) },
+        { label: "Sort by", icon: "sort", submenu: sortMenuItems(paneId) },
+        { label: "Group by", icon: "view", submenu: groupMenuItems(paneId) },
         { type: "separator" },
         {
           label: "Refresh",
           icon: "refresh",
           shortcut: "F5",
-          onClick: () => void state.refresh(),
+          onClick: () => void state.refresh(paneId),
         },
         {
           label: "New",
           icon: "plus",
           disabled: isHome,
           submenu: [
-            { label: "Folder", icon: "folder", onClick: () => void state.promptNewFolder() },
-            { label: "Text Document", icon: "text", onClick: () => void state.promptNewTextFile() },
+            { label: "Folder", icon: "folder", onClick: () => void state.promptNewFolder(paneId) },
+            { label: "Text Document", icon: "text", onClick: () => void state.promptNewTextFile(paneId) },
             {
               label: "Shortcut",
               icon: "link",
               disabled: selectedEntries.length === 0,
-              onClick: () => void state.createShortcut(),
+              onClick: () => void state.createShortcut(paneId),
             },
           ],
         },
@@ -131,7 +141,7 @@ export function ContextMenu() {
         {
           label: "Open in Terminal",
           icon: "terminal",
-          onClick: () => void state.openTerminalHere(),
+          onClick: () => void state.openTerminalHere(paneId),
         },
       ];
     }
@@ -141,13 +151,14 @@ export function ContextMenu() {
     const isDir = entry?.isDir ?? menu.isDir;
     const parent = isDir ? filePath : parentPath(filePath);
     const pinned = isPinned(filePath);
+    const multiple = selectedEntries.length > 1;
     const openAll = () => {
-      const selected = state.selectedEntries();
+      const selected = state.selectedEntries(paneId);
       if (selected.length <= 1) {
-        if (entry) void state.openEntry(entry);
+        if (entry) void state.openEntry(entry, paneId);
       } else {
         for (const item of selected) {
-          if (!item.isDir) void state.openEntry(item);
+          if (!item.isDir) void state.openEntry(item, paneId);
         }
       }
     };
@@ -158,20 +169,25 @@ export function ContextMenu() {
     return [
       { label: "Open", icon: "open", bold: true, onClick: openAll },
       ...(platform?.platform === "macos"
-        ? [{ label: "Open with", icon: "openWith" as const, onClick: () => void state.openWithDialog(filePath) }]
+        ? [{
+            label: "Open with",
+            icon: "openWith" as const,
+            disabled: isDir || multiple,
+            onClick: () => void state.openWithDialog(filePath),
+          }]
         : []),
       {
         label: "Open in new tab",
         icon: "tab",
-        disabled: !isDir,
+        disabled: !isDir || multiple,
         onClick: () => {
-          if (parent) void state.openInNewTab(isDir ? filePath : parent);
+          if (parent) void state.openInNewTab(isDir ? filePath : parent, paneId);
         },
       },
       {
         label: pinned ? "Unpin from Quick access" : "Pin to Quick access",
         icon: pinned ? "unpin" : "pin",
-        disabled: !isDir,
+        disabled: !isDir || multiple,
         onClick: () => {
           if (pinned) state.unpinPath(filePath);
           else state.pinPath(filePath);
@@ -181,31 +197,31 @@ export function ContextMenu() {
         label: "Copy as path",
         icon: "copyPath",
         shortcut: platform?.platform === "macos" ? "ShiftCmdC" : "Ctrl+Shift+C",
-        onClick: () => void state.copyAsPath(),
+        onClick: () => void state.copyAsPath(paneId),
       },
-      { label: "Share", icon: "share", onClick: () => void state.shareSelection() },
+      { label: "Share", icon: "share", onClick: () => void state.shareSelection(paneId) },
       { type: "separator" },
       {
         label: "Cut",
         icon: "cut",
         shortcut: platform?.platform === "macos" ? "CmdX" : "Ctrl+X",
-        onClick: state.cutSelection,
+        onClick: () => state.cutSelection(paneId),
       },
       {
         label: "Copy",
         icon: "copy",
         shortcut: platform?.platform === "macos" ? "CmdC" : "Ctrl+C",
-        onClick: state.copySelection,
+        onClick: () => state.copySelection(paneId),
       },
       {
         label: "Create shortcut",
         icon: "link",
-        onClick: () => void state.createShortcut(),
+        onClick: () => void state.createShortcut(paneId),
       },
       {
         label: "Duplicate",
         icon: "copy",
-        onClick: () => void state.duplicateSelection(),
+        onClick: () => void state.duplicateSelection(paneId),
       },
       {
         label: "Send to",
@@ -213,7 +229,7 @@ export function ContextMenu() {
         submenu: sendTargets.map((target) => ({
           label: target.name,
           icon: target.icon === "desktop" ? "desktop" : target.icon === "documents" ? "documents" : "downloads",
-          onClick: () => void state.sendSelectionTo(target.path, "cut"),
+          onClick: () => void state.sendSelectionTo(target.path, "cut", paneId),
         })),
       },
       { type: "separator" },
@@ -222,14 +238,14 @@ export function ContextMenu() {
         icon: "delete",
         danger: true,
         shortcut: "Delete",
-        onClick: () => state.deleteSelection(false),
+        onClick: () => state.deleteSelection(false, paneId),
       },
       {
         label: "Rename",
         icon: "rename",
         shortcut: "F2",
         disabled: selectedEntries.length !== 1,
-        onClick: state.promptRename,
+        onClick: () => state.promptRename(paneId),
       },
       {
         label: "Properties",
@@ -238,7 +254,7 @@ export function ContextMenu() {
         onClick: () => void state.openProperties(filePath),
       },
     ];
-  }, [clipboard, isHome, isPinned, locations, menu, platform?.platform, selectedEntries]);
+  }, [clipboard, isHome, isPinned, locations, menu, paneId, platform?.platform, selectedEntries]);
 
   if (!menu) return null;
   const width = menu.kind === "blank" ? 270 : 304;
