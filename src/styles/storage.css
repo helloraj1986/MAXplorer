@@ -267,6 +267,19 @@
   background: var(--surface-2);
 }
 
+.storage-incomplete-banner {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.storage-warning-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
 .storage-info-banner {
   color: var(--text-2);
 }

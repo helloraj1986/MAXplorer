@@ -6,6 +6,7 @@ import { useExplorerStore } from "../../state/explorerStore";
 import { formatCount, formatDate, formatSize } from "../../lib/format";
 import {
   CATEGORY_DESCRIPTIONS,
+  DEEP_SCAN_MAX_ENTRIES,
   categoryColor,
   storageFileEntry,
   type CleanupRecommendation,
@@ -61,8 +62,9 @@ function CapacityHero({ volume, scan }: { volume: StorageVolume | null; scan: St
       {scan && scan.uninspectedBytes > 0 ? (
         <p className="storage-hero-note">
           <Icon name="info" size={12} />
-          {formatSize(scan.uninspectedBytes)} of reported usage is not attributable to inspected files. Snapshots, purgeable
-          space, system-protected data, and unreadable locations can all contribute.
+          {scan.truncated || scan.cancelled
+            ? `${formatSize(scan.uninspectedBytes)} was not inspected because the scan stopped at its ${formatCount(scan.maxEntries)} entry limit. This is not a cleanup estimate. Run Deep scan, or scan your Home folder or a narrower folder for complete coverage.`
+            : `${formatSize(scan.uninspectedBytes)} of reported usage is not attributable to inspected files. APFS snapshots, purgeable space, system-protected data, other volumes sharing the container, and unreadable locations can all contribute.`}
         </p>
       ) : null}
     </section>
@@ -74,6 +76,7 @@ function UsageBar({ scan }: { scan: StorageScanResult }) {
   const volume = scan.volume;
   if (!volume) return null;
   const folderScan = scan.root !== volume.mountPoint;
+  const incomplete = scan.truncated || scan.cancelled;
   const capacity = (folderScan ? scan.totalAllocatedBytes : volume.totalBytes) || 1;
   const allocated = scan.categories.reduce((sum, category) => sum + category.allocated, 0);
   const used = folderScan ? Math.max(0, scan.totalAllocatedBytes) : Math.max(0, volume.usedBytes);
@@ -111,8 +114,16 @@ function UsageBar({ scan }: { scan: StorageScanResult }) {
           <span
             className="storage-usage-segment storage-usage-uninspected"
             style={{ width: `${(uninspected / capacity) * 100}%` }}
-            title={`${formatSize(uninspected)} cannot be attributed to inspected files`}
-            aria-label={`${formatSize(uninspected)} uninspected or system-managed storage`}
+            title={
+              incomplete
+                ? `${formatSize(uninspected)} was not inspected because the scan hit its entry limit`
+                : `${formatSize(uninspected)} cannot be attributed to inspected files`
+            }
+            aria-label={
+              incomplete
+                ? `${formatSize(uninspected)} not inspected because the scan hit its entry limit`
+                : `${formatSize(uninspected)} uninspected or system-managed storage`
+            }
           />
         ) : null}
         {!folderScan ? (
@@ -144,10 +155,14 @@ function UsageBar({ scan }: { scan: StorageScanResult }) {
         {!folderScan ? (
           <div className="storage-legend-row static">
             <span className="storage-legend-dot storage-legend-uninspected" aria-hidden="true" />
-            <span className="storage-legend-name">Uninspected / system-managed</span>
+            <span className="storage-legend-name">
+              {incomplete ? "Not scanned / system-managed" : "Uninspected / system-managed"}
+            </span>
             <span className="storage-legend-size">{formatSize(uninspected)}</span>
             <span className="storage-legend-percent" />
-            <span className="storage-legend-files">Not attributable to files</span>
+            <span className="storage-legend-files">
+              {incomplete ? "Scan stopped at entry limit" : "Not attributable to files"}
+            </span>
             <span />
           </div>
         ) : null}
@@ -273,9 +288,9 @@ export function StorageOverview() {
             <button
               type="button"
               className="storage-toolbar-button"
-              onClick={() => void startScan(undefined, 2_000_000)}
+              onClick={() => void startScan(undefined, DEEP_SCAN_MAX_ENTRIES)}
               disabled={!volume || scanning}
-              title="Allow up to 2,000,000 entries"
+              title="Allow up to 5,000,000 entries; this can take several minutes"
             >
               <Icon name="database" size={13} />
               Deep scan
@@ -297,19 +312,42 @@ export function StorageOverview() {
   const topRecommendation = visibleCleanup[0] ?? null;
   const scannedAt = formatDate(scan.finishedAt);
   const platformLabel = explorerPlatform?.platform === "macos" ? "macOS" : explorerPlatform?.platform ?? "desktop";
+  const homeFolder = explorerPlatform?.home;
+  const incomplete = scan.cancelled || scan.truncated;
 
   return (
     <div className="storage-overview">
       <CapacityHero volume={volume} scan={scan} />
 
-      {scan.cancelled || scan.truncated ? (
-        <div className="storage-warning-banner">
+      {incomplete ? (
+        <div className="storage-warning-banner storage-incomplete-banner">
           <Icon name="warning" size={14} />
           <span>
             {scan.cancelled
               ? "This is a partial scan. Totals and categories cover only inspected entries."
-              : `The scan reached its ${formatCount(scan.maxEntries)} entry safety limit. Narrow the scan root for complete results.`}
+              : `The scan reached its ${formatCount(scan.maxEntries)} entry safety limit, so ${formatSize(scan.uninspectedBytes)} was never examined. This is not a cleanup estimate.`}
           </span>
+          <div className="storage-warning-actions">
+            {homeFolder ? (
+              <button
+                type="button"
+                className="storage-toolbar-button"
+                onClick={() => void startScan(homeFolder, DEEP_SCAN_MAX_ENTRIES)}
+                title="Scan your Home folder instead of the entire APFS container"
+              >
+                <Icon name="home" size={13} />
+                Deep scan Home folder
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="storage-toolbar-button"
+              onClick={() => void startScan(undefined, DEEP_SCAN_MAX_ENTRIES)}
+            >
+              <Icon name="database" size={13} />
+              Deep scan volume
+            </button>
+          </div>
         </div>
       ) : null}
 

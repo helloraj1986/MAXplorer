@@ -145,6 +145,16 @@ describe("StorageWorkspace", () => {
     expect(screen.getByText(/Analysis stays on this Mac/i)).toBeTruthy();
   });
 
+  it("labels a truncated scan as not scanned instead of implying hidden files", () => {
+    useStorageStore.setState({
+      scan: { ...scan, truncated: true, uninspectedBytes: 796_000_000_000 },
+    });
+    render(<StorageWorkspace />);
+    expect(screen.getByText(/was never examined/i)).toBeTruthy();
+    expect(screen.getAllByText(/Not scanned \/ system-managed/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Scan stopped at entry limit/i).length).toBeGreaterThan(0);
+  });
+
   it("switches to cleanup without replacing file-browser state", () => {
     render(<StorageWorkspace />);
     fireEvent.click(screen.getByRole("button", { name: /^Cleanup/ }));

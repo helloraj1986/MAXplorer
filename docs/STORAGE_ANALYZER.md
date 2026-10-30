@@ -169,9 +169,9 @@ Backend contracts are all camelCase and registered in `src-tauri/src/lib.rs`.
   are skipped and counted in the scan report.
 - Permission and read errors are counted and the scan continues.
 - Bounded by a configurable entry cap (default 500,000; the Deep scan control raises it to
-  2,000,000; hard ceiling 5,000,000) and can be cancelled by request ID. Partial results are
-  reported honestly. Separate controls cover quick overview, deep scan, rescan this folder,
-  duplicate detection, and cancel.
+  5,000,000; hard ceiling 5,000,000) and can be cancelled by request ID. Partial results are
+  reported honestly. Separate controls cover quick overview, deep scan, deep scan of the Home
+  folder, rescan this folder, duplicate detection, and cancel.
 - Progress events (`storage-scan-progress`) contain entries/files/folders/bytes/elapsed and
   the current path; no completion percentage is invented.
 - Directory aggregates are computed bottom-up once after traversal. A directory contributes
@@ -206,7 +206,7 @@ Large result lists are never sent over IPC wholesale. The backend exposes:
 | Logical size | file length | What the file logically contains |
 | Allocated size | `st_blocks × 512` on Unix | Disk blocks reserved for the file |
 | Inspected bytes | descendant aggregate of unique files | Attributable to readable files |
-| Uninspected | filesystem used − inspected allocated | Snapshots, purgeable space, protected data, other APFS volumes, unreadable paths |
+| Uninspected | filesystem used − inspected allocated | When the scan is truncated, most of this is **not yet scanned**; otherwise it is snapshots, purgeable space, protected data, other APFS volumes, or unreadable paths |
 | Cleanup estimate | deduplicated recommendation/selection sizes | Conservative logical estimate, not a free-space promise |
 
 Actual free-space change is measured with `statvfs` before and after cleanup when possible.
@@ -254,8 +254,14 @@ duplicate verification.
 
 - APFS snapshots, System Data, purgeable space, and some application-managed storage cannot
   be attributed to individual files. They are shown as uninspected rather than invented.
-- A full-volume scan of `/` can be slow and may report permission errors for protected areas.
-  Scan a narrower folder for deeper coverage.
+- The macOS root and Data volumes share an APFS container. Filesystem usage reported for `/`
+  can include container-wide usage even though `/System/Volumes/Data` is deliberately skipped
+  as a nested mount. This is why the overview can show a large “not scanned / system-managed”
+  remainder.
+- A full-volume scan of `/` can be slow, hit the entry cap, and report permission errors for
+  protected areas. A truncated scan labels the remainder as **not scanned**, not as hidden
+  files or recoverable space. Run Deep scan, Deep scan Home folder, or scan a narrower folder
+  for deeper coverage.
 - The in-memory index is not persisted across application restarts.
 - The analyzer recognizes common developer/application locations but does not execute each
   tool's native cleanup command. Where known, recommendations say to use the owning tool.
@@ -293,7 +299,7 @@ Frontend tests:
 - Treemap bounds, proportions, zero-size handling, hit testing, and many-item stability.
 - Workspace rendering, cleanup navigation, no-scan state, and explicit permanent-delete
   acknowledgement.
-- Full suite: `npm test` (265 tests), `npm run typecheck`, `npm run build`.
+- Full suite: `npm test` (266 tests), `npm run typecheck`, `npm run build`.
 
 Manual validation checklist:
 

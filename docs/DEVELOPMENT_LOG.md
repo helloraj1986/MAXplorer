@@ -365,7 +365,10 @@
   indexer. The truncation now backs up to a valid character boundary, the indexer records any
   future extraction panic as a per-file error and continues, and the release profile uses
   `panic = "unwind"` so the panic hook/guards can keep the window alive.
-- Verification: `npm run typecheck` clean, `npm test` **265 passed** across 30 files,
+- Clarified truncated scans: uninspected bytes are now labelled **Not scanned /
+  system-managed** with an explicit "scan stopped at entry limit" explanation, a direct
+  "Deep scan Home folder" action, and a Deep scan ceiling of 5,000,000 entries.
+- Verification: `npm run typecheck` clean, `npm test` **266 passed** across 30 files,
   `cargo test` **63 passed**, `npm run build` clean, `cargo check --release` clean. A real
   `tauri:dev` launch created the log and captured the PDF panic; after the fix, subsequent
   launches logged clean setup/frontend diagnostics with no new panic.

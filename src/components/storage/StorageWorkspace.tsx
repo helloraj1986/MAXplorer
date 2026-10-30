@@ -3,7 +3,7 @@ import { Icon, type IconName } from "../Icon";
 import { StorageIcon } from "../icons/StorageIcon";
 import { useStorageStore } from "../../state/storageStore";
 import { formatCount, formatSize } from "../../lib/format";
-import type { StorageView } from "../../lib/storage/types";
+import { DEEP_SCAN_MAX_ENTRIES, type StorageView } from "../../lib/storage/types";
 import { StorageOverview } from "./StorageOverview";
 import { StorageTreeView } from "./StorageTreeView";
 import { StorageFilesView } from "./StorageFilesView";
@@ -135,9 +135,9 @@ export function StorageWorkspace() {
               <button
                 type="button"
                 className="storage-toolbar-button"
-                onClick={() => void startScan(undefined, 2_000_000)}
+                onClick={() => void startScan(undefined, DEEP_SCAN_MAX_ENTRIES)}
                 disabled={!volume}
-                title="Deep scan allows up to 2,000,000 entries and can take longer"
+                title="Deep scan allows up to 5,000,000 entries and can take several minutes"
               >
                 <Icon name="database" size={13} />
                 Deep scan

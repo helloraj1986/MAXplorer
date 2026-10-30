@@ -304,6 +304,9 @@ export interface StorageSelectionSummary {
   lowRisk: number;
 }
 
+/** Deep scan ceiling exposed by the analyzer UI (the backend hard cap is 5M). */
+export const DEEP_SCAN_MAX_ENTRIES = 5_000_000;
+
 export const DEFAULT_STORAGE_FILE_QUERY: Omit<StorageFileQuery, "scanId"> = {
   directory: null,
   category: null,
