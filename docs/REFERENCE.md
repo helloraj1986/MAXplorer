@@ -1,8 +1,8 @@
 # Reference research: Windows 11 File Explorer
 
-This document records the evidence used to build the replica. It distinguishes
-**observed** facts from **inferred approximations**. The host was a real Windows 11
-machine, not a video or a memory of Explorer.
+This document records the evidence used to build MAXplorer's Windows Explorer theme. It
+distinguishes **observed** facts from **inferred approximations**. The host was a real
+Windows 11 machine, not a video or a memory of Explorer.
 
 ## 1. Reference environment
 
@@ -17,7 +17,7 @@ machine, not a video or a memory of Explorer.
 | Reference fixture | `D:\RKM_SYNC\fileExplorer\reference\fixture` (disposable) |
 
 `explorer.exe shell:Home` opened the **Documents** folder on this 21H2 build, which
-confirms that the Windows 11 22H2 Home surface was not present. The replica therefore
+confirms that the Windows 11 22H2 Home surface was not present. MAXplorer therefore
 uses a Home/Quick access surface modeled on the 22H2 design, with the 21H2 quick-access
 navigation pane preserved.
 
@@ -137,7 +137,7 @@ Large icons: item `105 × 116` (or 131 for two-line labels), step 111 horizontal
 - **Blank context menu**: 262 × 292 at `1158,375`; View, Sort by, Group by, Undo Delete
   (disabled), New, Properties, Open in Terminal, Show more options.
 
-The replica intentionally omits third-party shell extensions from the reference host
+MAXplorer intentionally omits third-party shell extensions from the reference host
 (Notepad++, 7-Zip, Tailscale, Resilio, GpgEX, Defender) because they are not part of
 Windows Explorer. It keeps the Explorer-owned actions and maps them to real macOS
 operations.
@@ -157,7 +157,7 @@ operations.
 ### Typography
 
 Win32 UIA and screenshot inspection show Segoe UI Variable-era 12 px UI text, 11–13 px
-menu/label text, and 15–26 px headings. The replica uses `Segoe UI Variable` when
+menu/label text, and 15–26 px headings. MAXplorer uses `Segoe UI Variable` when
 available and falls back to `-apple-system`/SF Pro on macOS.
 
 ## 4. Verified behavior
@@ -181,7 +181,7 @@ Directly observed on the reference:
 - **Tabs**: not present in the 21H2 reference. Tab strip, drag reorder, close buttons,
   plus button, and per-tab histories follow the Windows 11 22H2/23H2 design and are
   marked as informed approximations.
-- **Home surface**: 21H2 had Quick access, not 22H2 Home. The replica uses a Quick access
+- **Home surface**: 21H2 had Quick access, not 22H2 Home. MAXplorer uses a Quick access
   + Recent home surface mapped to macOS home directories.
 - **Hover, pressed, focus, animation timings**: sampled/observed states are reproduced
   where captured; other timings are informed approximations.

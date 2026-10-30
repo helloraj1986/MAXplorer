@@ -14,6 +14,10 @@ Actions runner:
 
 It is universal (arm64 + x86_64), ad-hoc signed, and not notarized.
 
+Current MAXplorer builds use the same DMG workflow with product name **MAXplorer** and the
+app bundle **MAXplorer.app**. Product identity, icon resources, bundle metadata, and the
+unchanged bundle identifier are documented in [BRANDING.md](BRANDING.md).
+
 The DMG was mounted, launched, and screenshotted on macOS 14 CI in run
 `40492290652`; evidence is in `docs/screenshots/macos-smoke.png`.
 

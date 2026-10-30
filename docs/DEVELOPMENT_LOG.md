@@ -236,3 +236,19 @@
 - Known limitation: compact density applies to details/list/group rows; icon-grid cell
   geometry is controlled by icon scale and the selected view, not by density. The all-tabs
   menu is a scrolling-row complement, not an exact Windows 22H2 overflow flyout.
+
+## Phase 14 - MAXplorer branding documentation (2026-10-30)
+
+- Added [BRANDING.md](BRANDING.md) as the product-identity reference: name, tagline,
+  brand statement, palette, application icon, centralised branding values, metadata,
+  theme-independent rules, compatibility identifiers, and validation record.
+- Updated the current-product documentation from the earlier working name/replica wording
+  to MAXplorer in README, ARCHITECTURE, THEMES, FEATURE_MATRIX, REFERENCE, VALIDATION,
+  ICON_SYSTEM, MACOS_DMG, HANDOVER, and the screenshot index.
+- Documented that the product name, icon, About screen, window identity, and menus stay
+  identical in the Windows Explorer and macOS Finder themes.
+- Reiterated that `com.replica.win11explorer`, the `win11-explorer-*` localStorage keys,
+  `win11://home`, `WIN11_EXPLORER_START_PATH`, and the drag payload type are compatibility
+  identifiers and were intentionally not renamed.
+- This phase changed documentation only; the branding implementation and verification were
+  completed in the earlier rebrand commit.

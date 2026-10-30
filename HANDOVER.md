@@ -131,17 +131,18 @@ npm run tauri:dev          # dev app against your real home folder
 Read in this order:
 
 1. `README.md` — feature list, quick start, limitations.
-2. `docs/ARCHITECTURE.md` — data flow, module boundaries, contracts.
-3. `docs/THEMES.md` — interface theme model, tokens, persistence, adding a theme.
-4. `docs/FEATURE_MATRIX.md` — every studied Explorer feature and its status.
-5. `docs/VALIDATION.md` — what was actually run and observed.
-6. `docs/MACOS_DMG.md` — packaging, signing, notarization, Gatekeeper.
-7. `docs/REFERENCE.md` — how the Windows 11 reference was captured and measured.
-8. `docs/DEVELOPMENT_LOG.md` — chronological build log.
+2. `docs/BRANDING.md` — product identity, application icon, metadata, and theme independence.
+3. `docs/ARCHITECTURE.md` — data flow, module boundaries, contracts.
+4. `docs/THEMES.md` — interface theme model, tokens, persistence, adding a theme.
+5. `docs/FEATURE_MATRIX.md` — every studied Explorer feature and its status.
+6. `docs/VALIDATION.md` — what was actually run and observed.
+7. `docs/MACOS_DMG.md` — packaging, signing, notarization, Gatekeeper.
+8. `docs/REFERENCE.md` — how the Windows 11 reference was captured and measured.
+9. `docs/DEVELOPMENT_LOG.md` — chronological build log.
 
-The UI is a faithful replica, so most "why does it look like this?" questions are answered
-by `docs/REFERENCE.md` (colors, geometry, control inventory from a real Windows 11 21H2
-host plus REA 6.8.0 PE-resource evidence).
+The UI follows the Windows Explorer reference closely, so most "why does it look like this?"
+questions are answered by `docs/REFERENCE.md` (colors, geometry, control inventory from a
+real Windows 11 21H2 host plus REA 6.8.0 PE-resource evidence).
 
 ---
 
@@ -556,7 +557,7 @@ network access at runtime.
 - `reference/rea-explorer-pe-{resources,imports}.json` — REA 6.8.0 evidence from
   `C:\Windows\explorer.exe` (PE resources and imports), re-encoded from UTF-16 to UTF-8.
 - `reference/*.ps1` — the capture/interaction scripts used to drive the real Explorer.
-- `docs/screenshots/` — replica screenshots including the macOS CI smoke capture,
+- `docs/screenshots/` — MAXplorer screenshots including the macOS CI smoke capture,
   Windows/Finder theme comparisons, and the synthetic `.app` icon evidence
   (`app-icons-*.png`).
 

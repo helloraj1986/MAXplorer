@@ -4,6 +4,10 @@ MAXplorer uses one centralized icon pipeline for both interface themes. The
 system is presentation-only: it never changes paths, navigation, selection,
 sorting, file operations, sync state, or keyboard behavior.
 
+The **application icon** (the folder + M artwork packaged as ICNS/ICO/PNG) is separate
+from this in-app icon system. Its source, generated assets, and bundle configuration are
+documented in [BRANDING.md](BRANDING.md).
+
 ## Functional chrome — Lucide
 
 `src/components/icons/AppIcon.tsx` is the single entry point for chrome icons.

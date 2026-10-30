@@ -1,5 +1,13 @@
 # Architecture
 
+## Product identity
+
+The product is **MAXplorer**, an advanced desktop file manager. User-facing branding
+(product name, tagline, brand statement, product description, and the application icon URL)
+is centralised in `src/lib/branding.ts`; the application version is read from
+`package.json`. The application icon, bundle metadata, About screen, menus, and the
+theme-independent branding rules are documented in [BRANDING.md](BRANDING.md).
+
 ## Decision
 
 **Tauri 2 + Rust backend + React/TypeScript frontend** was chosen over Electron or a
@@ -58,6 +66,7 @@ src/
     useWindowPersistence.ts   Logical size/position persistence
   lib/
     api.ts                    Typed Tauri invoke wrappers, error normalization
+    branding.ts               Product name, tagline, description, icon URL, version
     appIcons.ts               Low-level .app icon loading and LRU cache
     icons/
       fileIconRegistry.ts     Typed extension/MIME/name-to-visual registry

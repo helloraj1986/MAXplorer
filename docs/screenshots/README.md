@@ -1,8 +1,9 @@
 # Screenshot index
 
-These screenshots were captured from the running Tauri app on the available Windows 11
-host. The app is intended for macOS; macOS runtime screenshots are not available because
-no macOS host was present. See [../VALIDATION.md](../VALIDATION.md).
+These screenshots were captured from the running MAXplorer Tauri app on the available
+Windows 11 host and from the macOS CI smoke run. Some captures predate the MAXplorer
+rebrand; they document behavior and layout, not the final product name or application icon.
+See [../VALIDATION.md](../VALIDATION.md).
 
 The screenshots predate the unified three-layer chrome and consolidated Settings dialog
 (2026-10-30). They remain useful evidence for views, menus, dialogs, and file operations;
@@ -37,6 +38,11 @@ captured on the next interactive pass.
 | `app-light-resized.png` | Light theme details view |
 | `app-list-view-v3.png` | List view |
 | `app-large-icons.png` | Large icons view |
+| `appearance-settings.png` | Current Appearance page: Create Your Theme, built-ins, templates |
+| `theme-creator-start.png` | Theme Creator start screen with visual starting options |
+| `theme-creator-colours.png` | Colour step with palettes, pickers, and automatic matching |
+| `theme-creator-style.png` | Style step with corner, spacing, border, and surface choices |
+| `appearance-icon-packs.png` | Independent icon pack gallery and import controls |
 
 Reference captures from the real Windows 11 Explorer are in
 [`../../reference/screenshots`](../../reference/screenshots).

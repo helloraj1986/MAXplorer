@@ -2,7 +2,7 @@
 
 Status vocabulary:
 
-- **Verified/implemented** — reference behavior observed and the replica implements it;
+- **Verified/implemented** — reference behavior observed and MAXplorer implements it;
   exercised in the running app and/or covered by tests.
 - **Implemented** — implemented from observed geometry/structure or an explicit informed
   approximation; code and unit tests pass, but not every state was captured.
@@ -13,6 +13,10 @@ Status vocabulary:
 
 | Area | Feature | Reference evidence | Status | Notes |
 | --- | --- | --- | --- | --- |
+| Branding | Product identity | Explicit request | Implemented | MAXplorer name, tagline, brand statement and description centralised in `src/lib/branding.ts` |
+| Branding | Application icon | Design request | Verified/implemented | Original folder + M artwork; ICNS/ICO/PNG generated; bundle icon inspected |
+| Branding | About screen and native menu | Explicit request | Verified/implemented | Icon, name, tagline, metadata version, description; native About opens the themed dialog |
+| Branding | Theme-independent identity | Explicit request | Verified/implemented | Same name, icon, About screen and metadata in both Windows and Finder themes |
 | Shell | Custom title bar and caption buttons | Screenshot | Verified/implemented | Windows-style controls on the right |
 | Shell | Tabs with independent location/history | 22H2 design; 21H2 host has none | Informed approximation | Create, close, switch, duplicate, drag-reorder, restore |
 | Shell | Tab overflow flyout | 22H2 design | Unsupported | Tabs scroll horizontally instead |

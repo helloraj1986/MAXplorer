@@ -1,6 +1,6 @@
 # Interface themes
 
-The application ships two interchangeable visual identities:
+MAXplorer ships two interchangeable presentation themes:
 
 1. **Windows 11 Explorer** (default) — the original Fluent shell.
 2. **macOS Finder** — a macOS-inspired toolbar, traffic lights, source-list sidebar,
@@ -9,6 +9,10 @@ The application ships two interchangeable visual identities:
 The theme is **presentation only**. Both themes render the same React components, read the
 same Zustand store, and call the same Tauri commands and Rust filesystem services. There
 is no second file browser, no duplicated operation logic, and no mock data.
+
+MAXplorer's product name, application icon, About screen, window identity, and menus are
+identical in both themes. The themes change presentation; they do not create separate
+brands. See [BRANDING.md](BRANDING.md).
 
 ## How to switch
 

@@ -197,7 +197,8 @@ scripts/                   Verification and screenshot tooling
 ```
 
 The icon artwork, colour palette, regeneration command, and the bundle-identifier
-compatibility decision are documented in [branding/README.md](branding/README.md).
+compatibility decision are documented in [docs/BRANDING.md](docs/BRANDING.md) and
+[branding/README.md](branding/README.md).
 
 The backend owns every filesystem mutation. The UI never invents file entries. All
 listing, search, metadata, previews, and operations go through typed Tauri commands.
@@ -223,6 +224,7 @@ captured evidence or explicitly marked as an approximation.
 See:
 
 - [docs/REFERENCE.md](docs/REFERENCE.md) — evidence, measurements, colors, uncertainty.
+- [docs/BRANDING.md](docs/BRANDING.md) — product identity, application icon, metadata, and theme-independent branding.
 - [docs/FEATURE_MATRIX.md](docs/FEATURE_MATRIX.md) — status of every studied feature.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — design decisions and contracts.
 - [docs/ICON_SYSTEM.md](docs/ICON_SYSTEM.md) — icon tokens, file registry, native icons, and thumbnails.

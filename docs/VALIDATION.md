@@ -177,8 +177,8 @@ Observed workflows:
 
 ## 4. Screenshot comparison
 
-Reference screenshots were captured at 1510 × 871 from the real Windows 11 Explorer. The
-replica was captured around 1510–1528 × 871–882 depending on persisted window bounds.
+Reference screenshots were captured at 1510 × 871 from the real Windows 11 Explorer.
+MAXplorer was captured around 1510–1528 × 871–882 depending on persisted window bounds.
 
 Matched or closely matched:
 
@@ -197,12 +197,12 @@ Matched or closely matched:
 Known visual differences:
 
 - **Tabs** add a 40 px title strip; the 21H2 reference has a 31 px caption strip.
-- The reference had 11 pinned quick-access folders from the host user; a fresh replica has
-  no pinned paths and shows Home/This Mac immediately.
+- The reference had 11 pinned quick-access folders from the host user; a fresh MAXplorer
+  profile has no pinned paths and shows Home/This Mac immediately.
 - File type glyphs are original simplified SVGs; Windows uses per-association product
   icons (e.g. Word, Excel, VLC).
-- The reference context menu includes third-party shell extensions; the replica omits them.
-- The replica adds a search-summary strip and details-pane total-size/workspace rows.
+- The reference context menu includes third-party shell extensions; MAXplorer omits them.
+- MAXplorer adds a search-summary strip and details-pane total-size/workspace rows.
 - Blank menu lacks Undo Delete and Show more options; tab overflow uses scrolling.
 - Native tooltips are rendered by the OS while hovering rows; the reference also shows
   native tooltips, but exact styling differs.
@@ -417,3 +417,29 @@ Not yet performed in this pass: interactive Tauri verification of the three new 
 narrow-width tiers at the minimum window size, text/icon scaling inside the actual webview,
 sidebar collapse, and keyboard traversal of the Settings dialog. These should be exercised
 at 760×520, 1080×720, and a wide window in both themes before the next release.
+
+## MAXplorer branding (2026-10-29)
+
+The rebrand changed identity, icon, metadata, menus, and documentation only; filesystem
+behavior, persistence, and theme switching were preserved. Results recorded at the time of
+the rebrand:
+
+| Check | Result | Notes |
+| --- | --- | --- |
+| `npm run typecheck` | Pass | Strict TypeScript |
+| `npm test` | Pass | **129 tests across 16 files** at the rebrand commit |
+| `npm run test:cargo` | Pass | **28 Rust tests** |
+| `npm run build` | Pass | Production frontend bundle |
+| `npm run tauri build -- --bundles app,dmg` | Pass | macOS app + native arm64 DMG |
+| `hdiutil verify` | Pass | DMG checksum valid |
+| Bundle metadata | Pass | `CFBundleDisplayName` and `CFBundleName` are `MAXplorer`; executable is `maxplorer` |
+| Icon resources | Pass | `icon.icns` includes 1024 px artwork; `icon.ico` and PNG sizes valid |
+| Native menu | Pass | Menu bar shows `MAXplorer`; **About MAXplorer** opens the themed About dialog |
+| Both themes | Pass | Switched Windows Explorer → macOS Finder → Windows Explorer; state preserved |
+
+The native arm64 DMG was
+`src-tauri/target/release/bundle/dmg/MAXplorer_0.1.0_aarch64.dmg` with SHA-256
+`bb995d9b7ca6ba1198489220be2df26dd9a062b0680c614c401ea3d9895ca4b8`. It was ad-hoc signed
+and not notarized. Universal packaging, Developer ID signing, and notarization remain CI or
+owner tasks. See [BRANDING.md](BRANDING.md).
+
