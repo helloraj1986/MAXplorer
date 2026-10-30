@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { SearchOverlay } from "./SearchOverlay";
 import { SearchWorkspace } from "./SearchWorkspace";
 import { IndexingDashboard } from "./IndexingDashboard";
+import { ContextMenu } from "../ContextMenu";
 import { useSearchStore } from "../../state/searchStore";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import { useExplorerStore } from "../../state/explorerStore";
@@ -110,6 +111,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   useSearchStore.setState({ open: false, workspaceOpen: false });
+  useExplorerStore.getState().hideContextMenu();
 });
 
 function ShortcutHarness() {
@@ -189,6 +191,48 @@ describe("SearchOverlay", () => {
       fireEvent.click(chip);
     });
     expect(useSearchStore.getState().filters.kinds).toEqual([]);
+  });
+});
+
+describe("Reveal in MAXplorer", () => {
+  it("offers the action beside Reveal in Finder in the result context menu", () => {
+    const path = "/Users/test/Projects/invoice-march.pdf";
+    useExplorerStore.getState().showContextMenu({
+      kind: "search",
+      x: 24,
+      y: 24,
+      path,
+      isDir: false,
+      paths: [path],
+    });
+    render(<ContextMenu />);
+    expect(screen.getByText("Reveal in MAXplorer")).toBeTruthy();
+    expect(screen.getByText("Reveal in Finder")).toBeTruthy();
+  });
+
+  it("closes the search workspace and selects the result in a file pane", async () => {
+    const pane = createPane("/Users/test/Projects");
+    const tab = pane.tabs[0];
+    useExplorerStore.setState({
+      dualPane: false,
+      activePane: "left",
+      panes: {
+        left: {
+          ...pane,
+          tabs: [{ ...tab, entries: [entry("invoice-march.pdf")], listingFor: "/Users/test/Projects", loading: false }],
+        },
+        right: createPane("/Users/test/Documents"),
+      },
+    });
+    setupSearch({ workspaceOpen: true, open: false });
+    await act(async () => {
+      await useSearchStore.getState().revealInMaxplorer("/Users/test/Projects/invoice-march.pdf");
+    });
+    expect(useSearchStore.getState().workspaceOpen).toBe(false);
+    expect(useExplorerStore.getState().activePane).toBe("left");
+    expect(useExplorerStore.getState().activeTab("left").selection).toEqual([
+      "/Users/test/Projects/invoice-march.pdf",
+    ]);
   });
 });
 

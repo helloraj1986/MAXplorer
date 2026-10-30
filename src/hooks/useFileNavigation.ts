@@ -266,6 +266,19 @@ export function useFileNavigation({
   // resumes in the file list even when focus was elsewhere. Only the pane named
   // in the event detail (or the active pane for a detail-less request) reacts.
   useEffect(() => {
+    const focusPath = (event: Event) => {
+      const detail = (event as CustomEvent<{ paneId?: PaneId; path?: string }>).detail;
+      if (!detail?.path || detail.paneId !== id) return;
+      const entry = entries.find((candidate) => candidate.path === detail.path);
+      if (!entry) return;
+      setFocusedPath(entry.path);
+      scrollToPath(entry.path);
+    };
+    window.addEventListener("explorer:focus-path", focusPath);
+    return () => window.removeEventListener("explorer:focus-path", focusPath);
+  }, [entries, id, scrollToPath]);
+
+  useEffect(() => {
     const focusList = (event: Event) => {
       const detail = (event as CustomEvent<{ paneId?: PaneId }>).detail;
       if (detail?.paneId && detail.paneId !== id) return;

@@ -42,6 +42,7 @@ import {
   panesFromPersisted,
   panesShowingSources,
   persistedPaneFromState,
+  sameFolder as foldersMatch,
   type SyncAnchors,
 } from "../lib/panes";
 import { createTransferItem, summarizeResults } from "../lib/transfers";
@@ -256,6 +257,7 @@ interface ExplorerState {
     destinationPane?: PaneId,
   ) => Promise<void>;
   revealSelection: (paneId?: PaneId) => Promise<void>;
+  revealInPane: (path: string, paneId?: PaneId) => Promise<boolean>;
   openTerminalHere: (paneId?: PaneId) => Promise<void>;
   openProperties: (path?: string) => Promise<void>;
   openWithDialog: (path?: string) => Promise<void>;
@@ -312,6 +314,21 @@ function currentFolderOf(state: ExplorerState, paneId?: PaneId): string {
 function currentEntriesOf(state: ExplorerState, paneId?: PaneId): FileEntry[] {
   const tab = activeTabOfState(state, paneId);
   return tab.searchResults ?? tab.entries;
+}
+
+function tabFolderOf(state: ExplorerState, tab: TabState): string {
+  return tab.location === HOME_LOCATION ? state.platform?.home ?? "/" : tab.location;
+}
+
+function findTabInFolder(
+  state: ExplorerState,
+  paneId: PaneId,
+  folder: string,
+): TabState | undefined {
+  const pane = state.panes[paneId];
+  const active = activeTabOf(pane);
+  if (foldersMatch(tabFolderOf(state, active), folder)) return active;
+  return pane.tabs.find((tab) => foldersMatch(tabFolderOf(state, tab), folder));
 }
 
 /**
@@ -1836,6 +1853,118 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
       sourcePane: id,
       destinationPane: destinationPane ?? id,
     });
+  },
+
+  async revealInPane(path, paneId) {
+    set({ contextMenu: null });
+    if (!path) return false;
+    const initial = get();
+    const parent = parentPath(path);
+    const folder = parent ?? path;
+    const preferred: PaneId[] = initial.dualPane
+      ? [initial.activePane, otherPane(initial.activePane)]
+      : ["left"];
+
+    // Default Reveal is pane-aware. Prefer a pane whose visible folder already
+    // contains the result, then reuse an inactive tab that shows it, and only
+    // navigate the active pane when the folder is not open anywhere.
+    let target: PaneId;
+    if (initial.dualPane && paneId) {
+      target = paneId;
+    } else {
+      target =
+        preferred.find((id) =>
+          foldersMatch(tabFolderOf(initial, activeTabOf(initial.panes[id])), folder),
+        ) ??
+        preferred.find((id) => Boolean(findTabInFolder(initial, id, folder))) ??
+        preferred[0];
+    }
+
+    const existingTab = findTabInFolder(initial, target, folder);
+    if (existingTab && existingTab.id !== initial.panes[target].activeTabId) {
+      await get().activateTab(existingTab.id, target);
+    }
+    if (get().dualPane) {
+      if (get().panes[target].collapsed) get().setPaneCollapsed(target, false);
+      get().setActivePane(target);
+    }
+
+    if (!parent) {
+      // A filesystem root has no parent listing in which to select it.
+      if (!foldersMatch(currentFolderOf(get(), target), path)) {
+        return get().navigate(path, { paneId: target, skipSync: true });
+      }
+      return true;
+    }
+
+    const current = get();
+    const tab = activeTabOfState(current, target);
+    const showingFolder = foldersMatch(tabFolderOf(current, tab), parent);
+    const cleanListing =
+      showingFolder &&
+      tab.searchResults === null &&
+      tab.listingFor !== null &&
+      foldersMatch(tab.listingFor, parent);
+    const alreadyListed =
+      cleanListing && tab.entries.some((entry) => foldersMatch(entry.path, path));
+
+    if (!showingFolder) {
+      const ok = await get().navigate(parent, {
+        paneId: target,
+        skipSync: true,
+      });
+      if (!ok) return false;
+    } else if (!alreadyListed) {
+      // The folder may be showing a contextual search, a stale listing, or an
+      // item created after the pane last loaded. Refresh in place without
+      // adding history so Reveal never selects an entry that is not on screen.
+      const ok = await get().navigate(parent, {
+        paneId: target,
+        history: false,
+        force: true,
+        skipSync: true,
+      });
+      if (!ok) return false;
+    }
+
+    let latest = get();
+    let latestTab = activeTabOfState(latest, target);
+    if (latestTab.error) {
+      get().toastError(latestTab.error);
+      return false;
+    }
+    let match = latestTab.entries.find((entry) => foldersMatch(entry.path, path));
+    if (!match && !latest.panes[target].showHidden && basename(path).startsWith(".")) {
+      // Hidden dotfiles are commonly returned by Universal Search even when the
+      // destination pane hides hidden items.
+      await get().setShowHidden(true, target);
+      latest = get();
+      latestTab = activeTabOfState(latest, target);
+      match = latestTab.entries.find((entry) => foldersMatch(entry.path, path));
+    }
+    if (!match) {
+      get().toast({
+        title: "This item can't be found.",
+        detail: `${basename(path)} may have been moved or deleted.`,
+        tone: "info",
+      });
+      return false;
+    }
+
+    get().setSelection([match.path], match.path, target);
+    // The pane may have just mounted (the full search workspace was replaced),
+    // so focus and scroll on the next frame once the file list exists.
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => {
+        window.dispatchEvent(
+          new CustomEvent("explorer:focus-path", { detail: { paneId: target, path: match.path } }),
+        );
+        window.dispatchEvent(
+          new CustomEvent("explorer:focus-list", { detail: { paneId: target } }),
+        );
+      }, 40);
+    }
+    return true;
   },
 
   async revealSelection(paneId) {

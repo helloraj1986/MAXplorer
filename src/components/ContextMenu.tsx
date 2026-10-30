@@ -128,6 +128,20 @@ export function ContextMenu() {
           icon: "open",
           onClick: () => void api.revealPath(first).catch((error) => state.toastError(error)),
         },
+        {
+          label: "Reveal in MAXplorer",
+          icon: "folderOpen",
+          onClick: () => void useSearchStore.getState().revealInMaxplorer(first),
+        },
+        ...(state.dualPane
+          ? [
+              {
+                label: `Reveal in ${otherPane === "left" ? "left" : "right"} pane`,
+                icon: "columns" as const,
+                onClick: () => void useSearchStore.getState().revealInMaxplorer(first, otherPane),
+              },
+            ]
+          : []),
         { type: "separator" },
         {
           label: "Copy",

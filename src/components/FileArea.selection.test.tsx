@@ -295,6 +295,36 @@ describe("file list selection", () => {
     expect(row(container, b).getAttribute("aria-selected")).toBe("true");
   });
 
+  it("focuses and scrolls to a path requested by Reveal in MAXplorer", () => {
+    const id = setup();
+    const many = Array.from({ length: 40 }, (_, index) => entry(`item-${index}.txt`));
+    const pane = useExplorerStore.getState().panes[id];
+    useExplorerStore.setState({
+      panes: {
+        ...useExplorerStore.getState().panes,
+        [id]: {
+          ...pane,
+          tabs: pane.tabs.map((tab) =>
+            tab.id === pane.activeTabId
+              ? { ...tab, entries: many, listingFor: "/tmp/folder" }
+              : tab,
+          ),
+        },
+      },
+    });
+    const { container } = render(<FileArea />);
+    const scroll = scrollPane(container);
+    const target = many[many.length - 1];
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("explorer:focus-path", { detail: { paneId: id, path: target.path } }),
+      );
+    });
+    expect(scroll.scrollTop).toBeGreaterThan(0);
+    fireEvent.scroll(scroll);
+    expect(row(container, target).classList.contains("focused")).toBe(true);
+  });
+
   it("updates selected styling in light and dark appearances", () => {
     const { container } = render(<FileArea />);
     pressRow(row(container, a));

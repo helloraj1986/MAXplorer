@@ -52,6 +52,19 @@ error, optional content hash, and a scan generation for reconciliation.
 - Pause/resume, rebuild, clear, retry failed extraction, maximum file size, and error
   diagnostics are exposed in the indexing dashboard.
 
+### Revealing a result in MAXplorer
+
+Search results can be revealed in the file browser from the context menu or the preview
+pane. The default action looks for the result's parent folder in either pane, including
+inactive tabs. When it finds one, that pane and tab are activated instead of navigating
+away from them; otherwise the active pane navigates to the parent in place, preserving the
+other pane, its tabs, history, and synchronized-navigation state. The item is selected,
+scrolled into view, and the file list is focused. With dual panes open, an additional
+**Reveal in left/right pane** action targets the chosen pane so the active pane's location
+can be preserved. A collapsed pane is restored before revealing. Missing, moved, or
+inaccessible items produce a toast instead of leaving a selection on an entry that is not
+on screen.
+
 ### Query execution
 
 1. Indexed filename/path/metadata candidates.
@@ -106,7 +119,8 @@ unavailable/disabled rather than represented by mock results.
 ## Tests
 
 - Frontend: query interpreter, date/size interpretation, chips, scope roots, history/
-  saved-search parsing and retention, overlay/workspace/filter/indexing UI behaviour.
+  saved-search parsing and retention, overlay/workspace/filter/indexing UI behaviour, and
+  Reveal in MAXplorer pane/tab targeting, history preservation, and stale-result handling.
 - Backend: FTS/search/ranking, content extraction, filters, Unicode, case sensitivity,
   empty folders, cancellation, duplicates, persistence/migration, initial and incremental
   indexing, deletion reconciliation, and content-job extraction.

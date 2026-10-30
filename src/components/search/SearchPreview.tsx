@@ -22,6 +22,7 @@ function highlightExcerpt(text: string, terms: string[]): React.ReactNode {
 export function SearchPreview({ hit }: { hit: SearchHit }) {
   const openHit = useSearchStore((state) => state.openHit);
   const revealHit = useSearchStore((state) => state.revealHit);
+  const revealInMaxplorer = useSearchStore((state) => state.revealInMaxplorer);
   const setPreviewOpen = useSearchStore((state) => state.setPreviewOpen);
   const interpretation = useSearchStore((state) => state.interpretation);
   const searchTerms = useMemo(
@@ -82,6 +83,14 @@ export function SearchPreview({ hit }: { hit: SearchHit }) {
           <button type="button" className="search-small-button" onClick={() => void openHit(hit)}>
             <Icon name="open" size={12} />
             Open
+          </button>
+          <button
+            type="button"
+            className="search-small-button"
+            onClick={() => void revealInMaxplorer(hit.entry.path)}
+          >
+            <Icon name="folderOpen" size={12} />
+            Reveal in MAXplorer
           </button>
           <button type="button" className="search-small-button" onClick={() => void revealHit(hit.entry.path)}>
             <Icon name="search" size={12} />

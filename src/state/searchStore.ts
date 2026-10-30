@@ -109,6 +109,7 @@ interface SearchState {
   selectMany: (paths: string[]) => void;
   openHit: (hit: SearchHit) => Promise<void>;
   revealHit: (path: string) => Promise<void>;
+  revealInMaxplorer: (path: string, paneId?: "left" | "right") => Promise<void>;
   commitSearch: () => void;
   reuseHistory: (entry: SearchHistoryEntry) => void;
   deleteHistoryEntry: (id: string) => void;
@@ -595,6 +596,12 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       useExplorerStore.getState().toastError(error);
     }
   },
+  async revealInMaxplorer(path, paneId) {
+    const explorer = useExplorerStore.getState();
+    set({ open: false, workspaceOpen: false });
+    await explorer.revealInPane(path, paneId);
+  },
+
   async revealHit(path) {
     if (!isTauri) return;
     try {
