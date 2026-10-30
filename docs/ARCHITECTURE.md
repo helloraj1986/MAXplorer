@@ -48,6 +48,18 @@ src/
     ContextMenu.tsx           File and blank context menus + nested menus
     Menu.tsx                  Shared menu primitive with submenus/checkmarks/shortcuts
     Dialogs.tsx               Confirm/prompt/conflict/properties/open-with + one Settings dialog
+    storage/
+      StorageWorkspace.tsx    Analyzer shell, volume selector, scan controls, view routing
+      StorageOverview.tsx     Capacity bar, category legend, statistics, recommendations
+      StorageTreeView.tsx     Lazy expandable folder tree and breadcrumb drill-down
+      StorageFilesView.tsx    Filtered/paginated file lists and category/type scopes
+      StorageFoldersView.tsx  Ranked descendant folder totals
+      StorageFileTypesView.tsx Content-oriented type groups
+      StorageTreemap.tsx      Canvas squarified treemap + accessible region list
+      StorageDuplicates.tsx   Verified duplicate groups and copy-preservation guards
+      StorageCleanup.tsx      Risk-labelled recommendations and cleanup report
+      StorageDetails.tsx      Selected file/folder metadata and actions
+      StorageSelectionBar.tsx Overlap-aware selection and destructive review dialog
     FileGlyph.tsx             Compatibility facade over FileTypeIcon
     Icon.tsx                  Compatibility facade over the Lucide AppIcon
     icons/
@@ -72,6 +84,10 @@ src/
       fileIconRegistry.ts     Typed extension/MIME/name-to-visual registry
       nativeIconService.ts    Cached native .app artwork facade
       thumbnailService.ts     Bounded thumbnail URL/failure cache
+    storage/
+      types.ts                Analyzer contracts, category metadata, entry adapters
+      selection.ts            Overlap-aware cleanup accounting and duplicate safeguards
+      treemap.ts              Deterministic squarified layout and hit testing
     types.ts                  Shared serialized contracts and UI models
     theme.ts                  Interface theme definitions, normalization, metrics, apply
     format.ts                 Windows-style sizes, dates, type names, paths
@@ -81,16 +97,19 @@ src/
     selection.ts              Range/toggle/prune selection
     persistence.ts            Versioned localStorage persistence + validation + theme bootstrap
   state/explorerStore.ts      Application store and all user actions
+  state/storageStore.ts       Volume/scan/query/selection/duplicate/cleanup state
   styles/
     tokens.css                Windows and Finder design tokens (light + dark)
     app.css                   Shared component styling and the theme selector
     finder.css                Structural Finder overrides scoped to data-ui-theme="finder"
+    storage.css               Storage Analyzer layout, tables, treemap, review dialog
 src-tauri/src/
   lib.rs                      Tauri builder + command registration
   commands.rs                 Async command boundary, platform launchers
   listing.rs                  Directory entries and metadata
   operations.rs               Create/copy/move/rename/delete/duplicate/conflicts
   search.rs                   Bounded recursive search + cancellation
+  storage.rs                  Volumes, cancellable scan index, categories, duplicates, cleanup
   metadata.rs                 Properties, folder stats, previews, sidebar, apps
   app_icons.rs                .app bundle icon lookup + ICNS/PNG extraction
   paths.rs                    Expansion, name validation, unique names, safety
@@ -222,6 +241,44 @@ themes use the same real icons; only the surrounding chrome changes.
 - **Protection of user data during tests**: Rust tests use `tempfile` directories only.
   UI validation used a disposable fixture under `reference/fixture`.
 
+## Storage Analyzer
+
+[STORAGE_ANALYZER.md](STORAGE_ANALYZER.md) is the detailed reference. The architectural
+boundaries are:
+
+- `src-tauri/src/storage.rs` is the only new filesystem authority for this feature. It
+  discovers volumes through `statvfs`, the mount table, and (on macOS) `diskutil info -plist`;
+  walks with `walkdir` without following symlinks; aggregates directories bottom-up; and
+  keeps the current file/directory index in memory under a scan ID. Contract types are
+  serialized camelCase to `src/lib/storage/types.ts`.
+- Volume capacity is never inferred from file totals. `statvfs` total/free/available are
+  stored separately from inspected logical and allocated bytes, and the UI exposes the
+  uninspected remainder as system/snapshot/purgeable/protected space.
+- Categorization is location-first and assigns exactly one category per file. File-type
+  groups are a separate content-oriented axis. No file is opened for classification.
+- The scan is cancellable and emits `storage-scan-progress`. It caps entries (default
+  500,000, ceiling 5,000,000), skips nested mounts and reserved metadata directories, detects
+  permission errors without aborting, and deduplicates hard-linked inodes.
+- Large lists never cross IPC wholesale. The frontend requests `get_storage_children` for one
+  folder or `query_storage_files` for one filtered page. The result payload contains only
+  aggregates, top files/folders, and recommendations.
+- Duplicate verification is staged: file size → first/last 64 KiB fingerprint → SHA-256 in
+  128 KiB chunks. Files changing during hashing are excluded. At least one copy of every
+  group must remain selected.
+- Destructive operations go through `delete_storage_paths`, not generic UI deletion. The
+  backend checks the scan ID, membership in the verified index, existence, type, size,
+  modification time, canonical containment inside the scanned root, protected system
+  prefixes, volume roots, and the home folder before calling `operations::delete_paths`.
+  Trash is the default; permanent deletion requires a second UI acknowledgement.
+- The workspace is independent of pane/tab state. `src/App.tsx` swaps the normal workspace
+  for `StorageWorkspace` while `storageWorkspaceOpen` is true, leaving pane state untouched.
+  Sidebar and command-bar entry points call the same store action.
+- The full index is intentionally in-memory for the current process. Opening the analyzer
+  does not force a scan; capacity is shown immediately and the last completed result remains
+  available until the process exits or a new scan replaces it. This avoids a second large
+  persistent database while the universal-search SQLite index remains authoritative for
+  search.
+
 ## Performance
 
 - Directory reads are capped at 50,000 entries with a banner when truncated.
@@ -234,6 +291,10 @@ themes use the same real icons; only the surrounding chrome changes.
   with lazy loading, bounded URL/failure caches, and registry-artwork fallbacks. Native
   `.app` icon lookups are deduplicated and LRU-cached.
 - No byte copies happen in the UI process.
+- Storage scans run on `spawn_blocking`, report progress without invented percentages, and
+  can be cancelled. Folder children and file queries are paged. The treemap is a single
+  canvas with hit regions, not thousands of DOM nodes. Duplicate hashing streams 128 KiB at a
+  time and is bounded by candidate limits. Cleanup revalidates only selected paths.
 
 ## State and persistence
 
@@ -243,6 +304,12 @@ search query/results/request generation. View mode, sort, grouping, panes, hidde
 column widths/visibility, sidebar width/visibility, command-bar labels, folder-open behavior,
 Trash confirmation, pinned paths, recents, clipboard, menus, dialogs, toasts, and the current
 operation live in the store.
+
+The Storage Analyzer has its own `storageStore`: workspace visibility, volumes, the current
+scan result and progress, view/folder/file-query state, children cache, cleanup picks,
+duplicate results, and cleanup outcome. The only persisted analyzer preference is the last
+selected volume path; the scan itself is intentionally process-local. Analyzer actions never
+mutate pane tabs, histories, or selections.
 
 Persisted (versioned) fields exclude derived/transient state. Invalid stored values are
 rejected or clamped. Window bounds are stored separately and clamped to the visible screen.

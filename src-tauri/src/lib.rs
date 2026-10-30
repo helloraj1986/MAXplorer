@@ -7,6 +7,7 @@ mod metadata;
 mod operations;
 mod paths;
 mod search;
+mod storage;
 mod transfer;
 mod types;
 
@@ -15,6 +16,7 @@ mod tests;
 
 use compare::CompareState;
 use search::SearchService;
+use storage::StorageState;
 use transfer::TransferState;
 #[cfg(target_os = "macos")]
 use tauri::menu::{Menu, MenuItem, MenuItemKind};
@@ -95,6 +97,7 @@ pub fn run() {
         })
         .manage(TransferState::default())
         .manage(CompareState::default())
+        .manage(StorageState::default())
         .invoke_handler(tauri::generate_handler![
             commands::get_platform_info,
             commands::get_sidebar_locations,
@@ -142,6 +145,17 @@ pub fn run() {
             commands::open_terminal,
             commands::open_with,
             commands::open_system_settings,
+            storage::get_storage_volumes,
+            storage::scan_storage,
+            storage::cancel_storage_scan,
+            storage::get_storage_scan_result,
+            storage::get_storage_children,
+            storage::query_storage_files,
+            storage::find_storage_duplicates,
+            storage::cancel_storage_duplicates,
+            storage::delete_storage_paths,
+            storage::cancel_storage_delete,
+            storage::clear_storage_index,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Windows 11 Explorer replica");

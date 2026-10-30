@@ -59,6 +59,13 @@ captured the screenshot above (Home view, real `/Users/runner` filesystem).
   provider and macOS Spotlight are merged progressively. Duplicate detection verifies
   content with staged fingerprints and SHA-256 hashes. See
   [docs/UNIVERSAL_SEARCH.md](docs/UNIVERSAL_SEARCH.md).
+- **Storage Analyzer**: a dedicated workspace opened from the sidebar, command bar, or
+  Settings menu without disturbing either pane. Real `statvfs` volume capacity, APFS-aware
+  volume classification, a cancellable background scan, category and file-type breakdowns,
+  expandable folder tree, largest files/folders, recently changed and old large files,
+  an interactive canvas treemap, SHA-256 verified duplicate groups, risk-labelled cleanup
+  recommendations, and a review dialog that revalidates exact paths before moving them to
+  Trash or permanently deleting them. See [docs/STORAGE_ANALYZER.md](docs/STORAGE_ANALYZER.md).
 - **Views**: Details, List, Large icons, Medium icons, Small icons, Extra large icons,
   Tiles, and Content. Details columns are resizable; headers sort ascending/descending;
   grouping by type, date, or size is supported.
@@ -337,7 +344,10 @@ These are honest, intentional boundaries of this build:
 - **App sandbox** is not enabled. macOS uses TCC folder permissions; Distribution via the
   Mac App Store would require sandbox entitlements and additional review work.
 - Deleting `/Applications`, `/System`, `/Library`, and similar protected roots is refused
-  for safety.
+  for safety. The Storage Analyzer additionally refuses protected system subtrees, volume
+  roots, the home folder, and anything that canonical resolution places outside the scanned
+  volume. Storage analysis is local-only: filenames, paths, hashes, and reports are never
+  uploaded, and discovered files are never executed.
 
 ## Safety and privacy
 

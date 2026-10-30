@@ -4,6 +4,7 @@ import { AppIcon, type AppIconName } from "./icons/AppIcon";
 import { FolderIcon } from "./icons/FolderIcon";
 import { StorageIcon } from "./icons/StorageIcon";
 import { useExplorerStore } from "../state/explorerStore";
+import { useStorageStore } from "../state/storageStore";
 import { basename } from "../lib/format";
 import { HOME_LOCATION, type Location } from "../lib/types";
 
@@ -75,6 +76,11 @@ export function Sidebar() {
   const setSidebarWidth = useExplorerStore((state) => state.setSidebarWidth);
   const sidebarWidth = useExplorerStore((state) => state.sidebarWidth);
   const moveOrCopyPaths = useExplorerStore((state) => state.moveOrCopyPaths);
+  const openStorageWorkspace = useStorageStore((state) => state.openWorkspace);
+  const storageWorkspaceOpen = useStorageStore((state) => state.workspaceOpen);
+  const storageVolume = useStorageStore((state) =>
+    state.volumes.find((volume) => volume.mountPoint === state.selectedVolumePath),
+  );
   const [expanded, setExpanded] = useState(true);
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
@@ -267,6 +273,33 @@ export function Sidebar() {
                 {networkLocation ? renderRow(networkLocation, { child: true }) : null}
               </div>
             ) : null}
+          </div>
+          <div className="sidebar-heading" role="presentation">Tools</div>
+          <div className="nav-section">
+            <div
+              className={`nav-row ${storageWorkspaceOpen ? "selected" : ""}`}
+              role="treeitem"
+              aria-selected={storageWorkspaceOpen}
+              tabIndex={0}
+              title={storageVolume ? `Analyze ${storageVolume.name}` : "Analyze storage on this Mac"}
+              onClick={() => void openStorageWorkspace()}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  void openStorageWorkspace();
+                }
+              }}
+            >
+              <span className="sidebar-icon sidebar-icon-blue">
+                <StorageIcon size={16} variant={storageVolume?.isNetwork ? "network" : storageVolume?.isInternal ? "internal" : "external"} />
+              </span>
+              <span className="nav-label">Storage Analyzer</span>
+              {storageVolume ? (
+                <span className="nav-storage-percent" title={`${storageVolume.usagePercent.toFixed(1)}% used`}>
+                  {Math.round(storageVolume.usagePercent)}%
+                </span>
+              ) : null}
+            </div>
           </div>
         </div>
       </aside>

@@ -21,8 +21,10 @@ import { OperationOverlay } from "./components/OperationOverlay";
 import { Icon } from "./components/Icon";
 import { SearchOverlay } from "./components/search/SearchOverlay";
 import { SearchWorkspace } from "./components/search/SearchWorkspace";
+import { StorageWorkspace } from "./components/storage/StorageWorkspace";
 import { useExplorerStore } from "./state/explorerStore";
 import { useSearchStore } from "./state/searchStore";
+import { useStorageStore } from "./state/storageStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useTheme } from "./hooks/useTheme";
 import { useWindowPersistence } from "./hooks/useWindowPersistence";
@@ -46,6 +48,7 @@ export default function App() {
   const platform = useExplorerStore((state) => state.platform);
   const interfaceTheme = useExplorerStore((state) => state.interfaceTheme);
   const searchWorkspaceOpen = useSearchStore((state) => state.workspaceOpen);
+  const storageWorkspaceOpen = useStorageStore((state) => state.workspaceOpen);
   const initializeSearch = useSearchStore((state) => state.initialize);
   const [osDropActive, setOsDropActive] = useState(false);
   useTheme();
@@ -116,13 +119,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (storageWorkspaceOpen) {
+      document.title = `Storage Analyzer - ${PRODUCT_NAME}`;
+      return;
+    }
     if (!activeTab) return;
     const label =
       activeTab.location === HOME_LOCATION
         ? "Home"
         : activeTab.location.split(/[\\/]/).filter(Boolean).pop() || PRODUCT_NAME;
     document.title = `${label} - ${PRODUCT_NAME}`;
-  }, [activeTab?.location]);
+  }, [activeTab?.location, storageWorkspaceOpen]);
 
   if (fatalError) {
     return (
@@ -169,7 +176,7 @@ export default function App() {
       <div className="chrome">
         <CommandBar />
       </div>
-      {!dualPane && !searchWorkspaceOpen ? (
+      {!dualPane && !searchWorkspaceOpen && !storageWorkspaceOpen ? (
         <div className="single-pane-layers">
           <NavigationBar showSearch />
           <TabBar paneId="left" />
@@ -177,7 +184,9 @@ export default function App() {
       ) : null}
       <div className="main-area">
         {sidebarVisible ? <Sidebar /> : null}
-        {searchWorkspaceOpen ? (
+        {storageWorkspaceOpen ? (
+          <StorageWorkspace />
+        ) : searchWorkspaceOpen ? (
           <SearchWorkspace />
         ) : dualPane ? (
           <DualPaneWorkspace />
@@ -192,7 +201,7 @@ export default function App() {
         )}
       </div>
       <ComparisonPanel />
-      <StatusBar />
+      {!storageWorkspaceOpen ? <StatusBar /> : null}
       <ContextMenu />
       <Dialogs />
       <SearchOverlay />

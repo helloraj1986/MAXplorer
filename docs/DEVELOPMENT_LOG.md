@@ -298,3 +298,52 @@
   feature matrix with the agent workflow and Appearance Platform capability rows.
 - Verification: the example package parses and validates with no issues; text contrast is
   18.16:1 against the main panel.
+
+## Phase 17 - Storage Space Analyzer (2026-10-30)
+
+- Added a dedicated, full-window Storage Analyzer workspace independent of single/dual-pane
+  browser state. Entry points: Sidebar → Tools, command-bar drive button, and Settings menu.
+- Added real volume discovery: `/` and `/Volumes/*` on macOS, `statvfs` capacity, mount-table
+  filesystem types, and `diskutil info -plist` enrichment for internal/external/removable/
+  virtual/APFS-container classification. Windows uses `Win32_LogicalDisk` through PowerShell.
+- Added a cancellable, progress-emitting `WalkDir` scanner in `src-tauri/src/storage.rs`:
+  symlinks are never followed, nested mounts and reserved metadata folders are skipped,
+  permission errors are counted, hard-linked inodes are counted once, directory aggregates are
+  computed bottom-up, and entry caps are reported honestly.
+- Added location-first, one-category-per-file storage categories plus separate file-type
+  groups. No file is opened or executed for classification.
+- Added in-memory scan queries for one folder's children and filtered/paginated file lists, so
+  large trees never cross IPC wholesale. Top files/folders/categories/types and cleanup
+  recommendations are returned with the scan summary.
+- Added the overview dashboard: capacity bar, inspected vs uninspected space, category legend,
+  largest file/folder, cleanup estimate, duplicate status, recent/stale large files, and scan
+  transparency notes.
+- Added the folder tree with lazy expansion, breadcrumbs, largest file per directory,
+  allocated/logical sizes, share of parent, and per-folder rescan.
+- Added largest-file and largest-folder views with thresholds/filters/sorting, file-type
+  analysis, and recent/old large-file scopes.
+- Added a squarified canvas treemap with hover details, drill-down, breadcrumbs, keyboard
+  region navigation, and an equivalent accessible list.
+- Added staged duplicate detection: size grouping, first/last-64 KiB fingerprints, streaming
+  SHA-256, changed-file detection, same-volume reporting, and a guard that keeps at least one
+  verified copy.
+- Added risk-labelled cleanup recommendations for Trash, caches, logs, Xcode/package/build
+  storage, Android/Docker/backups, application support, Mail, downloads, installers, archives,
+  databases, VM disks, and old large files. Recommendations explain their reasoning and note
+  when an owning tool should be used instead.
+- Added overlap-aware cleanup selection and a review dialog with exact paths, deduplicated
+  estimate, risk warnings, Trash vs permanent deletion, and mandatory acknowledgement for
+  permanent deletion.
+- Added backend deletion revalidation: scan membership, existence, type/size/modification
+  match, canonical containment, protected system prefixes, and volume/home guards. Cleanup
+  reports completed/failed/changed/overlap results and measured free-space deltas, then
+  automatically rescans the same root.
+- Added `docs/STORAGE_ANALYZER.md` with capabilities, architecture, calculation methodology,
+  categorization, safety, privacy, performance, limitations, and testing procedures.
+- Verification: `npm run typecheck` clean, `npm test` **265 passed** across 30 files,
+  `cargo test` **61 passed**, `npm run build` clean. All destructive Rust tests use
+  `tempfile` directories only.
+- Known limitations: the full analyzer index is in-memory for the current process; APFS
+  snapshots/System Data/purgeable space cannot be attributed to individual files; tool-native
+  cleanup commands are recommended but not executed; cloud placeholders are never downloaded;
+  duplicate detection is I/O-heavy and optional; network-volume latency follows the mount.

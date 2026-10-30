@@ -28,6 +28,19 @@ import type {
   SearchResponse,
   SearchSuggestion,
 } from "./search/types";
+import type {
+  StorageChildren,
+  StorageDeleteOutcome,
+  StorageDeleteProgress,
+  StorageDeleteRequest,
+  StorageDuplicateRequest,
+  StorageDuplicateResponse,
+  StorageFilePage,
+  StorageFileQuery,
+  StorageScanProgress,
+  StorageScanResult,
+  StorageVolume,
+} from "./storage/types";
 import { PRODUCT_NAME } from "./branding";
 
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -171,6 +184,34 @@ export const api = {
     call<void>("open_system_settings", { section }),
   saveAppearancePackage: (fileName: string, contents: string) =>
     call<string>("save_appearance_package", { fileName, contents }),
+
+  /* Storage Space Analyzer ------------------------------------------------ */
+  getStorageVolumes: () => call<StorageVolume[]>("get_storage_volumes"),
+  scanStorage: (request: { scanId: number; root: string; maxEntries?: number }) =>
+    call<StorageScanResult>("scan_storage", { request }),
+  cancelStorageScan: (scanId: number) => call<void>("cancel_storage_scan", { scanId }),
+  getStorageScanResult: () => call<StorageScanResult | null>("get_storage_scan_result"),
+  getStorageChildren: (scanId: number, path: string, limit = 2_000) =>
+    call<StorageChildren>("get_storage_children", { scanId, path, limit }),
+  queryStorageFiles: (query: StorageFileQuery) =>
+    call<StorageFilePage>("query_storage_files", { query }),
+  findStorageDuplicates: (request: StorageDuplicateRequest) =>
+    call<StorageDuplicateResponse>("find_storage_duplicates", { request }),
+  cancelStorageDuplicates: (requestId: number) =>
+    call<void>("cancel_storage_duplicates", { requestId }),
+  deleteStoragePaths: (request: StorageDeleteRequest) =>
+    call<StorageDeleteOutcome>("delete_storage_paths", { request }),
+  cancelStorageDelete: (operationId: number) =>
+    call<void>("cancel_storage_delete", { operationId }),
+  clearStorageIndex: () => call<void>("clear_storage_index"),
+  onStorageScanProgress: (handler: (progress: StorageScanProgress) => void): Promise<UnlistenFn> => {
+    if (!isTauri) return Promise.resolve(() => undefined);
+    return listen<StorageScanProgress>("storage-scan-progress", (event) => handler(event.payload));
+  },
+  onStorageDeleteProgress: (handler: (progress: StorageDeleteProgress) => void): Promise<UnlistenFn> => {
+    if (!isTauri) return Promise.resolve(() => undefined);
+    return listen<StorageDeleteProgress>("storage-delete-progress", (event) => handler(event.payload));
+  },
 };
 
 export function assetUrl(path: string): string {

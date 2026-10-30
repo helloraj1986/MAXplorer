@@ -4,6 +4,7 @@ import { Icon } from "./Icon";
 import { MenuPanel, type MenuItem } from "./Menu";
 import { useExplorerStore } from "../state/explorerStore";
 import { useSearchStore } from "../state/searchStore";
+import { useStorageStore } from "../state/storageStore";
 import { useElementSize } from "../hooks/useElementSize";
 import { acceleratorToDisplay, DEFAULT_SHORTCUTS, normalizeAccelerator } from "../lib/panes";
 import { HOME_LOCATION, type GroupBy, type ViewMode } from "../lib/types";
@@ -59,6 +60,8 @@ export function CommandBar() {
   const syncNavigation = useExplorerStore((state) => state.syncNavigation);
   const sidebarVisible = useExplorerStore((state) => state.sidebarVisible);
   const comparison = useExplorerStore((state) => state.comparison);
+  const openStorageWorkspace = useStorageStore((state) => state.openWorkspace);
+  const storageWorkspaceOpen = useStorageStore((state) => state.workspaceOpen);
   const shortcuts = useExplorerStore((state) => state.shortcuts);
   const commandBarLabels = useExplorerStore((state) => state.commandBarLabels);
   const isHome = activeTab?.location === HOME_LOCATION;
@@ -249,6 +252,12 @@ export function CommandBar() {
       icon: "search",
       shortcut: customShortcut(shortcuts.globalSearch, DEFAULT_SHORTCUTS.globalSearch),
       onClick: () => useSearchStore.getState().openOverlay(),
+    },
+    {
+      label: "Storage Analyzer",
+      icon: "drive",
+      checked: storageWorkspaceOpen,
+      onClick: () => void openStorageWorkspace(),
     },
     { label: "Open in Terminal", icon: "terminal", onClick: () => void openTerminalHere(activePane) },
     {
@@ -445,6 +454,16 @@ export function CommandBar() {
         onClick={toggleSidebar}
       >
         <Icon name="sidebar" size={16} />
+      </button>
+      <button
+        type="button"
+        className={`cmd-btn cmd-workspace ${storageWorkspaceOpen ? "active-toggle" : ""}`}
+        data-tooltip="Analyze storage space"
+        aria-label="Storage Analyzer"
+        aria-pressed={storageWorkspaceOpen}
+        onClick={() => void openStorageWorkspace()}
+      >
+        <Icon name="drive" size={16} />
       </button>
       <div className="cmd-split">
         <button

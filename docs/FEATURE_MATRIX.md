@@ -208,4 +208,39 @@ paths; see [VALIDATION.md](VALIDATION.md) for the exact boundary.
 | Comparison | Read-only folder comparison, differences filter, optional content verification | Explicit request | Implemented | Rust `compare.rs`; comparison dock; no mutation commands |
 | Comparison | Row indicators in both panes | Explicit request | Implemented | Left-only / right-only / size / date / content dots |
 | Sync navigation | Relative folder mapping, disabled by default | Explicit request | Implemented | `deriveSyncAnchors` + `mapSynchronizedPath`; no-op on invalid mappings |
-| Tests | Temp-directory coverage for transfer/compare and pure helper tests | Explicit request | Implemented | 47 Rust tests; 219 frontend tests across 24 files (includes unified command/settings coverage) |
+| Tests | Temp-directory coverage for transfer/compare and pure helper tests | Explicit request | Implemented | Rust and frontend suites cover the feature; counts are recorded per development phase |
+
+## Storage Space Analyzer
+
+| Area | Feature | Reference evidence | Status | Notes |
+| --- | --- | --- | --- | --- |
+| Entry | Dedicated analyzer workspace | Explicit request | Implemented | Sidebar Tools row, command-bar drive button, Settings menu; independent of pane/tab state |
+| Volumes | Real capacity and free space | Explicit request | Implemented | `statvfs` total/free/available/used; never inferred from scanned files |
+| Volumes | Volume classification | Explicit request | Implemented | `diskutil info -plist` internal/external/removable/virtual/APFS container on macOS; Windows logical disks |
+| Overview | Category usage bar and legend | Explicit request | Implemented | Real bytes/files; click-through to filtered file view; uninspected space kept separate |
+| Overview | At-a-glance statistics | Explicit request | Implemented | Largest file/folder, cleanup estimate, duplicate status, recent/stale files, scan status |
+| Scan | Cancellable background scan | Explicit request | Implemented | Progress event; no invented percentage; partial/cancelled state labelled |
+| Scan | Symlink and loop safety | Explicit request | Implemented | `follow_links(false)`; symlinks listed but never traversed |
+| Scan | Permission/error resilience | Explicit request | Implemented | Errors counted; scan continues; notes suggest Full Disk Access only as an option |
+| Scan | Mount-boundary handling | Explicit request | Implemented | Nested mounts and reserved metadata directories skipped to prevent double counting |
+| Scan | Hard-link accounting | Explicit request | Implemented | `(device, inode)` deduplication; additional links listed but not double-counted |
+| Analysis | Folder tree with drill-down | Explicit request | Implemented | Breadcrumbs, lazy expansion, aggregate/logical/allocated size, file/folder counts, largest file, share |
+| Analysis | Largest files | Explicit request | Implemented | Thresholds, filters, sorting, pagination, reveal/open/properties/select |
+| Analysis | Largest folders | Explicit request | Implemented | Descendant totals, age/size filters, explicit overlap explanation |
+| Analysis | File-type analysis | Explicit request | Implemented | Content-oriented groups, extensions, totals, filtered file view |
+| Analysis | Recently changed and stale large files | Explicit request | Implemented | File metadata based; age is never treated as proof of uselessness |
+| Visualization | Interactive treemap | Explicit request | Implemented | Canvas squarified layout, drill-down, breadcrumbs, keyboard regions, accessible list |
+| Duplicates | Content-verified duplicate detection | Explicit request | Implemented | Size → 64 KiB fingerprint → streaming SHA-256; changed files excluded |
+| Duplicates | Copy-preservation safeguards | Explicit request | Implemented | At least one verified copy must remain; cloud/backup warnings |
+| Cleanup | Risk-labelled recommendations | Explicit request | Implemented | Low/review/high; reasoning, exact path, size, reversibility, notes |
+| Cleanup | Deduplicated estimates | Explicit request | Implemented | Ancestor selection subsumes descendants; recommendations and selection deduplicated |
+| Cleanup | Review before destruction | Explicit request | Implemented | Exact path list, risk warnings, Trash default, permanent deletion with acknowledgement |
+| Cleanup | Revalidated execution | Explicit request | Implemented | Scan membership, type/size/date, canonical containment, protected system roots, volume/home guards |
+| Cleanup | Result reporting and refresh | Explicit request | Implemented | Completed/failed/changed/overlap, logical and free-space measurements, automatic rescan |
+| Cleanup | Per-path exclusions | Explicit request | Implemented | Recommendation paths can be excluded/restored; stored locally |
+| Cleanup | Multi-file progress and cancellation | Explicit request | Implemented | Per-item progress event and safe cancellation after the current item |
+| Privacy | Local-only analysis | Explicit request | Implemented | No uploads, no remote AI, no file execution; hashes stay local |
+| Limitations | System-managed storage | Explicit request | Partial | Snapshots/System Data/purgeable space shown as uninspected, not fabricated |
+| Indexing | Persistent full analyzer index | Explicit request | Unsupported | In-memory scan index only; opening the analyzer does not force a scan |
+| Developer storage | Tool-native cleanup execution | Explicit request | Partial | Locations recognized and recommendations explain the owning tool; commands are not executed |
+| Tests | Rust/frontend coverage | Explicit request | Implemented | Temp-directory scan/duplicate/delete tests; selection/treemap/workspace tests |
