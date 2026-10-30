@@ -210,6 +210,17 @@ paths; see [VALIDATION.md](VALIDATION.md) for the exact boundary.
 | Sync navigation | Relative folder mapping, disabled by default | Explicit request | Implemented | `deriveSyncAnchors` + `mapSynchronizedPath`; no-op on invalid mappings |
 | Tests | Temp-directory coverage for transfer/compare and pure helper tests | Explicit request | Implemented | Rust and frontend suites cover the feature; counts are recorded per development phase |
 
+## Diagnostics
+
+| Area | Feature | Reference evidence | Status | Notes |
+| --- | --- | --- | --- | --- |
+| Diagnostics | Rotating local log | Explicit request | Implemented | App-data `logs/maxplorer.log`; 8 MB rotation; `npm run logs` |
+| Diagnostics | Rust panic capture | Explicit request | Implemented | Panic hook records thread, location, message, forced backtrace; release unwinds |
+| Diagnostics | Background task containment | Explicit request | Implemented | Storage tasks and content extraction convert panics into errors instead of process aborts |
+| Diagnostics | Frontend error capture | Explicit request | Implemented | Global error/rejection handlers + React error boundary with log path |
+| Diagnostics | User access to logs | Explicit request | Implemented | Settings → Reveal diagnostic log; error screen Reveal log action |
+| Diagnostics | PDF UTF-8 crash fix | Found by diagnostics | Implemented | `extract_pdf` truncates at a character boundary; regression test added |
+
 ## Storage Space Analyzer
 
 | Area | Feature | Reference evidence | Status | Notes |

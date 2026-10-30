@@ -48,6 +48,7 @@ src/
     ContextMenu.tsx           File and blank context menus + nested menus
     Menu.tsx                  Shared menu primitive with submenus/checkmarks/shortcuts
     Dialogs.tsx               Confirm/prompt/conflict/properties/open-with + one Settings dialog
+    AppErrorBoundary.tsx      React crash fallback with local log path action
     storage/
       StorageWorkspace.tsx    Analyzer shell, volume selector, scan controls, view routing
       StorageOverview.tsx     Capacity bar, category legend, statistics, recommendations
@@ -89,6 +90,7 @@ src/
       selection.ts            Overlap-aware cleanup accounting and duplicate safeguards
       treemap.ts              Deterministic squarified layout and hit testing
     types.ts                  Shared serialized contracts and UI models
+    diagnostics.ts            Frontend error/rejection logging bridge
     theme.ts                  Interface theme definitions, normalization, metrics, apply
     format.ts                 Windows-style sizes, dates, type names, paths
     sort.ts                   Sorting and group buckets
@@ -105,6 +107,7 @@ src/
     storage.css               Storage Analyzer layout, tables, treemap, review dialog
 src-tauri/src/
   lib.rs                      Tauri builder + command registration
+  logging.rs                  Rotating local log, panic hook/backtrace, safe catch
   commands.rs                 Async command boundary, platform launchers
   listing.rs                  Directory entries and metadata
   operations.rs               Create/copy/move/rename/delete/duplicate/conflicts
@@ -278,6 +281,17 @@ boundaries are:
   available until the process exits or a new scan replaces it. This avoids a second large
   persistent database while the universal-search SQLite index remains authoritative for
   search.
+
+## Diagnostics
+
+[DIAGNOSTICS.md](DIAGNOSTICS.md) is the operational reference. Rust initializes a rotating
+local log under the Tauri app-data directory during setup, installs a panic hook that records
+thread/message/location/backtrace, and writes startup, search-index, volume, scan, duplicate,
+and cleanup events. Storage filesystem tasks use `logging::catch` so a panic becomes a normal
+command error and the window remains available. The React tree is wrapped in
+`AppErrorBoundary`; global `error` and `unhandledrejection` handlers forward failures through
+`log_frontend_event`. The Settings menu reveals the log, and `npm run logs` prints it from the
+terminal. No diagnostic data leaves the machine.
 
 ## Performance
 

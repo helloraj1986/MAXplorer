@@ -212,6 +212,12 @@ export const api = {
     if (!isTauri) return Promise.resolve(() => undefined);
     return listen<StorageDeleteProgress>("storage-delete-progress", (event) => handler(event.payload));
   },
+
+  /* Diagnostics ----------------------------------------------------------- */
+  logFrontendEvent: (level: "info" | "warn" | "error" | "debug", message: string, context?: string) =>
+    call<void>("log_frontend_event", { level, message, context: context ?? null }),
+  getLogPath: () => call<string | null>("get_log_path"),
+  logStorageDiagnostics: () => call<string | null>("log_storage_diagnostics"),
 };
 
 export function assetUrl(path: string): string {

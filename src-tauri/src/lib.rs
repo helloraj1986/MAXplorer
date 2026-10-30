@@ -3,6 +3,7 @@ mod commands;
 mod compare;
 mod error;
 mod listing;
+mod logging;
 mod metadata;
 mod operations;
 mod paths;
@@ -66,6 +67,7 @@ fn build_app_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    logging::install_panic_hook();
     let builder = tauri::Builder::default();
 
     #[cfg(target_os = "macos")]
@@ -78,16 +80,22 @@ pub fn run() {
                 .app_data_dir()
                 .unwrap_or_else(|_| std::env::temp_dir().join("maxplorer"));
             let _ = std::fs::create_dir_all(&data_directory);
+            logging::init(&data_directory);
+            logging::info("app", "Tauri setup started");
             let database = data_directory.join("search").join("index.sqlite3");
             let service = match SearchService::new(database.clone()) {
                 Ok(service) => service,
                 Err(error) => {
-                    eprintln!("Search index could not be opened: {error}");
+                    logging::error(
+                        "search",
+                        format!("Search index could not be opened: {error}"),
+                    );
                     let fallback = std::env::temp_dir().join("maxplorer-search").join("index.sqlite3");
                     SearchService::new(fallback)?
                 }
             };
             app.manage(service);
+            logging::info("app", "Tauri setup completed");
             Ok(())
         })
         .on_menu_event(|app, event| {
@@ -156,6 +164,9 @@ pub fn run() {
             storage::delete_storage_paths,
             storage::cancel_storage_delete,
             storage::clear_storage_index,
+            logging::log_frontend_event,
+            logging::get_log_path,
+            logging::log_storage_diagnostics,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Windows 11 Explorer replica");

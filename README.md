@@ -100,6 +100,9 @@ captured the screenshot above (Home view, real `/Users/runner` filesystem).
   (no emoji).
 - **macOS integration**: real home folders, `/Volumes` drives, `/Applications` app list,
   Finder reveal, Terminal, TCC usage descriptions, and macOS permission guidance.
+- **Local diagnostics**: rotating crash log, Rust panic hook with backtrace, React error
+  boundary, global unhandled-error capture, **Settings → Reveal diagnostic log**, and
+  `npm run logs`. Nothing is uploaded. See [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md).
 - **Persistence**: tabs, location history, view mode, sorting, grouping, column widths and
   visibility, sidebar width/visibility, pinned folders, recent items, interface theme,
   light/dark theme, text/icon scale, row density, command-bar labels, folder-open behavior,

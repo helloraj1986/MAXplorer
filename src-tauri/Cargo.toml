@@ -35,5 +35,7 @@ tempfile = "3"
 codegen-units = 1
 lto = true
 opt-level = "s"
-panic = "abort"
+# Keep unwinding enabled so the panic hook, storage command guard, and indexer
+# can record a backtrace and keep the window alive instead of aborting silently.
+panic = "unwind"
 strip = true

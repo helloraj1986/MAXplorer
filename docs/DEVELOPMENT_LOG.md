@@ -347,3 +347,27 @@
   snapshots/System Data/purgeable space cannot be attributed to individual files; tool-native
   cleanup commands are recommended but not executed; cloud placeholders are never downloaded;
   duplicate detection is I/O-heavy and optional; network-volume latency follows the mount.
+
+## Phase 18 - Local crash diagnostics (2026-10-30)
+
+- Added `src-tauri/src/logging.rs`: rotating local log under the Tauri app-data directory,
+  timestamped levels, startup metadata, panic hook with forced backtrace, and `catch` wrapper
+  that converts a panic in volume/scan/duplicate/cleanup tasks into a normal command error.
+- Added storage lifecycle logging for volume discovery, scan start/result/cancel, duplicate
+  detection start/result, cleanup start/result/cancel, and in-memory index clearing.
+- Added frontend diagnostics: global `error`, `unhandledrejection`, Storage Analyzer API
+  failures, and a React `AppErrorBoundary` that keeps the window open and exposes the log path.
+- Added **Settings → Reveal diagnostic log** and `npm run logs` / `npm run logs -- --tail N`.
+- Added [DIAGNOSTICS.md](DIAGNOSTICS.md) with log locations, contents, rotation, panic
+  containment, privacy notes, and crash-reporting steps.
+- The new log immediately identified an existing crash: `extract_pdf` truncated a UTF-8
+  string at a non-character boundary (`src/search/extract.rs`) inside the background content
+  indexer. The truncation now backs up to a valid character boundary, the indexer records any
+  future extraction panic as a per-file error and continues, and the release profile uses
+  `panic = "unwind"` so the panic hook/guards can keep the window alive.
+- Verification: `npm run typecheck` clean, `npm test` **265 passed** across 30 files,
+  `cargo test` **63 passed**, `npm run build` clean, `cargo check --release` clean. A real
+  `tauri:dev` launch created the log and captured the PDF panic; after the fix, subsequent
+  launches logged clean setup/frontend diagnostics with no new panic.
+- Known limitation: logs from a fatal crash before Tauri setup cannot be captured by the file
+  logger; normal startup, command, panic, and React failures are covered.

@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "logs": "node scripts/show-logs.mjs",
     "test:cargo": "cargo test --manifest-path src-tauri/Cargo.toml",
     "theme:validate": "vite-node --script scripts/validate-theme.ts"
   },

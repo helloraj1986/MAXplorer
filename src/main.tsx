@@ -1,6 +1,8 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { AppErrorBoundary } from "./components/AppErrorBoundary";
+import { installGlobalDiagnostics } from "./lib/diagnostics";
 import "./styles/tokens.css";
 import "./styles/app.css";
 import "./styles/finder.css";
@@ -35,6 +37,7 @@ if (savedDesign) {
   applyIconPack(savedPack);
 }
 
+installGlobalDiagnostics();
 const root = ReactDOM.createRoot(document.getElementById("root") as HTMLElement);
 const preview = new URLSearchParams(window.location.search).get("preview");
 if (import.meta.env.DEV && preview === "appearance") {
@@ -44,7 +47,9 @@ if (import.meta.env.DEV && preview === "appearance") {
 } else {
   root.render(
     <React.StrictMode>
-      <App />
+      <AppErrorBoundary>
+        <App />
+      </AppErrorBoundary>
     </React.StrictMode>,
   );
 }

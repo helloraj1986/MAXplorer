@@ -8,6 +8,7 @@
 
 use crate::error::AppError;
 use crate::listing::entry_from_path;
+use crate::logging;
 use crate::operations;
 use crate::paths::{home_dir, normalize_path, reject_unsafe_destruction, system_time_ms};
 use crate::search::engine::{hash_file, quick_fingerprint};
@@ -2886,15 +2887,25 @@ pub fn delete_core_with_progress(
 
 #[tauri::command]
 pub async fn get_storage_volumes() -> Result<Vec<StorageVolume>, AppError> {
-    tauri::async_runtime::spawn_blocking(discover_volumes)
-        .await
-        .map_err(|error| {
-            AppError::new(
-                "internal",
-                format!("Volume discovery failed: {error}"),
-                None,
-            )
-        })
+    logging::info("storage.volumes", "discovering volumes");
+    let result = tauri::async_runtime::spawn_blocking(|| {
+        logging::catch("volume discovery", || Ok::<_, AppError>(discover_volumes()))
+    })
+    .await
+    .map_err(|error| {
+        logging::error("storage.volumes", format!("volume task failed: {error}"));
+        AppError::new(
+            "internal",
+            format!("Volume discovery failed: {error}"),
+            None,
+        )
+    })?;
+    let volumes = result?;
+    logging::info(
+        "storage.volumes",
+        format!("discovered {} volume(s)", volumes.len()),
+    );
+    Ok(volumes)
 }
 
 #[tauri::command]
@@ -2911,24 +2922,50 @@ pub async fn scan_storage(
     } else {
         request.max_entries
     };
+    let root_text = root.to_string_lossy().to_string();
+    logging::info(
+        "storage.scan",
+        format!("start id={scan_id} root={root_text} max_entries={max_entries}"),
+    );
     let cancel = state.register(scan_id);
     let app_handle = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        scan_storage_index(&root, scan_id, max_entries, &cancel, &|progress| {
-            let _ = app_handle.emit("storage-scan-progress", progress);
+        logging::catch("storage scan", || {
+            scan_storage_index(&root, scan_id, max_entries, &cancel, &|progress| {
+                let _ = app_handle.emit("storage-scan-progress", progress);
+            })
         })
     })
     .await
-    .map_err(|error| AppError::new("internal", format!("Storage scan failed: {error}"), None));
+    .map_err(|error| {
+        logging::error("storage.scan", format!("scan task failed: {error}"));
+        AppError::new("internal", format!("Storage scan failed: {error}"), None)
+    });
     state.remove(scan_id);
     let index = result??;
     let scan = index.scan.clone();
+    logging::info(
+        "storage.scan",
+        format!(
+            "complete id={scan_id} entries={} files={} dirs={} logical={} allocated={} errors={} cancelled={} truncated={} elapsed_ms={}",
+            scan.scanned_entries,
+            scan.scanned_files,
+            scan.scanned_directories,
+            scan.total_logical_bytes,
+            scan.total_allocated_bytes,
+            scan.read_errors,
+            scan.cancelled,
+            scan.truncated,
+            scan.elapsed_ms
+        ),
+    );
     state.store(index);
     Ok(scan)
 }
 
 #[tauri::command]
 pub fn cancel_storage_scan(state: tauri::State<'_, StorageState>, scan_id: u64) {
+    logging::info("storage.scan", format!("cancel requested id={scan_id}"));
     state.cancel(scan_id);
 }
 
@@ -2989,15 +3026,49 @@ pub async fn find_storage_duplicates(
     request: StorageDuplicateRequest,
 ) -> Result<StorageDuplicateResponse, AppError> {
     let request_id = request.request_id;
+    logging::info(
+        "storage.duplicates",
+        format!(
+            "start id={request_id} roots={:?} min_size={} limit={}",
+            request.roots, request.min_size, request.limit
+        ),
+    );
     let cancel = state.register(request_id);
-    let result =
-        tauri::async_runtime::spawn_blocking(move || find_duplicates_core(&request, &cancel))
-            .await
-            .map_err(|error| {
-                AppError::new("internal", format!("Duplicate scan failed: {error}"), None)
-            });
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        logging::catch("duplicate scan", || find_duplicates_core(&request, &cancel))
+    })
+    .await
+    .map_err(|error| {
+        logging::error(
+            "storage.duplicates",
+            format!("duplicate task failed: {error}"),
+        );
+        AppError::new("internal", format!("Duplicate scan failed: {error}"), None)
+    });
     state.remove(request_id);
-    result?
+    let response = result?;
+    match response {
+        Ok(value) => {
+            logging::info(
+                "storage.duplicates",
+                format!(
+                    "complete id={request_id} groups={} scanned={} hashed={} changed={} errors={} cancelled={} elapsed_ms={}",
+                    value.groups.len(),
+                    value.scanned_files,
+                    value.hashed_files,
+                    value.changed_files,
+                    value.errors,
+                    value.cancelled,
+                    value.elapsed_ms
+                ),
+            );
+            Ok(value)
+        }
+        Err(error) => {
+            logging::error("storage.duplicates", error.message.clone());
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]
@@ -3016,25 +3087,65 @@ pub async fn delete_storage_paths(
         AppError::new("no_scan", "Run a storage scan before removing files.", None)
     })?;
     let operation_id = request.operation_id;
+    logging::info(
+        "storage.cleanup",
+        format!(
+            "start id={operation_id} scan_id={} items={} permanent={}",
+            request.scan_id,
+            request.items.len(),
+            request.permanent
+        ),
+    );
     let cancel = state.register(operation_id);
     let app_handle = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
-        delete_core_with_progress(&index, &request, &cancel, &|progress| {
-            let _ = app_handle.emit("storage-delete-progress", progress);
+        logging::catch("storage cleanup", || {
+            delete_core_with_progress(&index, &request, &cancel, &|progress| {
+                let _ = app_handle.emit("storage-delete-progress", progress);
+            })
         })
     })
     .await
-    .map_err(|error| AppError::new("internal", format!("Cleanup failed: {error}"), None));
+    .map_err(|error| {
+        logging::error("storage.cleanup", format!("cleanup task failed: {error}"));
+        AppError::new("internal", format!("Cleanup failed: {error}"), None)
+    });
     state.remove(operation_id);
-    result?
+    let outcome = result?;
+    match outcome {
+        Ok(value) => {
+            logging::info(
+                "storage.cleanup",
+                format!(
+                    "complete id={operation_id} results={} changed={} overlaps={} cancelled={} requested={} reclaimed={}",
+                    value.results.len(),
+                    value.changed.len(),
+                    value.skipped_overlaps.len(),
+                    value.cancelled,
+                    value.requested_bytes,
+                    value.reclaimed_bytes
+                ),
+            );
+            Ok(value)
+        }
+        Err(error) => {
+            logging::error("storage.cleanup", error.message.clone());
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]
 pub fn cancel_storage_delete(state: tauri::State<'_, StorageState>, operation_id: u64) {
+    logging::info(
+        "storage.cleanup",
+        format!("cancel requested id={operation_id}"),
+    );
     state.cancel(operation_id);
 }
 
 #[tauri::command]
 pub fn clear_storage_index(state: tauri::State<'_, StorageState>) {
+    logging::info("storage", "clear in-memory analysis index");
     state.clear();
 }

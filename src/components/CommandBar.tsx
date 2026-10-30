@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Icon } from "./Icon";
 import { MenuPanel, type MenuItem } from "./Menu";
+import { api } from "../lib/api";
 import { useExplorerStore } from "../state/explorerStore";
 import { useSearchStore } from "../state/searchStore";
 import { useStorageStore } from "../state/storageStore";
@@ -260,6 +261,16 @@ export function CommandBar() {
       onClick: () => void openStorageWorkspace(),
     },
     { label: "Open in Terminal", icon: "terminal", onClick: () => void openTerminalHere(activePane) },
+    {
+      label: "Reveal diagnostic log",
+      icon: "info",
+      onClick: () => {
+        void api
+          .getLogPath()
+          .then((path) => (path ? api.revealPath(path) : undefined))
+          .catch((error) => useExplorerStore.getState().toastError(error));
+      },
+    },
     {
       label: "Select all",
       icon: "check",

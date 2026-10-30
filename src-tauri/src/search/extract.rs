@@ -99,7 +99,7 @@ impl Extraction {
     fn no_text(reason: Option<String>) -> Self {
         Self { status: STATE_NO_TEXT.into(), text: None, error: reason, truncated: false }
     }
-    fn failed(message: String) -> Self {
+    pub(crate) fn failed(message: String) -> Self {
         Self { status: STATE_ERROR.into(), text: None, error: Some(message), truncated: false }
     }
 }
@@ -185,6 +185,20 @@ fn extract_xlsx(path: &Path, max_bytes: u64) -> Extraction {
         Ok(None) => finish_text(collected, false),
         Err(error) => Extraction::failed(error),
     }
+}
+
+/// Truncate without splitting a UTF-8 code point. String::truncate panics when
+/// the byte index is not a character boundary, which can happen with extracted
+/// PDF text containing non-ASCII characters.
+fn truncate_utf8(text: &mut String, max_bytes: usize) {
+    if text.len() <= max_bytes {
+        return;
+    }
+    let mut end = max_bytes.min(text.len());
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text.truncate(end);
 }
 
 fn finish_text(text: String, truncated: bool) -> Extraction {
@@ -460,7 +474,7 @@ fn extract_pdf(path: &Path, max_bytes: u64) -> Extraction {
     }
     let truncated = text.len() as u64 > max_bytes;
     if truncated {
-        text.truncate(max_bytes as usize);
+        truncate_utf8(&mut text, max_bytes as usize);
     }
     finish_text(text, truncated)
 }
@@ -609,5 +623,17 @@ mod tests {
         let text = pdf_text_from_stream(stream);
         assert!(text.contains("Invoice March"));
         assert!(text.contains("Hello"));
+    }
+
+    #[test]
+    fn utf8_truncation_never_splits_a_character() {
+        let mut text = "Invoice ✓ café 日本語".to_string();
+        truncate_utf8(&mut text, 10);
+        assert!(text.len() <= 10);
+        assert!(std::str::from_utf8(text.as_bytes()).is_ok());
+        assert!(text.starts_with("Invoice"));
+        let mut exact = "abc".to_string();
+        truncate_utf8(&mut exact, 99);
+        assert_eq!(exact, "abc");
     }
 }

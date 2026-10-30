@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { api, isTauri, normalizeError } from "../lib/api";
+import { logDiagnostic } from "../lib/diagnostics";
 import { parentPath } from "../lib/format";
 import {
   addPicks,
@@ -61,6 +62,12 @@ function rootMatchesMount(root: string, mountPoint: string): boolean {
 }
 
 function notifyError(error: unknown): void {
+  const normalized = normalizeError(error);
+  logDiagnostic(
+    "error",
+    `Storage operation failed: ${normalized.message}${normalized.path ? ` (${normalized.path})` : ""}`,
+    `storage.${normalized.code}`,
+  );
   useExplorerStore.getState().toastError(error);
 }
 
@@ -228,6 +235,7 @@ export const useStorageStore = create<StorageState>((set, get) => ({
   excludedRecommendations: [],
 
   async initialize() {
+    logDiagnostic("info", "Storage Analyzer initializing", "storage.initialize");
     set({ excludedRecommendations: loadRecommendationExclusions() });
     if (!progressListenerStarted && isTauri) {
       progressListenerStarted = true;
@@ -333,6 +341,11 @@ export const useStorageStore = create<StorageState>((set, get) => ({
     }
     const target = root ?? volume.mountPoint;
     const scanId = nextId();
+    logDiagnostic(
+      "info",
+      `Starting storage scan id=${scanId} root=${target} maxEntries=${maxEntries ?? 500_000}`,
+      "storage.scan",
+    );
     activeScanId = scanId;
     set({
       scanning: true,
@@ -349,6 +362,11 @@ export const useStorageStore = create<StorageState>((set, get) => ({
         maxEntries: maxEntries ?? 500_000,
       });
       if (get().activeScanId !== scanId) return;
+      logDiagnostic(
+        "info",
+        `Storage scan complete id=${scanId} entries=${scan.scannedEntries} files=${scan.scannedFiles} dirs=${scan.scannedDirectories} cancelled=${scan.cancelled} truncated=${scan.truncated}`,
+        "storage.scan",
+      );
       const scannedVolume = scan.volume;
       set({
         scan,
@@ -371,6 +389,7 @@ export const useStorageStore = create<StorageState>((set, get) => ({
     } catch (error) {
       if (get().activeScanId !== scanId) return;
       const normalized = normalizeError(error);
+      logDiagnostic("error", `Storage scan failed: ${normalized.message}`, "storage.scan");
       set({ scanning: false, progress: null, scanError: normalized.message });
       notifyError(error);
     }
@@ -470,6 +489,7 @@ export const useStorageStore = create<StorageState>((set, get) => ({
       set({ filePage: page, filesLoading: false });
     } catch (error) {
       if (requestId !== fileRequestCounter) return;
+      logDiagnostic("error", `Storage file query failed: ${normalizeError(error).message}`, "storage.query");
       set({ filesLoading: false, fileError: normalizeError(error).message });
     }
   },
@@ -498,6 +518,7 @@ export const useStorageStore = create<StorageState>((set, get) => ({
         },
       });
     } catch (error) {
+      logDiagnostic("error", `Storage pagination failed: ${normalizeError(error).message}`, "storage.query");
       set({ filesLoading: false, fileError: normalizeError(error).message });
     }
   },
@@ -696,6 +717,7 @@ export const useStorageStore = create<StorageState>((set, get) => ({
       set({ duplicates, duplicatesLoading: false });
     } catch (error) {
       if (get().duplicateRequestId !== requestId) return;
+      logDiagnostic("error", `Duplicate scan failed: ${normalizeError(error).message}`, "storage.duplicates");
       set({
         duplicatesLoading: false,
         duplicatesError: normalizeError(error).message,

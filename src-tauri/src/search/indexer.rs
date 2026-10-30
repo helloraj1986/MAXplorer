@@ -354,7 +354,23 @@ fn content_loop(engine: Arc<SearchEngine>, activity: Arc<Mutex<IndexActivity>>, 
             }
             set_activity(&activity, "content", Some(path.clone()));
             let before = std::fs::metadata(&path).ok();
-            let extraction = extract::extract(Path::new(&path), &extension, max_bytes);
+            let extraction = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                extract::extract(Path::new(&path), &extension, max_bytes)
+            })) {
+                Ok(extraction) => extraction,
+                Err(_) => {
+                    crate::logging::error(
+                        "search.extract",
+                        format!(
+                            "content extraction panicked for {path}; the file was recorded as an error and indexing continued"
+                        ),
+                    );
+                    extract::Extraction::failed(
+                        "Content extraction failed internally. The rest of the index continued."
+                            .into(),
+                    )
+                }
+            };
             let after = std::fs::metadata(&path).ok();
             let changed = match (before, after) {
                 (Some(before), Some(after)) => {
