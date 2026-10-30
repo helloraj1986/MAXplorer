@@ -381,3 +381,39 @@ Coverage added: `src/lib/panes.test.ts` — source folders map to the panes show
 over `/Applications` (stopped at the owner's request), so the interactive macOS
 confirmation of the source-pane reload and the dimmed cut state is still outstanding.
 
+
+## Unified three-layer command center (2026-10-30)
+
+The unified chrome and consolidated Settings work was validated with the automated suite
+available in this workspace. No interactive Tauri-window session was available to this
+automation pass, so the visual/interaction matrix below is explicitly marked as pending.
+
+| Check | Result | Notes |
+| --- | --- | --- |
+| `npm run typecheck` | Pass | Strict TypeScript, no errors |
+| `npm test` | Pass | **219 tests across 24 files** |
+| `npm run test:cargo` | Pass | **47 Rust tests** |
+| `npm run build` | Pass | Production bundle built |
+| `git diff --check` | Pass | No whitespace errors |
+
+Coverage added or updated:
+
+- `src/lib/theme.test.ts` — display preference normalization, text/icon scales, and compact
+  row metrics for both themes.
+- `src/lib/persistence.test.ts` — round-trip of display, column visibility, command-bar
+  labels, sidebar visibility, folder-open behavior, and Trash confirmation; legacy and
+  invalid-value fallbacks.
+- `src/components/CommandBar.test.tsx` — file operations disable without a selection and
+  enable with one; the dual-pane toggle lives in the command bar; the single Settings menu
+  exposes Appearance, Display/Layout, Keyboard, and About.
+
+A temporary browser preview (not a Tauri session) rendered the three layers in Windows
+light, Windows compact, Finder dark, and dual-pane layouts, plus the Appearance and Display
+sections of the Settings dialog. The preview reproduced the expected layer order, per-pane
+badges/tab rows, responsive command bar, and compact rows without console errors. The
+preview files were deleted after inspection.
+
+Not yet performed in this pass: interactive Tauri verification of the three new rows, the
+narrow-width tiers at the minimum window size, text/icon scaling inside the actual webview,
+sidebar collapse, and keyboard traversal of the Settings dialog. These should be exercised
+at 760×520, 1080×720, and a wide window in both themes before the next release.

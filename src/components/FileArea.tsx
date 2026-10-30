@@ -9,7 +9,7 @@ import { beginFileDrag } from "../state/fileDrag";
 import { useVirtualRows } from "../hooks/useVirtualRows";
 import { useFileNavigation } from "../hooks/useFileNavigation";
 import { useElementSize } from "../hooks/useElementSize";
-import { useThemeMetrics } from "../hooks/useTheme";
+import { useIconScale, useThemeMetrics } from "../hooks/useTheme";
 import { useMarqueeSelection } from "../hooks/useMarqueeSelection";
 import { api } from "../lib/api";
 import {
@@ -243,6 +243,8 @@ function DetailsView({
 }) {
   const showExtensions = useExplorerStore((state) => state.panes[paneId].showExtensions);
   const columnWidths = useExplorerStore((state) => state.columnWidths);
+  const columnVisibility = useExplorerStore((state) => state.columnVisibility);
+  const iconScale = useIconScale();
   const sortKey = useExplorerStore((state) => state.panes[paneId].sortKey);
   const sortDirection = useExplorerStore((state) => state.panes[paneId].sortDirection);
   const setSort = useExplorerStore((state) => state.setSort);
@@ -259,14 +261,20 @@ function DetailsView({
   const columns: ColumnDef[] = useMemo(
     () => [
       { key: "name", label: "Name", width: columnWidths.name ?? 272, sortable: true },
-      { key: "date", label: "Date modified", width: columnWidths.date ?? 144, sortable: true },
-      { key: "type", label: "Type", width: columnWidths.type ?? 120, sortable: true },
-      { key: "size", label: "Size", width: columnWidths.size ?? 80, sortable: true },
+      ...(columnVisibility.date
+        ? [{ key: "date" as const, label: "Date modified", width: columnWidths.date ?? 144, sortable: true }]
+        : []),
+      ...(columnVisibility.type
+        ? [{ key: "type" as const, label: "Type", width: columnWidths.type ?? 120, sortable: true }]
+        : []),
+      ...(columnVisibility.size
+        ? [{ key: "size" as const, label: "Size", width: columnWidths.size ?? 80, sortable: true }]
+        : []),
       ...(isSearch
         ? [{ key: "location" as const, label: "Location", width: columnWidths.location ?? 260, sortable: false }]
         : []),
     ],
-    [columnWidths, isSearch],
+    [columnWidths, columnVisibility, isSearch],
   );
   const totalWidth = columns.reduce((sum, column) => sum + column.width, 0);
   const themeMetrics = useThemeMetrics();
@@ -378,14 +386,16 @@ function DetailsView({
               >
                 <div className="details-name">
                   <span className="entry-icon">
-                    <FileTypeIcon entry={entry} size={18} />
+                    <FileTypeIcon entry={entry} size={Math.round(18 * iconScale)} />
                   </span>
                   <span className="entry-name">{displayName(entry, showExtensions)}</span>
                   <CompareDot category={indicator} />
                 </div>
-                <div className="details-text">{formatDate(entry.modified)}</div>
-                <div className="details-text">{typeName(entry)}</div>
-                <div className="details-text details-size">{entry.isDir ? "" : formatSize(entry.size)}</div>
+                {columnVisibility.date ? <div className="details-text">{formatDate(entry.modified)}</div> : null}
+                {columnVisibility.type ? <div className="details-text">{typeName(entry)}</div> : null}
+                {columnVisibility.size ? (
+                  <div className="details-text details-size">{entry.isDir ? "" : formatSize(entry.size)}</div>
+                ) : null}
                 {isSearch ? (
                   <div className="details-text details-location">{displayPath(parentPath(entry.path) ?? "", home)}</div>
                 ) : null}
@@ -420,6 +430,7 @@ function ListView({
   const cut = useCutSet();
   const home = platform?.home ?? "";
   const themeMetrics = useThemeMetrics();
+  const iconScale = useIconScale();
 
   type Row =
     | { kind: "group"; key: string; height: number; label: string; count: number }
@@ -499,7 +510,7 @@ function ListView({
                 onContextMenu={(event) => openContextMenu(event, entry, selected, paneId)}
               >
                 <span className="entry-icon">
-                  <FileTypeIcon entry={entry} size={16} />
+                  <FileTypeIcon entry={entry} size={Math.round(16 * iconScale)} />
                 </span>
                 <span className="entry-name">{displayName(entry, showExtensions)}</span>
                 <CompareDot category={indicator} />
@@ -520,6 +531,16 @@ interface GridMetrics {
   gapX: number;
   gapY: number;
   mode: "grid" | "tiles" | "content";
+}
+
+function scaleGridMetrics(metrics: GridMetrics, scale: number): GridMetrics {
+  if (scale === 1) return metrics;
+  return {
+    ...metrics,
+    cellWidth: Math.round(metrics.cellWidth * scale),
+    cellHeight: Math.round(metrics.cellHeight * scale),
+    iconSize: Math.round(metrics.iconSize * scale),
+  };
 }
 
 function metricsFor(mode: ViewMode): GridMetrics {
@@ -561,7 +582,8 @@ function GridView({
   const selected = useSelectionSet(paneId);
   const cut = useCutSet();
   const size = useElementSize<HTMLDivElement>();
-  const metrics = metricsFor(mode);
+  const iconScale = useIconScale();
+  const metrics = useMemo(() => scaleGridMetrics(metricsFor(mode), iconScale), [mode, iconScale]);
   const available = Math.max(0, size.width - 28);
   const columns =
     metrics.mode === "content"

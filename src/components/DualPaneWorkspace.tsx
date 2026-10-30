@@ -23,21 +23,8 @@ function PaneShell({ paneId }: { paneId: PaneId }) {
       onPointerDownCapture={() => setActivePane(paneId)}
       onFocusCapture={() => setActivePane(paneId)}
     >
-      <div className="pane-head">
-        <PaneTabStrip paneId={paneId} />
-        <div className="pane-head-actions">
-          <button
-            type="button"
-            className="pane-collapse"
-            title="Collapse this pane"
-            aria-label="Collapse this pane"
-            onClick={() => setPaneCollapsed(paneId, true)}
-          >
-            <Icon name={paneId === "left" ? "chevronLeft" : "chevronRight"} size={13} />
-          </button>
-        </div>
-      </div>
       <NavigationBar paneId={paneId} />
+      <PaneTabStrip paneId={paneId} onCollapse={() => setPaneCollapsed(paneId, true)} />
       <div className="pane-content">
         <FileArea paneId={paneId} />
       </div>

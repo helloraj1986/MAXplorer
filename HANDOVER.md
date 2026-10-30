@@ -38,9 +38,14 @@ Since that release, the project has gained these changes:
 
 - **MAXplorer identity** — product name, application icon, About screen, bundle metadata,
   window titles, menus, and packaging now use the MAXplorer brand.
+- **Unified three-layer chrome** — window-only title bar, one global command bar (file
+  operations, organization, workspace, Settings), a dedicated navigation/search row, and a
+  dedicated tab row. Dual-pane mode repeats navigation and tabs per pane. The single/dual
+  toggle moved into the command bar; Appearance left the sidebar; Themes/Options/Shortcuts
+  became one Settings dialog.
 - **Dual interface themes** — Windows 11 Explorer and macOS Finder, each in light and dark,
-  switchable at runtime from the Appearance dialog. Behavior, state, and filesystem access
-  are shared; only tokens and layout CSS differ.
+  switchable from Settings → Appearance or the command-bar Settings menu. Behavior, state,
+  and filesystem access are shared; only tokens and layout CSS differ.
 - **Real `.app` icons** — application bundles in `/Applications` show their own ICNS/PNG
   artwork instead of a generic executable glyph.
 - **Premium icon system** — Lucide functional icons with shared sizing/stroke tokens, a
@@ -51,17 +56,22 @@ Since that release, the project has gained these changes:
   and optional synchronized navigation. See `docs/ARCHITECTURE.md` and
   `docs/FEATURE_MATRIX.md`.
 
-Latest fix in the working tree (2026-10-29): Cmd+X then Cmd+V looked like a copy on macOS.
-The move itself worked; `paste()` attributed the transfer to the destination pane, so the
-pane the items came from kept listing them, and cut items had no visual state. Moves now
-also reload every pane showing a source folder, and cut entries are dimmed like Explorer.
-See `docs/DEVELOPMENT_LOG.md` (Phase 11). The rebuilt bundle is on disk but has **not**
-been installed over `/Applications` yet, so the interactive macOS pass is still pending.
+Cut/paste fix (2026-10-29, now merged): Cmd+X then Cmd+V looked like a copy on macOS. The
+move itself worked; `paste()` attributed the transfer to the destination pane, so the pane
+the items came from kept listing them, and cut items had no visual state. Moves now also
+reload every pane showing a source folder, and cut entries are dimmed like Explorer. See
+`docs/DEVELOPMENT_LOG.md` (Phase 11). The interactive macOS confirmation is still pending.
 
-The latest merged work is the **premium icon system** (Phase 12): Lucide chrome icons,
-a typed file-type registry, Windows/Finder-aware folder and storage artwork, real
-transfer-state indicators, and lazy image thumbnails. `FileGlyph` and `Icon` remain as
-compatibility facades over `FileTypeIcon` and `AppIcon`. See `docs/ICON_SYSTEM.md`.
+Merged after that: the **premium icon system** (Phase 12) and **Universal Search**: a
+single navigation search field, a command
+overlay, full search workspace, local SQLite/FTS5 index, bounded live scan, Spotlight, and
+duplicate verification. `FileGlyph` and `Icon` remain compatibility facades over
+`FileTypeIcon` and `AppIcon`. See `docs/ICON_SYSTEM.md` and `docs/UNIVERSAL_SEARCH.md`.
+
+The current branch adds the **unified three-layer command center** (Phase 13): dedicated
+chrome layers, a responsive global command bar, one consolidated Settings dialog, display
+scaling/density, sidebar collapse, column visibility, and per-pane navigation/tab rows in
+dual-pane mode. See `docs/ARCHITECTURE.md` and `docs/DEVELOPMENT_LOG.md`.
 
 All changes are validated on the Windows development host (WebView2) and on the macOS
 development host for typecheck/tests/build; the icon system was also visually inspected in
@@ -77,9 +87,9 @@ Verified before this handover:
 - The owner's macOS `transferHistory` (read from the app's WKWebView localStorage)
   confirmed that cut+paste ran as `mode: move` / `completed`, which isolated the
   2026-10-29 report to stale source-pane reloads rather than a copy fallback.
-- `npm run typecheck`, `npm test` (**161 tests / 20 files**), `cargo test` (**28 tests**),
+- `npm run typecheck`, `npm test` (**219 tests / 24 files**), `cargo test` (**47 tests**),
   `npm run build` all passing on the development host (dual-pane feature pass, cut/paste
-  fix, and premium icon system).
+  fix, premium icon system, Universal Search, and unified command center).
 - Windows release build exercised for UI/interaction validation.
 - Theme switching, persistence, keyboard activation, both appearances, and synthetic
   `.app` icons exercised in the Windows dev build; see `docs/VALIDATION.md`.
@@ -142,12 +152,14 @@ src/                          React + TypeScript UI
   App.tsx                     Root layout and view composition
   components/                 Shell, command bar, sidebar, views, menus, dialogs, panes
     FileArea.tsx              Details/list/icons/tiles/content rendering, selection, drag
-    CommandBar.tsx            New / Cut / Copy / Paste / Rename / Delete / Sort / View
-    NavigationBar.tsx         Breadcrumbs, editable address bar, search box
-    Sidebar.tsx               Quick access, This Mac, volumes, pinned, recents
-    TitleBar.tsx              Custom Windows-style title bar, tabs, Finder traffic lights
+    CommandBar.tsx            Layer 1 unified commands, workspace toggle, Settings menu
+    NavigationBar.tsx         Layer 2 breadcrumbs, editable address bar, search box
+    PaneTabs.tsx              Layer 3 tab rows, overflow menu, per-pane tab controls
+    DualPaneWorkspace.tsx     Split, collapse rails, per-pane navigation/tab layers
+    Sidebar.tsx               Navigation-only: quick access, This Mac, volumes, pins
+    TitleBar.tsx              Window-only title bar and Finder traffic lights
     ContextMenu.tsx           File and background context menus with submenus
-    Dialogs.tsx               Create, rename, delete, conflict, properties, open-with, themes
+    Dialogs.tsx               File dialogs plus the consolidated Settings dialog
     DetailsPane.tsx           Metadata + permissions pane
     PreviewPane.tsx           Image, text, and app-icon preview
     FileGlyph.tsx / Icon.tsx  Compatibility facades over the central icon system
@@ -241,9 +253,10 @@ Rules the codebase follows:
 UI state is stored in `localStorage` (WKWebView website data for the bundle ID), under
 `win11-explorer-state-v1` and `win11-explorer-window-v1`. It is versioned and defensively
 validated on load (`src/lib/persistence.ts`); malformed data falls back to defaults rather
-than crashing. Persisted: tabs, per-tab history, view mode, sort, group, column widths,
-sidebar width, pinned folders, recents, light/dark theme, **interface theme**, panes,
-hidden/extension toggles, window bounds.
+than crashing. Persisted: tabs, per-tab history, view mode, sort, group, column widths and
+visibility, sidebar width/visibility, command-bar labels, text/icon scale, row density,
+folder-open behavior, Trash confirmation, pinned folders, recents, light/dark theme,
+**interface theme**, panes, hidden/extension toggles, window bounds.
 
 The theme pair is also read by an inline script in `index.html` and applied to `<html>`
 before the first paint, so the window never flashes the wrong design. Keep that script and
@@ -273,8 +286,8 @@ npm run tauri:dev
 
 ```bash
 npm run typecheck     # tsc --noEmit
-npm test              # vitest, 161 tests / 20 files
-npm run test:cargo    # cargo test, 28 tests (filesystem, app icons, transfer, comparison)
+npm test              # vitest, 219 tests / 24 files
+npm run test:cargo    # cargo test, 47 tests (filesystem, app icons, transfer, comparison, search/index)
 npm run build         # tsc -b && vite build
 ```
 
@@ -362,8 +375,9 @@ feedback), tabs (new/close/switch/duplicate/reorder/restore), all eight view mod
 resizable and sortable details columns, grouping, recursive name search (cancellable,
 bounded), full selection model (click, Cmd/Ctrl-click, Shift-range, select all, keyboard,
 marquee, drag), create folder/file/symlink, copy/cut/paste/rename/duplicate/move/drag-move,
-send to Desktop/Documents/Downloads, Trash and permanent delete with confirmation and
-conflict resolution (replace/keep both/skip/cancel), context menus with New/Sort/View/Group/
+send to Desktop/Documents/Downloads, Trash delete (confirmation configurable) and permanent
+delete with mandatory confirmation, conflict resolution (replace/keep both/skip/cancel),
+context menus with New/Sort/View/Group/
 Send to submenus, details pane (metadata, permissions, owner IDs, folder size), preview pane
 (images, text, real app icons), Properties, Open With, Reveal in Finder, Open Terminal,
 System Settings deep-link for denied permissions, dark/light/system appearance, and full
@@ -375,11 +389,11 @@ copy. Entries on the clipboard in cut mode are dimmed in details, list, and icon
 until they are pasted or the cut is replaced.
 
 Interface themes: **Windows 11 Explorer** and **macOS Finder**, each in light and dark.
-The Finder theme adds traffic lights backed by the same Tauri window APIs, a unified
-toolbar, a source-list sidebar with a footer entry to the Appearance dialog, 28/24 px rows,
-macOS menus, and centered modal titles. Switching preserves the current folder, tabs,
-history, selection, search, sort, and in-flight state without remounting the app or
-reloading the filesystem.
+The Finder theme adds traffic lights backed by the same Tauri window APIs, a compact
+command toolbar, a source-list navigation sidebar, 28/24 px rows, macOS menus, and centered
+modal titles. Appearance lives in the consolidated Settings dialog, not the sidebar.
+Switching preserves the current folder, tabs, history, selection, search, sort, display
+preferences, and in-flight state without remounting the app or reloading the filesystem.
 
 Application icons: `.app` bundles show their own icon in every view and both panes, read
 from `Contents/Info.plist` and `Contents/Resources/*.icns`, with a built-in application
@@ -561,11 +575,14 @@ and dark), real `.app` bundle icons, and a premium icon system with Lucide chrom
 typed file-type registry, theme-aware folder/storage artwork, real transfer-state
 indicators, and lazy image thumbnails. It now also has an optional dual-pane workspace
 with independent pane state, real streaming copy/move with progress and conflict handling,
-read-only folder comparison, and synchronized navigation. The Rust backend owns all
-filesystem access; the React UI is a single Zustand store plus a component layer styled
-with design tokens. Tests and typechecking pass (161 frontend / 28 Rust), and CI builds
-and smoke-launches the DMG on macOS 14. The immediate work is to finish the macOS
-interaction pass for the themes, icons, and cut/paste source-pane reload, then distribution
+read-only folder comparison, and synchronized navigation. It adds Universal Search (local
+SQLite/FTS5 index, live scan, Spotlight) and a unified three-layer chrome with one command
+bar, a consolidated Settings dialog, display scaling/density, and per-pane navigation/tab
+rows. The Rust backend owns all filesystem access; the React UI is a single Zustand store
+plus a component layer styled with design tokens. Tests and typechecking pass (219 frontend
+/ 47 Rust), and CI builds and smoke-launches the DMG on macOS 14. The immediate work is to
+finish the macOS interaction pass for the themes, icons, cut/paste source-pane reload, and
+the new three-layer chrome, then distribution
 polish — Developer ID signing and notarization — followed by macOS UI automation, native
 AppKit/QuickLook artwork, and streamed file operation progress. Everything you need to
 build, test, release, and extend it is in `README.md` and `docs/`.

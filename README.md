@@ -36,13 +36,20 @@ captured the screenshot above (Home view, real `/Users/runner` filesystem).
 
 ## What is implemented
 
-- **Windows 11 shell layout**: custom title bar, tabs, command bar, breadcrumb address
-  bar, search box, navigation pane, details/list/icon views, status bar, and details and
-  preview panes.
+- **Three-layer top chrome**: a window-only title bar, one global command bar for file
+  operations/organization/workspace/settings, a dedicated navigation and search row, and a
+  dedicated tab row. Dual-pane mode repeats the navigation and tab layers per pane.
+- **Unified command center**: New, Cut, Copy, Paste, Rename, Share, Delete, Sort, View,
+  column configuration, sidebar visibility, the single/dual-pane toggle, and one
+  consolidated Settings menu. Commands enable or disable from the active pane's state.
+- **Windows 11 and Finder shell layout**: custom title bar, tabs, command bar, breadcrumb
+  address bar, search box, navigation pane, details/list/icon views, status bar, and details
+  and preview panes.
 - **Real filesystem browsing**: directory listing, metadata, hidden files, symlinks,
   volumes, permissions errors, and large directories.
-- **Tabs** with independent locations and navigation histories. New, close, switch,
-  duplicate, reorder by drag, and restore across restarts.
+- **Tabs** in their own dedicated row, with independent locations and navigation histories.
+  New, close, switch, duplicate, reorder by drag, an all-tabs overflow menu, and restore
+  across restarts. Each pane keeps its own tab collection in dual-pane mode.
 - **Navigation**: back, forward, up, refresh, breadcrumb navigation, editable absolute
   address bar, invalid-path feedback, and per-tab history.
 - **Universal Search**: a toolbar entry point, `Command+Shift+F` command overlay, and a
@@ -83,9 +90,10 @@ captured the screenshot above (Home view, real `/Users/runner` filesystem).
   (no emoji).
 - **macOS integration**: real home folders, `/Volumes` drives, `/Applications` app list,
   Finder reveal, Terminal, TCC usage descriptions, and macOS permission guidance.
-- **Persistence**: tabs, location history, view mode, sorting, grouping, column widths,
-  sidebar width, pinned folders, recent items, interface theme, light/dark theme, panes,
-  hidden/extension settings, and window size.
+- **Persistence**: tabs, location history, view mode, sorting, grouping, column widths and
+  visibility, sidebar width/visibility, pinned folders, recent items, interface theme,
+  light/dark theme, text/icon scale, row density, command-bar labels, folder-open behavior,
+  delete confirmation, panes, hidden/extension settings, and window size.
 
 ## Quick start
 
@@ -129,17 +137,17 @@ configured. Add your Developer ID and notarization credentials before distributi
 
 ### Switch interface themes
 
-Open **Appearance** from any of these entry points:
+Open **Settings** (the gear menu at the right of the command bar) and choose
+**Appearance and themes**, or press `Command+,` / `Ctrl+,`. Appearance is no longer in the
+sidebar.
 
-- the **Appearance** button at the bottom of the sidebar;
-- **More (…) → Appearance and themes** in the command bar;
-- **Options → Interface theme** in the More menu.
-
-The dialog shows two preview cards (Windows 11 Explorer and macOS Finder) and an
-independent light/dark/system control. The choice is saved immediately and restored on
-the next launch; switching never changes the current folder, tabs, history, selection,
-search, sorting, or in-flight file operations. See **[docs/THEMES.md](docs/THEMES.md)**
-for the theme architecture and how to add another theme.
+Settings has one dialog with Appearance, Display, Layout, Behavior, Keyboard, and Advanced
+sections. The Appearance section shows two preview cards (Windows 11 Explorer and macOS
+Finder) and an independent light/dark/system control. The choice is saved immediately and
+restored on the next launch; switching never changes the current folder, tabs, history,
+selection, search, sorting, or in-flight file operations. See
+**[docs/THEMES.md](docs/THEMES.md)** for the theme architecture and how to add another
+theme.
 
 ### Tests
 
@@ -165,7 +173,8 @@ without touching the user's normal folders.
 
 ```
 src/                       React + TypeScript UI
-  components/              Shell, command bar, sidebar, file views, menus, dialogs
+  components/              Shell, three-layer chrome, command bar, tabs, sidebar,
+                           file views, menus, settings/dialogs
     icons/                 AppIcon, FileTypeIcon, FolderIcon, StorageIcon, SyncStatusIcon
   hooks/                   Keyboard, theme, virtual list, marquee, window state
   lib/                     Typed API, formatting, sorting, history, tabs, persistence, theme
@@ -233,7 +242,8 @@ These are honest, intentional boundaries of this build:
   test suite; the interaction matrix is currently covered by the Windows dev build and the
   Rust tests.
 - **Tabs** are modeled on Windows 11 22H2 because the reference host (21H2) has no tabs.
-  Tab overflow uses horizontal scrolling rather than the 22H2 overflow flyout.
+  Narrow tab rows scroll horizontally and expose every tab through an all-tabs menu; this
+  is not the exact 22H2 overflow flyout.
 - **Share** does not open the macOS share sheet. It copies the selected path and offers a
   **Reveal in Finder** action so the native share flow can be used. This is labeled in the
   toast.
@@ -273,7 +283,8 @@ These are honest, intentional boundaries of this build:
 - No telemetry, analytics, network calls, or bundled file data.
 - The app reads only what you navigate to and writes only when you explicitly invoke an
   operation.
-- Destructive actions require confirmation.
+- Permanent deletion always requires confirmation. Moving items to the Trash confirms by
+  default and can be configured in Settings → Behavior.
 - Paths are validated; moving/copying a folder into itself is rejected; root, home, and
   system roots are protected from deletion.
 - File operations are performed with `std::fs`/`trash` on the Rust side, not in JavaScript.

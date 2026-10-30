@@ -7,8 +7,18 @@ import { useExplorerStore } from "../state/explorerStore";
 import { api, normalizeError } from "../lib/api";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { formatDate, formatSize, typeName } from "../lib/format";
-import type { DialogState, InterfaceTheme, ThemeMode, ViewMode } from "../lib/types";
-import { INTERFACE_THEME_DEFINITIONS, INTERFACE_THEMES } from "../lib/theme";
+import type {
+  DialogState,
+  FolderOpenMode,
+  InterfaceTheme,
+  SettingsSection,
+  ThemeMode,
+  UiDensity,
+  UiIconSize,
+  UiTextSize,
+  ViewMode,
+} from "../lib/types";
+import { DEFAULT_DISPLAY_PREFERENCES, INTERFACE_THEME_DEFINITIONS, INTERFACE_THEMES } from "../lib/theme";
 import {
   APP_ICON_URL,
   APP_VERSION,
@@ -595,118 +605,300 @@ function ThemePreview({ theme }: { theme: InterfaceTheme }) {
   );
 }
 
-function ThemesDialog({ close }: { close: () => void }) {
+const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string; icon: "palette" | "view" | "columns" | "settings" | "info" | "database" }> = [
+  { id: "appearance", label: "Appearance", icon: "palette" },
+  { id: "display", label: "Display", icon: "view" },
+  { id: "layout", label: "Layout", icon: "columns" },
+  { id: "behavior", label: "Behavior", icon: "settings" },
+  { id: "keyboard", label: "Keyboard", icon: "info" },
+  { id: "advanced", label: "Advanced", icon: "database" },
+];
+
+function Segmented<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="settings-field">
+      <span className="settings-field-label">{label}</span>
+      <div className="appearance-segmented" role="group" aria-label={label}>
+        {options.map((option) => (
+          <button
+            type="button"
+            key={option.value}
+            className={`appearance-option ${value === option.value ? "active" : ""}`}
+            aria-pressed={value === option.value}
+            onClick={() => onChange(option.value)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AppearanceSettings() {
   const interfaceTheme = useExplorerStore((state) => state.interfaceTheme);
   const setInterfaceTheme = useExplorerStore((state) => state.setInterfaceTheme);
   const theme = useExplorerStore((state) => state.theme);
   const setTheme = useExplorerStore((state) => state.setTheme);
 
   return (
-    <Modal
-      title="Appearance"
-      width={640}
-      icon={<Icon name="palette" size={20} />}
-      onClose={close}
-      footer={
-        <button type="button" className="dialog-button primary" onClick={close}>
-          Done
-        </button>
-      }
-    >
-      <div className="themes">
-        <section className="themes-section" aria-labelledby="interface-theme-heading">
-          <h3 id="interface-theme-heading">Interface theme</h3>
-          <p className="themes-hint">
-            Choose how the window looks. Both themes use the same files, tabs, and commands.
-          </p>
-          <div className="theme-grid" role="group" aria-labelledby="interface-theme-heading">
-            {INTERFACE_THEMES.map((id) => {
-              const definition = INTERFACE_THEME_DEFINITIONS[id];
-              const active = interfaceTheme === id;
-              return (
-                <button
-                  type="button"
-                  key={id}
-                  className={`theme-card ${active ? "active" : ""}`}
-                  aria-pressed={active}
-                  aria-label={`${definition.name}${active ? " (active theme)" : ""}`}
-                  onClick={() => setInterfaceTheme(id)}
-                >
-                  <ThemePreview theme={id} />
-                  <span className="theme-card-head">
-                    <span className="theme-card-name">{definition.name}</span>
-                    {active ? (
-                      <span className="theme-card-badge">
-                        <Icon name="check" size={11} />
-                        Active
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="theme-card-description">{definition.description}</span>
-                  <span className={`theme-card-action ${active ? "applied" : ""}`}>
-                    {active ? "Applied" : "Apply theme"}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-        <section className="themes-section" aria-labelledby="appearance-heading">
-          <h3 id="appearance-heading">Light and dark</h3>
-          <p className="themes-hint">
-            Appearance is independent from the interface theme. Both themes support both settings.
-          </p>
-          <div className="appearance-segmented" role="group" aria-label="Appearance">
-            {(
-              [
-                { value: "system", label: "Use system setting" },
-                { value: "light", label: "Light" },
-                { value: "dark", label: "Dark" },
-              ] as Array<{ value: ThemeMode; label: string }>
-            ).map((option) => (
+    <div className="themes">
+      <section className="themes-section" aria-labelledby="interface-theme-heading">
+        <h3 id="interface-theme-heading">Interface theme</h3>
+        <p className="themes-hint">
+          Choose how the window looks. Both themes use the same files, tabs, and commands.
+        </p>
+        <div className="theme-grid" role="group" aria-labelledby="interface-theme-heading">
+          {INTERFACE_THEMES.map((id) => {
+            const definition = INTERFACE_THEME_DEFINITIONS[id];
+            const active = interfaceTheme === id;
+            return (
               <button
                 type="button"
-                key={option.value}
-                className={`appearance-option ${theme === option.value ? "active" : ""}`}
-                aria-pressed={theme === option.value}
-                onClick={() => setTheme(option.value)}
+                key={id}
+                className={`theme-card ${active ? "active" : ""}`}
+                aria-pressed={active}
+                aria-label={`${definition.name}${active ? " (active theme)" : ""}`}
+                onClick={() => setInterfaceTheme(id)}
               >
-                {option.label}
+                <ThemePreview theme={id} />
+                <span className="theme-card-head">
+                  <span className="theme-card-name">{definition.name}</span>
+                  {active ? (
+                    <span className="theme-card-badge">
+                      <Icon name="check" size={11} />
+                      Active
+                    </span>
+                  ) : null}
+                </span>
+                <span className="theme-card-description">{definition.description}</span>
+                <span className={`theme-card-action ${active ? "applied" : ""}`}>
+                  {active ? "Applied" : "Apply theme"}
+                </span>
               </button>
-            ))}
-          </div>
-        </section>
-      </div>
-    </Modal>
+            );
+          })}
+        </div>
+      </section>
+      <section className="themes-section" aria-labelledby="appearance-heading">
+        <h3 id="appearance-heading">Light and dark</h3>
+        <p className="themes-hint">
+          Appearance is independent from the interface theme. Both themes support both settings.
+        </p>
+        <div className="appearance-segmented" role="group" aria-label="Appearance">
+          {(
+            [
+              { value: "system", label: "Use system setting" },
+              { value: "light", label: "Light" },
+              { value: "dark", label: "Dark" },
+            ] as Array<{ value: ThemeMode; label: string }>
+          ).map((option) => (
+            <button
+              type="button"
+              key={option.value}
+              className={`appearance-option ${theme === option.value ? "active" : ""}`}
+              aria-pressed={theme === option.value}
+              onClick={() => setTheme(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </section>
+    </div>
   );
 }
 
-function PreferencesDialog({ close }: { close: () => void }) {
-  const theme = useExplorerStore((state) => state.theme);
+function DisplaySettings() {
+  const display = useExplorerStore((state) => state.display);
+  const setDensity = useExplorerStore((state) => state.setDensity);
+  const setTextSize = useExplorerStore((state) => state.setTextSize);
+  const setIconSize = useExplorerStore((state) => state.setIconSize);
   const activePane = useExplorerStore((state) => state.activePane);
-  const pane = useExplorerStore((state) => state.panes[state.activePane]);
-  const viewMode = pane.viewMode;
-  const showHidden = pane.showHidden;
-  const showExtensions = pane.showExtensions;
+  const viewMode = useExplorerStore((state) => state.panes[state.activePane].viewMode);
+  const setViewMode = useExplorerStore((state) => state.setViewMode);
+
+  return (
+    <div className="settings-sections">
+      <section className="settings-section">
+        <h3>Text and icon size</h3>
+        <p className="settings-hint">
+          Scaling applies immediately to the toolbar, navigation, tabs, menus, and file views.
+        </p>
+        <Segmented<UiTextSize>
+          label="Text size"
+          value={display.textSize}
+          options={[
+            { value: "small", label: "Small" },
+            { value: "default", label: "Default" },
+            { value: "large", label: "Large" },
+          ]}
+          onChange={setTextSize}
+        />
+        <Segmented<UiIconSize>
+          label="Icon size"
+          value={display.iconSize}
+          options={[
+            { value: "small", label: "Small" },
+            { value: "default", label: "Default" },
+            { value: "large", label: "Large" },
+          ]}
+          onChange={setIconSize}
+        />
+        <Segmented<UiDensity>
+          label="Row density and spacing"
+          value={display.density}
+          options={[
+            { value: "comfortable", label: "Comfortable" },
+            { value: "compact", label: "Compact" },
+          ]}
+          onChange={setDensity}
+        />
+      </section>
+      <section className="settings-section">
+        <h3>Default view</h3>
+        <p className="settings-hint">
+          Applies to the active pane. Each pane keeps its own view when you switch panes or tabs.
+        </p>
+        <select
+          className="settings-select"
+          value={viewMode}
+          aria-label="Default view"
+          onChange={(event) => setViewMode(event.target.value as ViewMode, activePane)}
+        >
+          <option value="details">Details</option>
+          <option value="list">List</option>
+          <option value="large">Large icons</option>
+          <option value="medium">Medium icons</option>
+          <option value="small">Small icons</option>
+          <option value="extraLarge">Extra large icons</option>
+          <option value="tiles">Tiles</option>
+          <option value="content">Content</option>
+        </select>
+      </section>
+    </div>
+  );
+}
+
+function LayoutSettings() {
+  const sidebarVisible = useExplorerStore((state) => state.sidebarVisible);
+  const setSidebarVisible = useExplorerStore((state) => state.setSidebarVisible);
+  const commandBarLabels = useExplorerStore((state) => state.commandBarLabels);
+  const setCommandBarLabels = useExplorerStore((state) => state.setCommandBarLabels);
   const detailsPane = useExplorerStore((state) => state.detailsPane);
+  const setDetailsPane = useExplorerStore((state) => state.setDetailsPane);
   const previewPane = useExplorerStore((state) => state.previewPane);
+  const setPreviewPane = useExplorerStore((state) => state.setPreviewPane);
   const dualPane = useExplorerStore((state) => state.dualPane);
+  const setDualPane = useExplorerStore((state) => state.setDualPane);
   const syncNavigation = useExplorerStore((state) => state.syncNavigation);
+  const setSyncNavigation = useExplorerStore((state) => state.setSyncNavigation);
+  const setSidebarWidth = useExplorerStore((state) => state.setSidebarWidth);
+  const setSplitRatio = useExplorerStore((state) => state.setSplitRatio);
+
+  return (
+    <div className="settings-sections">
+      <section className="settings-section">
+        <h3>Workspace</h3>
+        <label className="check-row">
+          <input type="checkbox" checked={sidebarVisible} onChange={(event) => setSidebarVisible(event.target.checked)} />
+          <span>Show navigation pane</span>
+        </label>
+        <label className="check-row">
+          <input type="checkbox" checked={commandBarLabels} onChange={(event) => setCommandBarLabels(event.target.checked)} />
+          <span>Show text labels in the command bar</span>
+        </label>
+        <div className="settings-actions">
+          <button type="button" className="dialog-button" onClick={() => setSidebarWidth(204)}>
+            Reset navigation pane width
+          </button>
+          <button type="button" className="dialog-button" onClick={() => setSplitRatio(0.5)}>
+            Reset pane split
+          </button>
+        </div>
+      </section>
+      <section className="settings-section">
+        <h3>Panes</h3>
+        <label className="check-row">
+          <input type="checkbox" checked={dualPane} onChange={(event) => setDualPane(event.target.checked)} />
+          <span>Show two file panes side by side</span>
+        </label>
+        <label className="check-row">
+          <input type="checkbox" checked={syncNavigation} onChange={(event) => setSyncNavigation(event.target.checked)} />
+          <span>Synchronize navigation using the panes' relative folders</span>
+        </label>
+        <label className="check-row">
+          <input type="checkbox" checked={detailsPane} onChange={(event) => setDetailsPane(event.target.checked)} />
+          <span>Details pane</span>
+        </label>
+        <label className="check-row">
+          <input type="checkbox" checked={previewPane} onChange={(event) => setPreviewPane(event.target.checked)} />
+          <span>Preview pane</span>
+        </label>
+      </section>
+    </div>
+  );
+}
+
+function BehaviorSettings() {
+  const folderOpenMode = useExplorerStore((state) => state.folderOpenMode);
+  const setFolderOpenMode = useExplorerStore((state) => state.setFolderOpenMode);
+  const confirmTrashDelete = useExplorerStore((state) => state.confirmTrashDelete);
+  const setConfirmTrashDelete = useExplorerStore((state) => state.setConfirmTrashDelete);
+
+  return (
+    <div className="settings-sections">
+      <section className="settings-section">
+        <h3>Opening folders</h3>
+        <p className="settings-hint">
+          Double-clicking a folder in the active pane can replace the current tab or open a new one.
+        </p>
+        <label className="settings-field settings-select-field">
+          <span className="settings-field-label">Open folders in</span>
+          <select
+            className="settings-select"
+            value={folderOpenMode}
+            onChange={(event) => setFolderOpenMode(event.target.value as FolderOpenMode)}
+          >
+            <option value="sameTab">The current tab</option>
+            <option value="newTab">A new tab</option>
+          </select>
+        </label>
+      </section>
+      <section className="settings-section">
+        <h3>Confirmations</h3>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={confirmTrashDelete}
+            onChange={(event) => setConfirmTrashDelete(event.target.checked)}
+          />
+          <span>Confirm before moving items to the Trash</span>
+        </label>
+        <p className="settings-hint">
+          Permanent deletion always asks for confirmation, regardless of this setting.
+        </p>
+      </section>
+    </div>
+  );
+}
+
+function KeyboardSettings() {
   const shortcuts = useExplorerStore((state) => state.shortcuts);
   const platform = useExplorerStore((state) => state.platform);
-  const setTheme = useExplorerStore((state) => state.setTheme);
-  const setViewMode = useExplorerStore((state) => state.setViewMode);
-  const setShowHidden = useExplorerStore((state) => state.setShowHidden);
-  const setShowExtensions = useExplorerStore((state) => state.setShowExtensions);
-  const setDetailsPane = useExplorerStore((state) => state.setDetailsPane);
-  const setPreviewPane = useExplorerStore((state) => state.setPreviewPane);
-  const setDualPane = useExplorerStore((state) => state.setDualPane);
-  const setSyncNavigation = useExplorerStore((state) => state.setSyncNavigation);
   const setShortcut = useExplorerStore((state) => state.setShortcut);
   const resetShortcuts = useExplorerStore((state) => state.resetShortcuts);
-  const clearRecents = useExplorerStore((state) => state.clearRecents);
-  const openDialog = useExplorerStore((state) => state.openDialog);
-  const interfaceTheme = useExplorerStore((state) => state.interfaceTheme);
+  const mod = platform?.modifier === "cmd" ? "Cmd" : "Ctrl";
   const shortcutRows: Array<{ key: keyof typeof shortcuts; label: string }> = [
     { key: "toggleDualPane", label: "Toggle dual-pane mode" },
     { key: "copyToOtherPane", label: "Copy to other pane" },
@@ -714,11 +906,141 @@ function PreferencesDialog({ close }: { close: () => void }) {
     { key: "switchPane", label: "Switch active pane" },
     { key: "globalSearch", label: "Open Universal Search" },
   ];
+  const rows = [
+    [`${mod}+T`, "New tab"],
+    [`${mod}+W`, "Close tab"],
+    [`${mod}+Tab`, "Next tab"],
+    [`${mod}+Shift+Tab`, "Previous tab"],
+    [`${mod}+,`, "Open Settings"],
+    [`${mod}+L`, "Focus address bar"],
+    [`${mod}+F`, "Focus search"],
+    [`${mod}+B`, "Show or hide the navigation pane"],
+    [`${mod}+A`, "Select all"],
+    [`${mod}+C`, "Copy"],
+    [`${mod}+X`, "Cut"],
+    [`${mod}+V`, "Paste"],
+    [`${mod}+Shift+N`, "New folder"],
+    [`${mod}+Shift+C`, "Copy as path"],
+    ["F2", "Rename"],
+    ["F5", "Refresh"],
+    ["Delete", "Move to Trash"],
+    ["Shift+Delete", "Delete permanently"],
+    ["Alt+Enter", "Properties"],
+    ["Alt+Left / Alt+Right", "Back / Forward"],
+    ["Alt+Up", "Up one level"],
+    ["Alt+P / Alt+Shift+P", "Preview / Details pane"],
+    [`${mod}+Shift+1...8`, "Switch view"],
+    ["Home / End", "First / Last item"],
+    ["Type a name", "Select matching item"],
+  ];
 
   return (
+    <div className="settings-sections">
+      <section className="settings-section">
+        <h3>Custom shortcuts</h3>
+        <p className="settings-hint">
+          Accelerators use Mod for {platform?.modifier === "cmd" ? "Command" : "Control"}. Changes apply immediately.
+        </p>
+        <div className="shortcut-settings">
+          {shortcutRows.map((row) => (
+            <label className="shortcut-setting" key={row.key}>
+              <span>{row.label}</span>
+              <input
+                value={shortcuts[row.key]}
+                spellCheck={false}
+                onChange={(event) => setShortcut(row.key, event.target.value)}
+              />
+            </label>
+          ))}
+        </div>
+        <button type="button" className="link-button" onClick={resetShortcuts}>
+          Reset shortcuts
+        </button>
+      </section>
+      <section className="settings-section">
+        <h3>Shortcut reference</h3>
+        <div className="shortcut-list">
+          {rows.map(([keys, action]) => (
+            <div className="shortcut-row" key={keys}>
+              <kbd>{keys}</kbd>
+              <span>{action}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function AdvancedSettings() {
+  const openDialog = useExplorerStore((state) => state.openDialog);
+  const clearRecents = useExplorerStore((state) => state.clearRecents);
+  const interfaceTheme = useExplorerStore((state) => state.interfaceTheme);
+  const setInterfaceTheme = useExplorerStore((state) => state.setInterfaceTheme);
+  const setDensity = useExplorerStore((state) => state.setDensity);
+  const setTextSize = useExplorerStore((state) => state.setTextSize);
+  const setIconSize = useExplorerStore((state) => state.setIconSize);
+  const setCommandBarLabels = useExplorerStore((state) => state.setCommandBarLabels);
+  const setSidebarVisible = useExplorerStore((state) => state.setSidebarVisible);
+
+  return (
+    <div className="settings-sections">
+      <section className="settings-section">
+        <h3>Search</h3>
+        <button type="button" className="dialog-button" onClick={() => openDialog({ kind: "indexing" })}>
+          <Icon name="database" size={14} />
+          Indexed locations, content extraction, and diagnostics...
+        </button>
+        <p className="settings-hint">
+          Universal Search runs locally. Content indexing covers supported text, PDF, and Office
+          documents and can be paused at any time.
+        </p>
+      </section>
+      <section className="settings-section">
+        <h3>Privacy</h3>
+        <button type="button" className="dialog-button" onClick={clearRecents}>
+          Clear recent items
+        </button>
+      </section>
+      <section className="settings-section">
+        <h3>Reset</h3>
+        <button
+          type="button"
+          className="dialog-button"
+          onClick={() => {
+            setDensity(DEFAULT_DISPLAY_PREFERENCES.density);
+            setTextSize(DEFAULT_DISPLAY_PREFERENCES.textSize);
+            setIconSize(DEFAULT_DISPLAY_PREFERENCES.iconSize);
+            setCommandBarLabels(true);
+            setSidebarVisible(true);
+            setInterfaceTheme("windows");
+          }}
+        >
+          Reset appearance and layout preferences
+        </button>
+        <p className="settings-hint">
+          Resets display scaling, labels, navigation pane visibility, and the interface theme.
+          Files, tabs, history, and selections are untouched.
+        </p>
+      </section>
+      <section className="settings-section">
+        <h3>About</h3>
+        <button type="button" className="dialog-button" onClick={() => openDialog({ kind: "about" })}>
+          <Icon name="info" size={14} />
+          About {PRODUCT_NAME}
+        </button>
+        <p className="settings-hint">Current interface theme: {INTERFACE_THEME_DEFINITIONS[interfaceTheme].name}.</p>
+      </section>
+    </div>
+  );
+}
+
+function SettingsDialog({ initialSection = "appearance", close }: { initialSection?: SettingsSection; close: () => void }) {
+  const [section, setSection] = useState<SettingsSection>(initialSection);
+  return (
     <Modal
-      title="Options"
-      width={500}
+      title="Settings"
+      width={780}
       icon={<Icon name="settings" size={20} />}
       onClose={close}
       footer={
@@ -727,163 +1049,30 @@ function PreferencesDialog({ close }: { close: () => void }) {
         </button>
       }
     >
-      <div className="preferences">
-        <section>
-          <h3>Appearance</h3>
-          <div className="theme-choice">
-            {(["system", "light", "dark"] as ThemeMode[]).map((value) => (
-              <button
-                type="button"
-                key={value}
-                className={`theme-tile ${theme === value ? "active" : ""}`}
-                onClick={() => {
-                  setTheme(value);
-                }}
-              >
-                <span className={`theme-swatch ${value}`} />
-                <span>{value === "system" ? "Use system setting" : value[0].toUpperCase() + value.slice(1)}</span>
-              </button>
-            ))}
-          </div>
-          <button
-            type="button"
-            className="link-button theme-more"
-            onClick={() => openDialog({ kind: "themes" })}
-          >
-            <Icon name="palette" size={14} />
-            Interface theme: {INTERFACE_THEME_DEFINITIONS[interfaceTheme].name}...
-          </button>
-        </section>
-        <section>
-          <h3>Default view</h3>
-          <select
-            value={viewMode}
-            onChange={(event) => {
-              setViewMode(event.target.value as ViewMode, activePane);
-            }}
-          >
-            <option value="details">Details</option>
-            <option value="list">List</option>
-            <option value="large">Large icons</option>
-            <option value="medium">Medium icons</option>
-            <option value="small">Small icons</option>
-            <option value="extraLarge">Extra large icons</option>
-            <option value="tiles">Tiles</option>
-            <option value="content">Content</option>
-          </select>
-        </section>
-        <section>
-          <h3>Show</h3>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={showHidden}
-              onChange={(event) => {
-                void setShowHidden(event.target.checked, activePane);
-              }}
-            />
-            <span>Hidden items</span>
-          </label>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={showExtensions}
-              onChange={(event) => {
-                setShowExtensions(event.target.checked, activePane);
-              }}
-            />
-            <span>File name extensions</span>
-          </label>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={detailsPane}
-              onChange={(event) => {
-                setDetailsPane(event.target.checked);
-              }}
-            />
-            <span>Details pane</span>
-          </label>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={previewPane}
-              onChange={(event) => {
-                setPreviewPane(event.target.checked);
-              }}
-            />
-            <span>Preview pane</span>
-          </label>
-        </section>
-        <section>
-          <h3>Dual-pane mode</h3>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={dualPane}
-              onChange={(event) => {
-                setDualPane(event.target.checked);
-              }}
-            />
-            <span>Show two file panes side by side</span>
-          </label>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={syncNavigation}
-              onChange={(event) => {
-                setSyncNavigation(event.target.checked);
-              }}
-            />
-            <span>Synchronize navigation using the panes' relative folders</span>
-          </label>
-          <p className="preferences-hint">
-            Accelerators use Mod for {platform?.modifier === "cmd" ? "Command" : "Control"}, for example
-            Mod+Shift+M or F5. Changes apply immediately.
-          </p>
-          <div className="shortcut-settings">
-            {shortcutRows.map((row) => (
-              <label className="shortcut-setting" key={row.key}>
-                <span>{row.label}</span>
-                <input
-                  value={shortcuts[row.key]}
-                  spellCheck={false}
-                  onChange={(event) => setShortcut(row.key, event.target.value)}
-                />
-              </label>
-            ))}
-          </div>
-          <button type="button" className="link-button" onClick={resetShortcuts}>
-            Reset shortcuts
-          </button>
-        </section>
-        <section>
-          <h3>Search indexing</h3>
-          <button
-            type="button"
-            className="dialog-button"
-            onClick={() => openDialog({ kind: "indexing" })}
-          >
-            <Icon name="database" size={14} />
-            Indexed locations, content extraction, and diagnostics...
-          </button>
-          <p className="preferences-hint">
-            Universal Search runs locally. Content indexing covers supported text, PDF, and Office documents and can be
-            paused at any time.
-          </p>
-        </section>
-        <section>
-          <h3>Privacy</h3>
-          <button
-            type="button"
-            className="dialog-button"
-            onClick={() => {
-              clearRecents();
-            }}
-          >
-            Clear recent items
-          </button>
-        </section>
+      <div className="settings-layout">
+        <nav className="settings-nav" role="tablist" aria-orientation="vertical" aria-label="Settings sections">
+          {SETTINGS_SECTIONS.map((item) => (
+            <button
+              type="button"
+              key={item.id}
+              role="tab"
+              aria-selected={section === item.id}
+              className={`settings-nav-item ${section === item.id ? "active" : ""}`}
+              onClick={() => setSection(item.id)}
+            >
+              <Icon name={item.icon} size={15} />
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="settings-panel" role="tabpanel" aria-label={SETTINGS_SECTIONS.find((item) => item.id === section)?.label}>
+          {section === "appearance" ? <AppearanceSettings /> : null}
+          {section === "display" ? <DisplaySettings /> : null}
+          {section === "layout" ? <LayoutSettings /> : null}
+          {section === "behavior" ? <BehaviorSettings /> : null}
+          {section === "keyboard" ? <KeyboardSettings /> : null}
+          {section === "advanced" ? <AdvancedSettings /> : null}
+        </div>
       </div>
     </Modal>
   );
@@ -919,54 +1108,6 @@ function AboutDialog({ close }: { close: () => void }) {
   );
 }
 
-function ShortcutsDialog({ close }: { close: () => void }) {
-  const platform = useExplorerStore((state) => state.platform);
-  const mod = platform?.modifier === "cmd" ? "Cmd" : "Ctrl";
-  const rows = [
-    [`${mod}+T`, "New tab"],
-    [`${mod}+W`, "Close tab"],
-    [`${mod}+Tab`, "Next tab"],
-    [`${mod}+Shift+Tab`, "Previous tab"],
-    [`${mod}+L`, "Focus address bar"],
-    [`${mod}+F`, "Focus search"],
-    [`${mod}+A`, "Select all"],
-    [`${mod}+C`, "Copy"],
-    [`${mod}+X`, "Cut"],
-    [`${mod}+V`, "Paste"],
-    [`${mod}+Shift+N`, "New folder"],
-    [`${mod}+Shift+C`, "Copy as path"],
-    ["F2", "Rename"],
-    ["F5", "Refresh"],
-    ["Delete", "Move to Trash"],
-    ["Shift+Delete", "Delete permanently"],
-    ["Alt+Enter", "Properties"],
-    ["Alt+Left / Alt+Right", "Back / Forward"],
-    ["Alt+Up", "Up one level"],
-    ["Alt+P / Alt+Shift+P", "Preview / Details pane"],
-    [`${mod}+Shift+1...8`, "Switch view"],
-    ["Home / End", "First / Last item"],
-    ["Type a name", "Select matching item"],
-  ];
-  return (
-    <Modal
-      title="Keyboard shortcuts"
-      width={520}
-      icon={<Icon name="info" size={20} />}
-      onClose={close}
-      footer={<button type="button" className="dialog-button primary" onClick={close}>Close</button>}
-    >
-      <div className="shortcut-list">
-        {rows.map(([keys, action]) => (
-          <div className="shortcut-row" key={keys}>
-            <kbd>{keys}</kbd>
-            <span>{action}</span>
-          </div>
-        ))}
-      </div>
-    </Modal>
-  );
-}
-
 export function Dialogs() {
   const dialog = useExplorerStore((state) => state.dialog);
   const close = useExplorerStore((state) => state.closeDialog);
@@ -982,8 +1123,8 @@ export function Dialogs() {
       return <PropertiesDialog dialog={dialog} close={close} />;
     case "openWith":
       return <OpenWithDialog dialog={dialog} close={close} />;
-    case "preferences":
-      return <PreferencesDialog close={close} />;
+    case "settings":
+      return <SettingsDialog initialSection={dialog.section} close={close} />;
     case "indexing":
       return (
         <Modal
@@ -1000,12 +1141,8 @@ export function Dialogs() {
           <IndexingDashboard />
         </Modal>
       );
-    case "themes":
-      return <ThemesDialog close={close} />;
     case "about":
       return <AboutDialog close={close} />;
-    case "shortcuts":
-      return <ShortcutsDialog close={close} />;
     default:
       return null;
   }

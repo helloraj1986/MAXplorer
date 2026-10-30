@@ -28,6 +28,23 @@
           root.dataset.uiTheme = ui;
           root.dataset.theme = appearance;
           root.style.colorScheme = appearance;
+          var display = (prefs && prefs.display) || {};
+          var density = display.density === "compact" ? "compact" : "comfortable";
+          var textSize =
+            display.textSize === "small" || display.textSize === "large" ? display.textSize : "default";
+          var iconSize =
+            display.iconSize === "small" || display.iconSize === "large" ? display.iconSize : "default";
+          root.dataset.density = density;
+          root.dataset.textSize = textSize;
+          root.dataset.iconSize = iconSize;
+          root.style.setProperty(
+            "--ui-text-scale",
+            textSize === "small" ? "0.92" : textSize === "large" ? "1.1" : "1",
+          );
+          root.style.setProperty(
+            "--ui-icon-scale",
+            iconSize === "small" ? "0.86" : iconSize === "large" ? "1.15" : "1",
+          );
         } catch (error) {
           // Storage can be unavailable; the app boots with default tokens.
         }

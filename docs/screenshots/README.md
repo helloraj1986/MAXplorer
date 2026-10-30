@@ -4,6 +4,12 @@ These screenshots were captured from the running Tauri app on the available Wind
 host. The app is intended for macOS; macOS runtime screenshots are not available because
 no macOS host was present. See [../VALIDATION.md](../VALIDATION.md).
 
+The screenshots predate the unified three-layer chrome and consolidated Settings dialog
+(2026-10-30). They remain useful evidence for views, menus, dialogs, and file operations;
+the current top chrome is documented in [../ARCHITECTURE.md](../ARCHITECTURE.md) and was
+checked in a temporary browser preview during that change. New Tauri screenshots should be
+captured on the next interactive pass.
+
 | File | Content |
 | --- | --- |
 | `app-dark-details-1510.png` | Dark Details view, 1510 × 871 |

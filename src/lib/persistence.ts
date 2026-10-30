@@ -1,4 +1,5 @@
 import type {
+  ColumnVisibility,
   GroupBy,
   InterfaceTheme,
   PaneId,
@@ -14,7 +15,13 @@ import type {
   ViewMode,
 } from "./types";
 import { HOME_LOCATION } from "./types";
-import { DEFAULT_INTERFACE_THEME, normalizeInterfaceTheme, normalizeThemeMode } from "./theme";
+import {
+  DEFAULT_DISPLAY_PREFERENCES,
+  DEFAULT_INTERFACE_THEME,
+  normalizeDisplayPreferences,
+  normalizeInterfaceTheme,
+  normalizeThemeMode,
+} from "./theme";
 import { DEFAULT_SHORTCUTS, clampSplitRatio, normalizeAccelerator } from "./panes";
 
 export const STORAGE_KEY = "win11-explorer-state-v1";
@@ -57,6 +64,12 @@ export function defaultPersisted(
     previewPane: false,
     theme: "system",
     interfaceTheme: DEFAULT_INTERFACE_THEME,
+    display: { ...DEFAULT_DISPLAY_PREFERENCES },
+    columnVisibility: { date: true, type: true, size: true },
+    commandBarLabels: true,
+    sidebarVisible: true,
+    folderOpenMode: "sameTab",
+    confirmTrashDelete: true,
     columnWidths: {
       name: 272,
       date: 144,
@@ -176,6 +189,16 @@ function parseTransferHistory(value: unknown): TransferHistoryItem[] {
     .slice(0, 40);
 }
 
+function parseColumnVisibility(value: unknown): ColumnVisibility {
+  if (!value || typeof value !== "object") return { date: true, type: true, size: true };
+  const raw = value as Partial<ColumnVisibility>;
+  return {
+    date: raw.date !== false,
+    type: raw.type !== false,
+    size: raw.size !== false,
+  };
+}
+
 /**
  * Pure parser for a persisted snapshot. Returns `null` for missing, malformed,
  * or incompatible data so callers can fall back to defaults.
@@ -236,6 +259,12 @@ export function parsePersisted(raw: string | null): PersistedState | null {
       previewPane: Boolean(value.previewPane),
       theme: THEMES.has(value.theme ?? "") ? value.theme! : "system",
       interfaceTheme: normalizeInterfaceTheme(value.interfaceTheme),
+      display: normalizeDisplayPreferences(value.display),
+      columnVisibility: parseColumnVisibility(value.columnVisibility),
+      commandBarLabels: value.commandBarLabels !== false,
+      sidebarVisible: value.sidebarVisible !== false,
+      folderOpenMode: value.folderOpenMode === "newTab" ? "newTab" : "sameTab",
+      confirmTrashDelete: value.confirmTrashDelete !== false,
       columnWidths,
       sidebarWidth: clampNumber(value.sidebarWidth, 160, 360, 204),
       pinned: Array.isArray(value.pinned)

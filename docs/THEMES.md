@@ -12,13 +12,16 @@ is no second file browser, no duplicated operation logic, and no mock data.
 
 ## How to switch
 
-Open the **Appearance** dialog from any of these entry points:
+Open the Appearance section of the consolidated **Settings** dialog from any of these
+entry points:
 
-- **Appearance** at the bottom of the sidebar (visible in both themes).
-- **More (…) → Appearance and themes** in the command bar.
-- **More (…) → Options → Interface theme**.
+- **Settings (gear) → Appearance and themes** in the command bar.
+- **Settings (gear) → Settings...**, then choose **Appearance**.
+- `Command+,` / `Ctrl+,` opens Settings.
 
-The dialog has two preview cards:
+Appearance and theme controls are no longer in the sidebar; the sidebar is navigation-only.
+
+The Appearance section has two preview cards:
 
 - **Windows 11 Explorer**
 - **macOS Finder**
@@ -85,13 +88,14 @@ design.
 | `src/state/explorerStore.ts` | `interfaceTheme` state, `setInterfaceTheme`, persistence snapshot |
 | `src/hooks/useTheme.ts` | Applies both document attributes and exposes theme row metrics |
 | `src/styles/tokens.css` | Windows tokens plus Finder token overrides for dark and light |
-| `src/styles/app.css` | Shared component styling, theme selector, sidebar footer |
+| `src/styles/app.css` | Shared component styling, three-layer chrome, Settings dialog, display scaling |
 | `src/styles/finder.css` | Structural Finder overrides, all scoped to `[data-ui-theme="finder"]` |
 | `src/components/icons/` | Lucide chrome icons plus theme-aware file, folder, storage and status artwork |
 | `src/lib/icons/` | File-type registry, native `.app` icon service, thumbnail policy |
-| `src/components/Dialogs.tsx` | Appearance dialog with preview cards and appearance control |
-| `src/components/TitleBar.tsx` | Finder traffic lights (same Tauri window APIs) |
-| `src/components/Sidebar.tsx` | Finder section headings and Appearance entry point |
+| `src/components/Dialogs.tsx` | Consolidated Settings dialog; Appearance section with preview cards |
+| `src/components/TitleBar.tsx` | Window chrome only; Finder traffic lights (same Tauri window APIs) |
+| `src/components/CommandBar.tsx` | Layer 1 command center, theme quick switch, Settings menu |
+| `src/components/Sidebar.tsx` | Navigation-only Finder section headings and locations |
 
 ### Two independent axes
 
@@ -122,12 +126,14 @@ See [ICON_SYSTEM.md](ICON_SYSTEM.md).
 
 ### Finder layout adapter
 
-`App.tsx` wraps `CommandBar` and `NavigationBar` in a `.chrome` element:
+`App.tsx` wraps the command bar in a `.chrome` element, then renders the navigation and tab
+layers separately:
 
-- Windows theme: `.chrome { display: contents; }` — layout is unchanged.
-- Finder theme: `.chrome` becomes one macOS-style toolbar; its children use CSS `order`
-  to render navigation, path, actions, and search in Finder order. `display: contents` on
-  the two bars lets their existing controls join that row without duplicating components.
+- Windows theme: `.chrome { display: contents; }` — the three layers keep their own rows.
+- Finder theme: `.chrome` becomes a compact macOS-style command toolbar; `display:
+  contents` on its command bar lets those controls join the row. The navigation row and tab
+  row below use Finder toolbar tokens, separators, and 28 px controls. In dual-pane mode the
+  same navigation and tab treatment repeats inside each pane.
 
 The Finder theme also adds real traffic lights. They call the same Tauri APIs as the
 Windows caption buttons (`close`, `minimize`, `maximize`/`unmaximize`), so window dragging,
@@ -141,7 +147,7 @@ resizing, maximizing, and closing continue to work.
 3. Add token overrides in `src/styles/tokens.css` under `[data-ui-theme="classic"]`
    (dark) and `[data-ui-theme="classic"][data-theme="light"]`.
 4. Add structural overrides in a scoped stylesheet and import it from `src/main.tsx`.
-5. Add the new preview to the Appearance dialog (`ThemesDialog` in `Dialogs.tsx`).
+5. Add the new preview to the Appearance section (`AppearanceSettings` in `Dialogs.tsx`).
 6. Extend `src/lib/theme.test.ts` and `src/lib/persistence.test.ts` for normalization and
    persistence.
 7. Run `npm run typecheck`, `npm test`, and `npm run build`.
@@ -156,7 +162,7 @@ Automated checks (Windows dev host):
 | Command | Result |
 | --- | --- |
 | `npm run typecheck` | Pass |
-| `npm test` | **161 passed** across 20 files |
+| `npm test` | **219 passed** across 24 files |
 | `npm run test:cargo` | **28 passed** |
 | `npm run build` | Pass |
 
@@ -182,6 +188,12 @@ rename operation is recorded in [VALIDATION.md](VALIDATION.md). Screenshots:
 | `themes-dialog-finder-light.png` | Appearance dialog, Finder light, active card |
 | `themes-dialog-finder-dark.png` | Appearance dialog, Finder dark |
 | `themes-dialog-windows-dark.png` | Appearance dialog, Windows dark, active card |
+
+The screenshots above record the earlier two-row chrome and the standalone Appearance
+dialog. The theme tokens, previews, and switching behavior are unchanged; the current
+layout places commands, navigation, and tabs in three separate rows and moves Appearance
+into the consolidated Settings dialog. New screenshots should be captured on the next
+interactive Tauri pass.
 
 Validated behaviors beyond the screenshots: switching Finder → Windows preserved the tab,
 path, and selection without a remount or filesystem reload; a file renamed in the Windows

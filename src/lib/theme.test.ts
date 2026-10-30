@@ -1,12 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_DISPLAY_PREFERENCES,
   DEFAULT_INTERFACE_THEME,
+  ICON_SCALE,
   INTERFACE_THEMES,
   INTERFACE_THEME_DEFINITIONS,
+  TEXT_SCALE,
   THEME_METRICS,
+  applyDisplayAttributes,
   applyThemeAttributes,
+  iconScale,
   isInterfaceTheme,
+  normalizeDensity,
+  normalizeDisplayPreferences,
+  normalizeIconSize,
   normalizeInterfaceTheme,
+  normalizeTextSize,
   normalizeThemeMode,
   resolveAppearance,
   themeAttributes,
@@ -85,5 +94,55 @@ describe("theme metrics", () => {
     expect(THEME_METRICS.finder).toEqual({ detailsRow: 28, listRow: 24, groupRow: 28 });
     expect(themeMetrics("finder")).toBe(THEME_METRICS.finder);
     expect(themeMetrics("windows")).toBe(THEME_METRICS.windows);
+  });
+
+  it("reduces virtual rows with compact density so the canvas stays aligned", () => {
+    expect(themeMetrics("windows", "compact")).toEqual({
+      detailsRow: 27,
+      listRow: 19,
+      groupRow: 26,
+    });
+    expect(themeMetrics("finder", "compact")).toEqual({
+      detailsRow: 25,
+      listRow: 21,
+      groupRow: 25,
+    });
+  });
+});
+
+describe("display preferences", () => {
+  it("defaults to comfortable, default text and default icons", () => {
+    expect(DEFAULT_DISPLAY_PREFERENCES).toEqual({
+      density: "comfortable",
+      textSize: "default",
+      iconSize: "default",
+    });
+    expect(normalizeDisplayPreferences(undefined)).toEqual(DEFAULT_DISPLAY_PREFERENCES);
+  });
+
+  it("normalizes invalid or partial display values", () => {
+    expect(normalizeDensity("compact")).toBe("compact");
+    expect(normalizeDensity("tiny")).toBe("comfortable");
+    expect(normalizeTextSize("large")).toBe("large");
+    expect(normalizeTextSize(3)).toBe("default");
+    expect(normalizeIconSize("small")).toBe("small");
+    expect(normalizeIconSize(null)).toBe("default");
+    expect(normalizeDisplayPreferences({ density: "compact", textSize: "huge" })).toEqual({
+      density: "compact",
+      textSize: "default",
+      iconSize: "default",
+    });
+  });
+
+  it("exposes deterministic text and icon scales", () => {
+    expect(TEXT_SCALE.default).toBe(1);
+    expect(TEXT_SCALE.small).toBeLessThan(1);
+    expect(TEXT_SCALE.large).toBeGreaterThan(1);
+    expect(iconScale("small")).toBe(ICON_SCALE.small);
+    expect(iconScale("large")).toBe(ICON_SCALE.large);
+  });
+
+  it("is a no-op without a document (unit-test environment)", () => {
+    expect(() => applyDisplayAttributes(DEFAULT_DISPLAY_PREFERENCES)).not.toThrow();
   });
 });

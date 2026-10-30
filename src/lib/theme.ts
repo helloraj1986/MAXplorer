@@ -1,4 +1,11 @@
-import type { InterfaceTheme, ThemeMode } from "./types";
+import type {
+  DisplayPreferences,
+  InterfaceTheme,
+  ThemeMode,
+  UiDensity,
+  UiIconSize,
+  UiTextSize,
+} from "./types";
 
 /**
  * The interface design is a separate axis from light/dark appearance.
@@ -49,6 +56,79 @@ export const THEME_METRICS: Record<InterfaceTheme, ThemeMetrics> = {
   windows: { detailsRow: 31, listRow: 22, groupRow: 30 },
   finder: { detailsRow: 28, listRow: 24, groupRow: 28 },
 };
+
+/**
+ * Default global display preferences. These are presentation-only and persist
+ * separately from the per-pane view/sort state.
+ */
+export const DEFAULT_DISPLAY_PREFERENCES: DisplayPreferences = {
+  density: "comfortable",
+  textSize: "default",
+  iconSize: "default",
+};
+
+export const DENSITY_SCALE: Record<UiDensity, number> = {
+  comfortable: 1,
+  compact: 0.88,
+};
+
+export const TEXT_SCALE: Record<UiTextSize, number> = {
+  small: 0.92,
+  default: 1,
+  large: 1.1,
+};
+
+export const ICON_SCALE: Record<UiIconSize, number> = {
+  small: 0.86,
+  default: 1,
+  large: 1.15,
+};
+
+export function normalizeDensity(value: unknown): UiDensity {
+  return value === "compact" ? "compact" : "comfortable";
+}
+
+export function normalizeTextSize(value: unknown): UiTextSize {
+  return value === "small" || value === "large" ? value : "default";
+}
+
+export function normalizeIconSize(value: unknown): UiIconSize {
+  return value === "small" || value === "large" ? value : "default";
+}
+
+export function normalizeDisplayPreferences(value: unknown): DisplayPreferences {
+  if (!value || typeof value !== "object") return { ...DEFAULT_DISPLAY_PREFERENCES };
+  const raw = value as Partial<DisplayPreferences>;
+  return {
+    density: normalizeDensity(raw.density),
+    textSize: normalizeTextSize(raw.textSize),
+    iconSize: normalizeIconSize(raw.iconSize),
+  };
+}
+
+/** Applies density, text scale and icon scale attributes before paint. */
+export function applyDisplayAttributes(display: DisplayPreferences): void {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  root.dataset.density = display.density;
+  root.dataset.textSize = display.textSize;
+  root.dataset.iconSize = display.iconSize;
+  root.style.setProperty("--ui-text-scale", String(TEXT_SCALE[display.textSize]));
+  root.style.setProperty("--ui-icon-scale", String(ICON_SCALE[display.iconSize]));
+}
+
+export function displayAttributes(display: DisplayPreferences): {
+  density: UiDensity;
+  textSize: UiTextSize;
+  iconSize: UiIconSize;
+} {
+  const normalized = normalizeDisplayPreferences(display);
+  return normalized;
+}
+
+export function iconScale(size: UiIconSize): number {
+  return ICON_SCALE[normalizeIconSize(size)];
+}
 
 export type Appearance = "light" | "dark";
 
@@ -103,6 +183,16 @@ export function themeName(theme: InterfaceTheme): string {
   return INTERFACE_THEME_DEFINITIONS[theme].name;
 }
 
-export function themeMetrics(theme: InterfaceTheme): ThemeMetrics {
-  return THEME_METRICS[theme];
+/**
+ * Row heights for the virtualized views. Compact density scales the row heights
+ * with the same factor that the CSS uses, so the virtual canvas stays aligned.
+ */
+export function themeMetrics(theme: InterfaceTheme, density: UiDensity = "comfortable"): ThemeMetrics {
+  const base = THEME_METRICS[normalizeInterfaceTheme(theme)];
+  if (density !== "compact") return base;
+  return {
+    detailsRow: Math.max(22, Math.round(base.detailsRow * DENSITY_SCALE.compact)),
+    listRow: Math.max(18, Math.round(base.listRow * DENSITY_SCALE.compact)),
+    groupRow: Math.max(22, Math.round(base.groupRow * DENSITY_SCALE.compact)),
+  };
 }

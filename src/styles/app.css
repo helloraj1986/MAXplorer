@@ -3891,40 +3891,6 @@ body.file-dragging.file-drag-copy * {
   cursor: copy !important;
 }
 
-.titlebar-dual-toggle {
-  width: 28px;
-  height: 26px;
-  align-self: center;
-  margin-right: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  color: var(--text-2);
-}
-
-.titlebar-dual-toggle:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-
-.titlebar-dual-toggle.active {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.dual-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  align-self: center;
-  padding: 0 10px;
-  color: var(--text-2);
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
 /* Comparison row indicators */
 .compare-dot {
   display: inline-block;
@@ -4510,4 +4476,447 @@ body.file-dragging.file-drag-copy * {
   background: var(--accent-soft);
   color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* --------------------------------------------------- Three-layer top chrome */
+
+/* The title bar is window chrome only; tabs and commands have their own rows. */
+.titlebar-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 10px;
+}
+
+.titlebar-app-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  flex: 0 0 16px;
+}
+
+.titlebar-product {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.titlebar-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--border-strong);
+  flex: 0 0 1px;
+}
+
+.titlebar-location {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+  font-size: 11.5px;
+}
+
+.single-pane-layers {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+/* Layer 3: dedicated tab row. */
+.tabbar {
+  height: 38px;
+  flex: 0 0 38px;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  padding: 0 8px;
+  background: var(--mica);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  z-index: 8;
+  min-width: 0;
+}
+
+.tabbar > .tabs {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+}
+
+.tabbar .tab {
+  height: 32px;
+}
+
+.tabbar-pane-badge {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  margin-right: 4px;
+  border-radius: 999px;
+  color: var(--text-3);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  user-select: none;
+}
+
+.tabbar-pane-badge.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.tabbar-pane-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.65;
+}
+
+.tabbar-pane-badge.active .tabbar-pane-dot {
+  opacity: 1;
+}
+
+.tab-menu-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  align-self: center;
+  flex: 0 0 auto;
+}
+
+.tab-menu {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--text-2);
+}
+
+.tab-menu:hover,
+.tab-menu.open {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.tab-menu-dropdown {
+  top: 32px;
+  right: 0;
+}
+
+.tabbar .pane-collapse {
+  align-self: center;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+}
+
+/* Layer 1: command bar grouping, split workspace control, responsive labels. */
+.commandbar > .cmd-btn {
+  margin-right: 2px;
+}
+
+.commandbar > .cmd-op {
+  min-width: 38px;
+}
+
+.commandbar > .cmd-op + .cmd-op {
+  margin-left: 0;
+}
+
+.cmd-btn.active-toggle,
+.cmd-workspace.active-toggle,
+.cmd-dual.active-toggle {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.cmd-split {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.cmd-split .cmd-dual {
+  min-width: 32px;
+  padding: 0 5px;
+  border-radius: 4px 0 0 4px;
+}
+
+.cmd-split-caret {
+  width: 18px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-2);
+  border-radius: 0 4px 4px 0;
+}
+
+.cmd-split-caret:hover,
+.cmd-split-caret.open {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.commandbar[data-labels="off"] .cmd-label,
+.commandbar[data-labels="off"] .cmd-caret {
+  display: none;
+}
+
+.commandbar[data-labels="off"] .cmd-wide {
+  min-width: 40px;
+  padding: 0;
+  justify-content: center;
+}
+
+.commandbar[data-density="compact"] .cmd-label,
+.commandbar[data-density="compact"] .cmd-caret {
+  display: none;
+}
+
+.commandbar[data-density="compact"] .cmd-wide {
+  min-width: 40px;
+  padding: 0;
+  justify-content: center;
+}
+
+.commandbar[data-density="narrow"] .cmd-organization,
+.commandbar[data-density="narrow"] .cmd-secondary {
+  display: none;
+}
+
+.commandbar[data-density="narrow"] .cmd-btn {
+  min-width: 36px;
+}
+
+/* Dual-pane panes now use the same tab row as single-pane mode. */
+.pane-tabbar {
+  background: var(--mica);
+  border-bottom: 1px solid var(--border);
+  z-index: 11;
+}
+
+.pane-shell.active > .pane-tabbar {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.pane-shell.active {
+  box-shadow: none;
+}
+
+/* --------------------------------------------------------- Settings dialog */
+.settings-layout {
+  display: flex;
+  gap: 18px;
+  min-height: 430px;
+}
+
+.settings-nav {
+  width: 158px;
+  flex: 0 0 158px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: 10px;
+  border-right: 1px solid var(--border);
+}
+
+.settings-nav-item {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border-radius: 4px;
+  color: var(--text-2);
+  font-size: 12px;
+  text-align: left;
+}
+
+.settings-nav-item:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.settings-nav-item.active {
+  background: var(--accent-tint);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.settings-panel {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-height: 540px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.settings-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.settings-section h3 {
+  margin: 0 0 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.settings-hint {
+  margin: 0 0 10px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.settings-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 38px;
+}
+
+.settings-field-label {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.settings-select-field {
+  justify-content: flex-start;
+  margin-bottom: 10px;
+}
+
+.settings-select {
+  height: 30px;
+  min-width: 190px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--field);
+  color: var(--text);
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+@media (max-width: 820px) {
+  .settings-layout {
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .settings-nav {
+    width: auto;
+    flex: 0 0 auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    padding: 0 0 8px;
+  }
+
+  .settings-panel {
+    max-height: 460px;
+  }
+}
+
+/* ------------------------------------------------- Global display scaling */
+:root {
+  --ui-text-scale: 1;
+  --ui-icon-scale: 1;
+  --row-details: 31px;
+  --row-list: 22px;
+  --row-group: 30px;
+}
+
+html[data-density="compact"] {
+  --row-details: 27px;
+  --row-list: 19px;
+  --row-group: 26px;
+}
+
+html[data-density="compact"] .details-row {
+  height: var(--row-details);
+}
+
+html[data-density="compact"] .list-row {
+  height: var(--row-list);
+}
+
+html[data-density="compact"] .group-row {
+  height: var(--row-group);
+}
+
+html[data-density="compact"] .nav-row {
+  height: 26px;
+}
+
+html[data-density="compact"] .details-name,
+html[data-density="compact"] .details-text {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+html[data-text-size="small"] .cmd-label,
+html[data-text-size="small"] .tab-title,
+html[data-text-size="small"] .crumb,
+html[data-text-size="small"] .nav-label,
+html[data-text-size="small"] .statusbar,
+html[data-text-size="small"] .details-text,
+html[data-text-size="small"] .entry-name,
+html[data-text-size="small"] .grid-name,
+html[data-text-size="small"] .grid-meta,
+html[data-text-size="small"] .menu-label,
+html[data-text-size="small"] .menu-shortcut,
+html[data-text-size="small"] .titlebar-location {
+  font-size: calc(12px * var(--ui-text-scale));
+}
+
+html[data-text-size="large"] .cmd-label,
+html[data-text-size="large"] .tab-title,
+html[data-text-size="large"] .crumb,
+html[data-text-size="large"] .nav-label,
+html[data-text-size="large"] .statusbar,
+html[data-text-size="large"] .details-text,
+html[data-text-size="large"] .entry-name,
+html[data-text-size="large"] .grid-name,
+html[data-text-size="large"] .grid-meta,
+html[data-text-size="large"] .menu-label,
+html[data-text-size="large"] .menu-shortcut,
+html[data-text-size="large"] .titlebar-location {
+  font-size: calc(12px * var(--ui-text-scale));
+}
+
+html[data-icon-size="small"] .cmd-btn .ui-icon,
+html[data-icon-size="small"] .nav-btn .ui-icon,
+html[data-icon-size="small"] .tabbar .ui-icon {
+  width: 14px;
+  height: 14px;
+}
+
+html[data-icon-size="large"] .cmd-btn .ui-icon,
+html[data-icon-size="large"] .nav-btn .ui-icon,
+html[data-icon-size="large"] .tabbar .ui-icon {
+  width: 18px;
+  height: 18px;
 }

@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Icon } from "./Icon";
 import { MenuPanel, type MenuItem } from "./Menu";
 import { useExplorerStore } from "../state/explorerStore";
 import { useSearchStore } from "../state/searchStore";
-import { acceleratorToDisplay } from "../lib/panes";
+import { useElementSize } from "../hooks/useElementSize";
+import { acceleratorToDisplay, DEFAULT_SHORTCUTS, normalizeAccelerator } from "../lib/panes";
 import { HOME_LOCATION, type GroupBy, type ViewMode } from "../lib/types";
 
-type MenuName = "new" | "sort" | "view" | "more" | null;
+type MenuName = "new" | "sort" | "view" | "workspace" | "settings" | null;
 
 const VIEW_ITEMS: Array<{ mode: ViewMode; label: string; icon: "grid" | "list" | "details" | "view" }> = [
   { mode: "extraLarge", label: "Extra large icons", icon: "grid" },
@@ -20,16 +21,20 @@ const VIEW_ITEMS: Array<{ mode: ViewMode; label: string; icon: "grid" | "list" |
   { mode: "content", label: "Content", icon: "view" },
 ];
 
-function shortcutLabel(platform: string, keys: string): string {
-  if (platform === "macos") return keys.replace(/Ctrl/g, "Cmd").replace(/Shift/g, "Shift").replace(/Alt/g, "Alt");
-  return keys;
-}
-
+/**
+ * Layer 1. One global command area for every command and workspace control.
+ * Navigation lives in the next layer; tabs live in their own row.
+ */
 export function CommandBar() {
   const [menu, setMenu] = useState<MenuName>(null);
-  const rootRef = useRef<HTMLDivElement>(null);
+  const { ref: rootRef, width } = useElementSize<HTMLDivElement>();
   const platform = useExplorerStore((state) => state.platform);
-  const interfaceTheme = useExplorerStore((state) => state.interfaceTheme);
+
+  // The bar measures itself so labels and lower-priority groups can collapse
+  // before the buttons overlap. The Settings menu always remains available.
+  const density: "regular" | "compact" | "narrow" =
+    width === 0 || width >= 900 ? "regular" : width >= 700 ? "compact" : "narrow";
+
   const activePane = useExplorerStore((state) => state.activePane);
   const pane = useExplorerStore((state) => state.panes[state.activePane]);
   const activeTab = useExplorerStore(
@@ -47,13 +52,15 @@ export function CommandBar() {
   const groupBy = pane.groupBy;
   const showHidden = pane.showHidden;
   const showExtensions = pane.showExtensions;
+  const columnVisibility = useExplorerStore((state) => state.columnVisibility);
   const detailsPane = useExplorerStore((state) => state.detailsPane);
   const previewPane = useExplorerStore((state) => state.previewPane);
   const dualPane = useExplorerStore((state) => state.dualPane);
   const syncNavigation = useExplorerStore((state) => state.syncNavigation);
+  const sidebarVisible = useExplorerStore((state) => state.sidebarVisible);
+  const commandBarLabels = useExplorerStore((state) => state.commandBarLabels);
   const comparison = useExplorerStore((state) => state.comparison);
   const shortcuts = useExplorerStore((state) => state.shortcuts);
-  const currentFolder = useExplorerStore((state) => state.currentFolder(state.activePane));
   const isHome = activeTab?.location === HOME_LOCATION;
   const hasSelection = selectedEntries.length > 0;
   const singleSelection = selectedEntries.length === 1;
@@ -65,7 +72,7 @@ export function CommandBar() {
     };
     window.addEventListener("pointerdown", close, true);
     return () => window.removeEventListener("pointerdown", close, true);
-  }, [menu]);
+  }, [menu, rootRef]);
 
   useEffect(() => {
     setMenu(null);
@@ -76,6 +83,8 @@ export function CommandBar() {
   const setGroupBy = useExplorerStore((state) => state.setGroupBy);
   const setShowHidden = useExplorerStore((state) => state.setShowHidden);
   const setShowExtensions = useExplorerStore((state) => state.setShowExtensions);
+  const setColumnVisible = useExplorerStore((state) => state.setColumnVisible);
+  const resetColumnWidths = useExplorerStore((state) => state.resetColumnWidths);
   const setDetailsPane = useExplorerStore((state) => state.setDetailsPane);
   const setPreviewPane = useExplorerStore((state) => state.setPreviewPane);
   const promptNewFolder = useExplorerStore((state) => state.promptNewFolder);
@@ -92,28 +101,30 @@ export function CommandBar() {
   const setSelection = useExplorerStore((state) => state.setSelection);
   const openTerminalHere = useExplorerStore((state) => state.openTerminalHere);
   const openDialog = useExplorerStore((state) => state.openDialog);
-  const openProperties = useExplorerStore((state) => state.openProperties);
   const currentEntries = useExplorerStore(useShallow((state) => state.currentEntries(state.activePane)));
-  const modifier = platform?.modifier === "cmd" ? "Cmd" : "Ctrl";
-
-  const toggleMenu = (name: MenuName) => setMenu((current) => (current === name ? null : name));
   const toggleDualPane = useExplorerStore((state) => state.toggleDualPane);
+  const setDualPane = useExplorerStore((state) => state.setDualPane);
   const setSyncNavigation = useExplorerStore((state) => state.setSyncNavigation);
   const startComparison = useExplorerStore((state) => state.startComparison);
   const setComparisonOpen = useExplorerStore((state) => state.setComparisonOpen);
   const copyToOtherPane = useExplorerStore((state) => state.copyToOtherPane);
   const moveToOtherPane = useExplorerStore((state) => state.moveToOtherPane);
-  const runSearch = useExplorerStore((state) => state.runSearch);
-  const modifierLabel = platform?.modifier === "cmd" ? "cmd" : "ctrl";
-  const shortcutText = (accelerator: string) =>
-    acceleratorToDisplay(accelerator, platform?.platform ?? "macos");
+  const toggleSidebar = useExplorerStore((state) => state.toggleSidebar);
+  const setInterfaceTheme = useExplorerStore((state) => state.setInterfaceTheme);
+  const interfaceTheme = useExplorerStore((state) => state.interfaceTheme);
+  const platformName = platform?.platform ?? "macos";
+  const mod = platform?.modifier === "cmd" ? "Cmd" : "Ctrl";
+  const customShortcut = (accelerator: string, fallback: string) =>
+    acceleratorToDisplay(normalizeAccelerator(accelerator, fallback), platformName);
+
+  const toggleMenu = (name: MenuName) => setMenu((current) => (current === name ? null : name));
 
   const newItems: MenuItem[] = [
     {
       label: "Folder",
       icon: "folder",
       disabled: isHome,
-      shortcut: shortcutLabel(platform?.platform ?? "macos", `${modifier}+Shift+N`),
+      shortcut: `${mod}+Shift+N`,
       onClick: () => void promptNewFolder(activePane),
     },
     {
@@ -170,78 +181,41 @@ export function CommandBar() {
         { label: "Preview pane", checked: previewPane, onClick: () => setPreviewPane(!previewPane) },
       ],
     },
+    {
+      label: "Columns",
+      submenu: [
+        { label: "Date modified", checked: columnVisibility.date, onClick: () => setColumnVisible("date", !columnVisibility.date) },
+        { label: "Type", checked: columnVisibility.type, onClick: () => setColumnVisible("type", !columnVisibility.type) },
+        { label: "Size", checked: columnVisibility.size, onClick: () => setColumnVisible("size", !columnVisibility.size) },
+        { type: "separator" },
+        { label: "Reset column widths", icon: "undo", onClick: resetColumnWidths },
+      ],
+    },
   ];
 
-  const moreItems: MenuItem[] = [
+  const workspaceItems: MenuItem[] = [
     {
-      label: "Universal Search",
-      icon: "search",
-      shortcut: shortcutText(shortcuts.globalSearch),
-      onClick: () => useSearchStore.getState().openOverlay(),
-    },
-    {
-      label: "Search indexing",
-      icon: "database",
-      onClick: () => openDialog({ kind: "indexing" }),
-    },
-    { type: "separator" },
-    { label: "Select all", icon: "check", shortcut: `${interfaceTheme === "finder" ? "Cmd" : "Ctrl"}+A`, onClick: () => selectAll(activePane) },
-    {
-      label: "Invert selection",
-      icon: "sync",
-      disabled: !currentEntries.length,
-      onClick: () => {
-        const selected = new Set(useExplorerStore.getState().activeTab(activePane).selection);
-        setSelection(
-          currentEntries.filter((entry) => !selected.has(entry.path)).map((entry) => entry.path),
-          undefined,
-          activePane,
-        );
-      },
-    },
-    { type: "separator" },
-    { label: "Refresh", icon: "refresh", shortcut: "F5", onClick: () => void refresh(activePane) },
-    { label: "Open in Terminal", icon: "terminal", onClick: () => void openTerminalHere(activePane) },
-    { type: "separator" },
-    {
-      label: "Show hidden items",
-      icon: "eye",
-      checked: showHidden,
-      onClick: () => void setShowHidden(!showHidden, activePane),
-    },
-    {
-      label: "Details pane",
-      icon: "panel",
-      checked: detailsPane,
-      onClick: () => setDetailsPane(!detailsPane),
-    },
-    {
-      label: "Preview pane",
-      icon: "eye",
-      checked: previewPane,
-      onClick: () => setPreviewPane(!previewPane),
-    },
-    { type: "separator" },
-    {
-      label: dualPane ? "Leave dual-pane mode" : "Dual-pane mode",
+      label: dualPane ? "Single-pane mode" : "Dual-pane mode",
       icon: "columns",
-      shortcut: shortcutText(shortcuts.toggleDualPane),
       checked: dualPane,
+      shortcut: customShortcut(shortcuts.toggleDualPane, DEFAULT_SHORTCUTS.toggleDualPane),
       onClick: toggleDualPane,
     },
+    { label: "Show navigation pane", icon: "sidebar", checked: sidebarVisible, onClick: toggleSidebar },
+    { type: "separator" },
     ...(dualPane
       ? [
           {
             label: "Copy to other pane",
             icon: "copy" as const,
-            shortcut: shortcutText(shortcuts.copyToOtherPane),
+            shortcut: customShortcut(shortcuts.copyToOtherPane, DEFAULT_SHORTCUTS.copyToOtherPane),
             disabled: !hasSelection,
             onClick: () => void copyToOtherPane(),
           },
           {
             label: "Move to other pane",
             icon: "cut" as const,
-            shortcut: shortcutText(shortcuts.moveToOtherPane),
+            shortcut: customShortcut(shortcuts.moveToOtherPane, DEFAULT_SHORTCUTS.moveToOtherPane),
             disabled: !hasSelection,
             onClick: () => void moveToOtherPane(),
           },
@@ -267,20 +241,97 @@ export function CommandBar() {
             : []),
         ]
       : []),
+  ];
+
+  const settingsItems: MenuItem[] = [
+    { label: "Settings...", icon: "settings", shortcut: `${mod}+,`, onClick: () => openDialog({ kind: "settings", section: "appearance" }) },
+    { label: "Appearance and themes", icon: "palette", onClick: () => openDialog({ kind: "settings", section: "appearance" }) },
+    { label: "Display and layout", icon: "view", onClick: () => openDialog({ kind: "settings", section: "display" }) },
+    { label: "Keyboard shortcuts", icon: "info", onClick: () => openDialog({ kind: "settings", section: "keyboard" }) },
+    {
+      label: "Interface theme",
+      icon: "palette",
+      submenu: [
+        { label: "Windows 11 Explorer", checked: interfaceTheme === "windows", onClick: () => setInterfaceTheme("windows") },
+        { label: "macOS Finder", checked: interfaceTheme === "finder", onClick: () => setInterfaceTheme("finder") },
+      ],
+    },
     { type: "separator" },
-    { label: "Keyboard shortcuts", icon: "info", onClick: () => openDialog({ kind: "shortcuts" }) },
-    { label: "Appearance and themes", icon: "palette", onClick: () => openDialog({ kind: "themes" }) },
-    { label: "Options", icon: "settings", onClick: () => openDialog({ kind: "preferences" }) },
+    {
+      label: "Universal Search",
+      icon: "search",
+      shortcut: customShortcut(shortcuts.globalSearch, DEFAULT_SHORTCUTS.globalSearch),
+      onClick: () => useSearchStore.getState().openOverlay(),
+    },
+    {
+      label: "Search indexing",
+      icon: "database",
+      onClick: () => openDialog({ kind: "indexing" }),
+    },
+    { label: "Open in Terminal", icon: "terminal", onClick: () => void openTerminalHere(activePane) },
+    {
+      label: "Select all",
+      icon: "check",
+      shortcut: `${mod}+A`,
+      disabled: !currentEntries.length,
+      onClick: () => selectAll(activePane),
+    },
+    {
+      label: "Invert selection",
+      icon: "sync",
+      disabled: !currentEntries.length,
+      onClick: () => {
+        const selected = new Set(useExplorerStore.getState().activeTab(activePane).selection);
+        setSelection(
+          currentEntries.filter((entry) => !selected.has(entry.path)).map((entry) => entry.path),
+          undefined,
+          activePane,
+        );
+      },
+    },
+    ...(density === "narrow"
+      ? ([
+          { type: "separator" },
+          {
+            label: "Rename",
+            icon: "rename",
+            shortcut: "F2",
+            disabled: !singleSelection,
+            onClick: () => promptRename(activePane),
+          },
+          {
+            label: "Share",
+            icon: "share",
+            disabled: !hasSelection,
+            onClick: () => void shareSelection(activePane),
+          },
+          { label: "Sort", icon: "sort", submenu: sortItems },
+          { label: "View", icon: "view", submenu: viewItems },
+        ] as MenuItem[])
+      : []),
+    { type: "separator" },
     { label: "About MAXplorer", icon: "info", onClick: () => openDialog({ kind: "about" }) },
   ];
 
+  const tooltip = (label: string, shortcut?: string) =>
+    shortcut ? `${label} (${shortcut})` : label;
+
   return (
-    <div className="commandbar" ref={rootRef} role="toolbar" aria-label="MAXplorer commands">
+    <div
+      className="commandbar"
+      ref={rootRef}
+      role="toolbar"
+      aria-label="MAXplorer commands"
+      data-density={density}
+      data-labels={commandBarLabels ? "on" : "off"}
+    >
       <div className="cmd-button-wrap">
         <button
           type="button"
           className={`cmd-btn cmd-wide ${menu === "new" ? "open" : ""}`}
           data-tooltip="Create a new item"
+          aria-label="New"
+          disabled={isHome}
           aria-haspopup="menu"
           aria-expanded={menu === "new"}
           onClick={() => toggleMenu("new")}
@@ -296,17 +347,34 @@ export function CommandBar() {
         ) : null}
       </div>
       <div className="cmd-separator" />
-      <button type="button" className="cmd-btn" data-tooltip="Cut" aria-label="Cut" disabled={!hasSelection} onClick={() => cutSelection(activePane)}>
+      <button
+        type="button"
+        className="cmd-btn cmd-op"
+        data-tooltip={tooltip("Cut", `${mod}+X`)}
+        aria-label="Cut"
+        aria-keyshortcuts={`${mod}+X`}
+        disabled={!hasSelection}
+        onClick={() => cutSelection(activePane)}
+      >
         <Icon name="cut" size={16} />
       </button>
-      <button type="button" className="cmd-btn" data-tooltip="Copy" aria-label="Copy" disabled={!hasSelection} onClick={() => copySelection(activePane)}>
+      <button
+        type="button"
+        className="cmd-btn cmd-op"
+        data-tooltip={tooltip("Copy", `${mod}+C`)}
+        aria-label="Copy"
+        aria-keyshortcuts={`${mod}+C`}
+        disabled={!hasSelection}
+        onClick={() => copySelection(activePane)}
+      >
         <Icon name="copy" size={16} />
       </button>
       <button
         type="button"
-        className="cmd-btn"
-        data-tooltip="Paste"
+        className="cmd-btn cmd-op"
+        data-tooltip={tooltip("Paste", `${mod}+V`)}
         aria-label="Paste"
+        aria-keyshortcuts={`${mod}+V`}
         disabled={!clipboard || isHome}
         onClick={() => void paste(activePane)}
       >
@@ -314,9 +382,10 @@ export function CommandBar() {
       </button>
       <button
         type="button"
-        className="cmd-btn"
-        data-tooltip="Rename"
+        className="cmd-btn cmd-op cmd-secondary"
+        data-tooltip={tooltip("Rename", "F2")}
         aria-label="Rename"
+        aria-keyshortcuts="F2"
         disabled={!singleSelection}
         onClick={() => promptRename(activePane)}
       >
@@ -324,7 +393,7 @@ export function CommandBar() {
       </button>
       <button
         type="button"
-        className="cmd-btn"
+        className="cmd-btn cmd-op cmd-secondary"
         data-tooltip="Share"
         aria-label="Share"
         disabled={!hasSelection}
@@ -334,20 +403,22 @@ export function CommandBar() {
       </button>
       <button
         type="button"
-        className="cmd-btn"
-        data-tooltip="Delete"
+        className="cmd-btn cmd-op"
+        data-tooltip={tooltip("Delete", "Delete")}
         aria-label="Delete"
+        aria-keyshortcuts="Delete"
         disabled={!hasSelection}
         onClick={() => deleteSelection(false, activePane)}
       >
         <Icon name="delete" size={16} />
       </button>
       <div className="cmd-separator" />
-      <div className="cmd-button-wrap">
+      <div className="cmd-button-wrap cmd-organization">
         <button
           type="button"
           className={`cmd-btn cmd-wide ${menu === "sort" ? "open" : ""}`}
           data-tooltip="Sort and group"
+          aria-label="Sort and group"
           aria-haspopup="menu"
           aria-expanded={menu === "sort"}
           onClick={() => toggleMenu("sort")}
@@ -358,15 +429,16 @@ export function CommandBar() {
         </button>
         {menu === "sort" ? (
           <div className="dropdown-menu">
-            <MenuPanel items={sortItems} width={168} itemHeight={30} showIcons={false} onClose={() => setMenu(null)} />
+            <MenuPanel items={sortItems} width={180} itemHeight={30} showIcons={false} onClose={() => setMenu(null)} />
           </div>
         ) : null}
       </div>
-      <div className="cmd-button-wrap">
+      <div className="cmd-button-wrap cmd-organization">
         <button
           type="button"
           className={`cmd-btn cmd-wide ${menu === "view" ? "open" : ""}`}
           data-tooltip="Layout and view options"
+          aria-label="Layout and view options"
           aria-haspopup="menu"
           aria-expanded={menu === "view"}
           onClick={() => toggleMenu("view")}
@@ -377,33 +449,70 @@ export function CommandBar() {
         </button>
         {menu === "view" ? (
           <div className="dropdown-menu">
-            <MenuPanel items={viewItems} width={206} itemHeight={30} showIcons onClose={() => setMenu(null)} />
+            <MenuPanel items={viewItems} width={214} itemHeight={30} showIcons onClose={() => setMenu(null)} />
           </div>
         ) : null}
       </div>
       <div className="cmd-separator" />
-      <div className="cmd-button-wrap">
+      <button
+        type="button"
+        className={`cmd-btn cmd-workspace ${sidebarVisible ? "active-toggle" : ""}`}
+        data-tooltip={sidebarVisible ? "Hide navigation pane" : "Show navigation pane"}
+        aria-label={sidebarVisible ? "Hide navigation pane" : "Show navigation pane"}
+        aria-pressed={sidebarVisible}
+        onClick={toggleSidebar}
+      >
+        <Icon name="sidebar" size={16} />
+      </button>
+      <div className="cmd-split">
         <button
           type="button"
-          className={`cmd-btn ${menu === "more" ? "open" : ""}`}
-          data-tooltip="More options"
-          aria-label="More options"
-          aria-haspopup="menu"
-          aria-expanded={menu === "more"}
-          onClick={() => toggleMenu("more")}
+          className={`cmd-btn cmd-dual ${dualPane ? "active-toggle" : ""}`}
+          data-tooltip={dualPane ? "Switch to single pane" : "Switch to dual pane"}
+          aria-label={dualPane ? "Switch to single pane" : "Switch to dual pane"}
+          aria-pressed={dualPane}
+          onClick={toggleDualPane}
         >
-          <Icon name="more" size={16} />
+          <Icon name="columns" size={16} />
         </button>
-        {menu === "more" ? (
-          <div className="dropdown-menu align-right">
-            <MenuPanel items={moreItems} width={238} itemHeight={30} showIcons onClose={() => setMenu(null)} />
+        <button
+          type="button"
+          className={`cmd-split-caret ${menu === "workspace" ? "open" : ""}`}
+          data-tooltip="Workspace options"
+          aria-label="Workspace options"
+          aria-haspopup="menu"
+          aria-expanded={menu === "workspace"}
+          onClick={() => toggleMenu("workspace")}
+        >
+          <Icon name="chevronDown" size={10} />
+        </button>
+        {menu === "workspace" ? (
+          <div className="dropdown-menu">
+            <MenuPanel items={workspaceItems} width={244} itemHeight={30} showIcons onClose={() => setMenu(null)} />
           </div>
         ) : null}
       </div>
       <div className="commandbar-spacer" />
-      <span className="address-hidden" aria-hidden="true">
-        {currentFolder}
-      </span>
+      <div className="cmd-button-wrap">
+        <button
+          type="button"
+          className={`cmd-btn cmd-wide cmd-settings ${menu === "settings" ? "open" : ""}`}
+          data-tooltip="Settings and more"
+          aria-label="Settings and more"
+          aria-haspopup="menu"
+          aria-expanded={menu === "settings"}
+          onClick={() => toggleMenu("settings")}
+        >
+          <Icon name="settings" size={16} />
+          <span className="cmd-label">Settings</span>
+          <Icon name="chevronDown" size={11} className="cmd-caret" />
+        </button>
+        {menu === "settings" ? (
+          <div className="dropdown-menu align-right">
+            <MenuPanel items={settingsItems} width={248} itemHeight={30} showIcons onClose={() => setMenu(null)} />
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

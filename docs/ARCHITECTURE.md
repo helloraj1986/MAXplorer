@@ -24,12 +24,14 @@ host.
 
 ```
 src/
-  App.tsx                     Shell composition, theme, OS drag-drop, global context menu
+  App.tsx                     Shell composition, three-layer chrome, OS drag-drop, dialogs
   components/
-    TitleBar.tsx              Tabs, tab reorder, caption controls, drag region
-    CommandBar.tsx            New/cut/copy/paste/rename/share/delete/sort/view/more
-    NavigationBar.tsx         History buttons, breadcrumbs, editable address, search
-    Sidebar.tsx               Home, pinned paths, This Mac, volumes, resize/drop targets
+    TitleBar.tsx              Window chrome only: traffic lights/caption controls, title
+    CommandBar.tsx            Unified Layer 1: file ops, organization, workspace, settings
+    NavigationBar.tsx         Layer 2: history, breadcrumbs, editable address, search
+    PaneTabs.tsx              Layer 3: tab rows, overflow menu, per-pane tab controls
+    Sidebar.tsx               Navigation-only: Home, pins, This Mac, volumes, resize
+    DualPaneWorkspace.tsx     Split, splitter, collapse rails, per-pane nav/tab layers
     FileArea.tsx              View selection, search state, empty/error/loading, marquee
     HomeView.tsx              Quick access + Recent on virtual Home location
     DetailsPane.tsx           Selection/folder metadata pane
@@ -37,7 +39,7 @@ src/
     StatusBar.tsx             Item count, selection size, view buttons
     ContextMenu.tsx           File and blank context menus + nested menus
     Menu.tsx                  Shared menu primitive with submenus/checkmarks/shortcuts
-    Dialogs.tsx               Confirm, prompt, conflict, properties, open-with, options, themes
+    Dialogs.tsx               Confirm/prompt/conflict/properties/open-with + one Settings dialog
     FileGlyph.tsx             Compatibility facade over FileTypeIcon
     Icon.tsx                  Compatibility facade over the Lucide AppIcon
     icons/
@@ -86,6 +88,50 @@ src-tauri/src/
   error.rs                    AppError code/message contract
   types.rs                    Serde contracts shared with TypeScript
 ```
+
+## Top chrome architecture
+
+The window chrome is split into three horizontal layers with non-overlapping
+responsibilities:
+
+1. **Title bar** (`TitleBar.tsx`) owns window controls and the current-location title only.
+   It no longer contains tabs or the dual-pane toggle.
+2. **Command bar** (`CommandBar.tsx`) is the single global command area: New, Cut, Copy,
+   Paste, Rename, Share, Delete, Sort, View, column configuration, navigation-pane
+   visibility, the single/dual-pane split control, and one Settings menu. It measures its
+   own width and uses regular/compact/narrow tiers; at narrow widths organization and
+   secondary operations move into the Settings menu instead of duplicating controls.
+3. **Navigation row** (`NavigationBar.tsx`) owns Back/Forward/Up/Refresh, breadcrumbs, the
+   editable address, and contextual search. Search behavior is unchanged.
+4. **Tab row** (`TabBar` in `PaneTabs.tsx`) owns tab switching, new-tab, and the all-tabs
+   overflow menu. Single-pane mode renders one global row below navigation. Dual-pane mode
+   renders one row per pane, below that pane's navigation row, with an active-pane badge.
+
+The division of state follows the division of UI. Tab state remains in `TabState`; global
+commands read the active pane and its active tab. The command bar never owns navigation or
+tab state, and the tab rows never own file operations. In dual-pane mode `activePane` is the
+only command target, while each pane retains independent tabs, history, selection, sorting,
+grouping, view mode, and collapse state.
+
+## Settings architecture
+
+`Dialogs.tsx` exposes a single `SettingsDialog` with six sections: Appearance, Display,
+Layout, Behavior, Keyboard, and Advanced. There is one dialog state (`kind: "settings"` with
+an optional initial section); the command bar's quick links open that same dialog at the
+relevant section. Separate Themes, Options, and Shortcuts dialogs no longer exist.
+
+- Appearance: interface theme cards and the independent system/light/dark control.
+- Display: text scale, icon scale, row density/spacing, and the active pane's default view.
+- Layout: navigation-pane visibility, command-bar text labels, pane toggles, split/reset
+  actions, and synchronized navigation.
+- Behavior: folder-open behavior (same tab or new tab) and Trash confirmation.
+- Keyboard: editable accelerators plus the complete shortcut reference.
+- Advanced: search-indexing diagnostics, recent-item clearing, preference reset, and About.
+
+Display preferences are applied through `data-density`, `data-text-size`, and
+`data-icon-size` on `<html>` plus CSS variables. `themeMetrics(theme, density)` supplies the
+same compact row heights to the virtualized file views that the CSS uses. Preferences are
+persisted in the existing versioned snapshot, so a restart restores the same layout.
 
 ## Data flow
 
@@ -155,7 +201,8 @@ themes use the same real icons; only the surrounding chrome changes.
 - **Folder-into-itself** is rejected by canonical path comparison.
 - **Destructive safety**: deleting `/`, the home directory itself, `/System`, `/Library`,
   `/usr`, `/bin`, `/sbin`, `/etc`, `/private`, `/dev`, or `/Applications` is refused.
-  Delete is confirmed; permanent delete has its own stronger confirmation.
+  Trash deletion confirms by default (configurable in Settings → Behavior); permanent
+  delete always has its own stronger confirmation.
 - **Trash**: uses the `trash` crate, so macOS deletion goes through the system Trash.
 - **Permission errors**: I/O kinds map to `permission_denied`, `not_found`,
   `already_exists`, `invalid_request`, or `io_error`; the UI has a dedicated permission
@@ -180,15 +227,19 @@ themes use the same real icons; only the surrounding chrome changes.
 
 `TabState` owns location, history, listing, loading/error state, selection, anchor,
 search query/results/request generation. View mode, sort, grouping, panes, hidden/extensions,
-`theme` (light/dark axis), `interfaceTheme` (Windows/Finder axis), column widths, sidebar
-width, pinned paths, recents, clipboard, menus, dialogs, toasts, and the current operation
-live in the store.
+`theme` (light/dark axis), `interfaceTheme` (Windows/Finder axis), display scale/density,
+column widths/visibility, sidebar width/visibility, command-bar labels, folder-open behavior,
+Trash confirmation, pinned paths, recents, clipboard, menus, dialogs, toasts, and the current
+operation live in the store.
 
 Persisted (versioned) fields exclude derived/transient state. Invalid stored values are
 rejected or clamped. Window bounds are stored separately and clamped to the visible screen.
 Dual-pane fields (`dualPane`, `activePane`, `splitRatio`, `syncNavigation`, `panes`,
 `shortcuts`, `transferHistory`) are optional extensions of the same version-1 snapshot;
-legacy snapshots without `panes` are read as a left pane plus a fresh right pane.
+legacy snapshots without `panes` are read as a left pane plus a fresh right pane. Display,
+layout, behavior, and column preferences are tolerant optional fields: missing values fall
+back to comfortable density, default text/icons, visible sidebar, same-tab folder opening,
+and Trash confirmation.
 The theme pair is also read by a tiny inline bootstrap in `index.html` (mirrored in
 `main.tsx`) so the first paint already uses the saved design; theme changes are applied by
 mutating `data-ui-theme` / `data-theme` on `<html>`, without remounting the shell.
@@ -208,12 +259,14 @@ Finder shell ─────┘
 - `tokens.css` defines Windows tokens at `:root`/`[data-theme="light"]` and Finder
   overrides at `[data-ui-theme="finder"]` plus a more specific
   `[data-ui-theme="finder"][data-theme="light"]` block.
-- `finder.css` contains structural overrides (traffic lights, unified toolbar, sidebar
-  sections, row heights, menus, status bar) scoped to `[data-ui-theme="finder"]`.
+- `finder.css` contains structural overrides (traffic lights, compact command toolbar,
+  navigation/tab rows, sidebar sections, row heights, menus, status bar) scoped to
+  `[data-ui-theme="finder"]`.
 - Shared components keep their behavior. `FileArea` receives row heights from
   `THEME_METRICS` so virtualization stays in sync with the CSS.
-- The theme selector (`Dialogs.tsx`) only calls `setInterfaceTheme` / `setTheme`; it never
-  touches tabs, navigation, selection, search, or file operations.
+- The Appearance section of `SettingsDialog` only calls `setInterfaceTheme` / `setTheme`;
+  it never touches tabs, navigation, selection, search, or file operations. Theme switching
+  is also available from the command bar's Settings menu.
 - Persistence is part of the existing snapshot (`interfaceTheme` + `theme`), so switching
   is debounced and restored exactly like the other preferences.
 
@@ -226,10 +279,12 @@ in the original shell, so existing behavior and details/preview panes are unchan
 - `DualPaneWorkspace.tsx` renders the split, a pointer/keyboard splitter, and collapse
   rails. The ratio is clamped to 0.18–0.82; either pane can be collapsed, but both cannot
   collapse at once. `App.tsx` keeps the global title bar, command bar, sidebar, comparison
-  dock, and status bar outside the panes.
+  dock, and status bar outside the panes. Inside each pane the navigation row comes before
+  the tab row, matching the single-pane layer order.
 - `PaneTabs.tsx`, `NavigationBar.tsx`, `FileArea.tsx`, `HomeView.tsx`, and the keyboard
   hooks accept an explicit `paneId`; the active pane is the default target. Tab/shortcut
-  actions are active-pane scoped.
+  actions are active-pane scoped. The active pane is shown by the tab-row badge and a thin
+  top accent, not a heavy border.
 - `lib/panes.ts` contains the pure helpers: pane creation, split clamping, synchronized
   path mapping, conflict detection, recursive-transfer guard, accelerator parsing, and
   persistence mapping. `deriveSyncAnchors` only maps between related folder trees and

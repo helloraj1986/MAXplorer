@@ -83,6 +83,12 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
+      if (modifier && key === ",") {
+        event.preventDefault();
+        state.openDialog({ kind: "settings", section: "appearance" });
+        return;
+      }
+
       if (key === "Escape") {
         if (state.dialog) {
           state.closeDialog();
@@ -165,6 +171,11 @@ export function useKeyboardShortcuts(): void {
       if (modifier && lower === "l") {
         event.preventDefault();
         focusEvent("explorer:focus-address");
+        return;
+      }
+      if (modifier && lower === "b" && !event.shiftKey) {
+        event.preventDefault();
+        state.toggleSidebar();
         return;
       }
       if (modifier && (lower === "f" || lower === "e")) {

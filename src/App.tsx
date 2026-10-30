@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { TitleBar } from "./components/TitleBar";
 import { CommandBar } from "./components/CommandBar";
 import { NavigationBar } from "./components/NavigationBar";
+import { TabBar } from "./components/PaneTabs";
 import { Sidebar } from "./components/Sidebar";
 import { FileArea } from "./components/FileArea";
 import { DualPaneWorkspace } from "./components/DualPaneWorkspace";
@@ -36,6 +37,7 @@ export default function App() {
   const detailsPane = useExplorerStore((state) => state.detailsPane);
   const previewPane = useExplorerStore((state) => state.previewPane);
   const dualPane = useExplorerStore((state) => state.dualPane);
+  const sidebarVisible = useExplorerStore((state) => state.sidebarVisible);
   const activeTab = useExplorerStore(
     (state) => state.panes[state.activePane].tabs.find(
       (tab) => tab.id === state.panes[state.activePane].activeTabId,
@@ -164,12 +166,17 @@ export default function App() {
   return (
     <div className={`app-shell ${osDropActive ? "os-drop-active" : ""}`}>
       <TitleBar />
-      <div className={`chrome ${dualPane ? "dual-chrome" : ""}`}>
+      <div className="chrome">
         <CommandBar />
-        {!dualPane ? <NavigationBar showSearch={!searchWorkspaceOpen} /> : null}
       </div>
+      {!dualPane && !searchWorkspaceOpen ? (
+        <div className="single-pane-layers">
+          <NavigationBar showSearch />
+          <TabBar paneId="left" />
+        </div>
+      ) : null}
       <div className="main-area">
-        <Sidebar />
+        {sidebarVisible ? <Sidebar /> : null}
         {searchWorkspaceOpen ? (
           <SearchWorkspace />
         ) : dualPane ? (

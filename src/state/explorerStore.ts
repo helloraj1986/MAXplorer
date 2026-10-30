@@ -49,13 +49,16 @@ import { createTransferItem, summarizeResults } from "../lib/transfers";
 import type {
   AppError,
   ClipboardState,
+  ColumnVisibility,
   ComparisonProgress,
   ConflictPolicy,
   ContextMenuState,
   DialogState,
+  DisplayPreferences,
   FileEntry,
   FolderComparisonState,
   FolderStats,
+  FolderOpenMode,
   GroupBy,
   InterfaceTheme,
   Location,
@@ -77,10 +80,13 @@ import type {
   TransferItem,
   TransferMode,
   TransferProgress,
+  UiDensity,
+  UiIconSize,
+  UiTextSize,
   ViewMode,
 } from "../lib/types";
 import { HOME_LOCATION } from "../lib/types";
-import { DEFAULT_INTERFACE_THEME } from "../lib/theme";
+import { DEFAULT_DISPLAY_PREFERENCES, DEFAULT_INTERFACE_THEME } from "../lib/theme";
 
 interface NavigatorOptions {
   history?: boolean;
@@ -122,6 +128,12 @@ interface ExplorerState {
   previewPane: boolean;
   theme: ThemeMode;
   interfaceTheme: InterfaceTheme;
+  display: DisplayPreferences;
+  columnVisibility: ColumnVisibility;
+  commandBarLabels: boolean;
+  sidebarVisible: boolean;
+  folderOpenMode: FolderOpenMode;
+  confirmTrashDelete: boolean;
   columnWidths: Record<string, number>;
   sidebarWidth: number;
   pinned: string[];
@@ -195,6 +207,16 @@ interface ExplorerState {
   setPreviewPane: (show: boolean) => void;
   setTheme: (theme: ThemeMode) => void;
   setInterfaceTheme: (theme: InterfaceTheme) => void;
+  setDensity: (density: UiDensity) => void;
+  setTextSize: (size: UiTextSize) => void;
+  setIconSize: (size: UiIconSize) => void;
+  setColumnVisible: (column: keyof ColumnVisibility, visible: boolean) => void;
+  resetColumnWidths: () => void;
+  setCommandBarLabels: (visible: boolean) => void;
+  setSidebarVisible: (visible: boolean) => void;
+  toggleSidebar: () => void;
+  setFolderOpenMode: (mode: FolderOpenMode) => void;
+  setConfirmTrashDelete: (confirm: boolean) => void;
   setColumnWidth: (key: string, width: number) => void;
   setSidebarWidth: (width: number) => void;
 
@@ -422,6 +444,12 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   previewPane: false,
   theme: initialPreferences.theme,
   interfaceTheme: initialPreferences.interfaceTheme,
+  display: { ...DEFAULT_DISPLAY_PREFERENCES },
+  columnVisibility: { date: true, type: true, size: true },
+  commandBarLabels: true,
+  sidebarVisible: true,
+  folderOpenMode: "sameTab",
+  confirmTrashDelete: true,
   columnWidths: { name: 272, date: 144, type: 120, size: 80, location: 260 },
   sidebarWidth: 204,
   pinned: [],
@@ -466,6 +494,12 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
       let previewPane = false;
       let theme: ThemeMode = "system";
       let interfaceTheme: InterfaceTheme = DEFAULT_INTERFACE_THEME;
+      let display: DisplayPreferences = { ...DEFAULT_DISPLAY_PREFERENCES };
+      let columnVisibility: ColumnVisibility = { date: true, type: true, size: true };
+      let commandBarLabels = true;
+      let sidebarVisible = true;
+      let folderOpenMode: FolderOpenMode = "sameTab";
+      let confirmTrashDelete = true;
       let columnWidths: Record<string, number> = {
         name: 272,
         date: 144,
@@ -485,6 +519,12 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
         if (detailsPane && previewPane) previewPane = false;
         theme = persisted.theme;
         interfaceTheme = persisted.interfaceTheme;
+        display = persisted.display;
+        columnVisibility = persisted.columnVisibility;
+        commandBarLabels = persisted.commandBarLabels;
+        sidebarVisible = persisted.sidebarVisible;
+        folderOpenMode = persisted.folderOpenMode;
+        confirmTrashDelete = persisted.confirmTrashDelete;
         columnWidths = persisted.columnWidths;
         sidebarWidth = persisted.sidebarWidth;
         pinned = persisted.pinned;
@@ -529,6 +569,12 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
         previewPane,
         theme,
         interfaceTheme,
+        display,
+        columnVisibility,
+        commandBarLabels,
+        sidebarVisible,
+        folderOpenMode,
+        confirmTrashDelete,
         columnWidths,
         sidebarWidth,
         pinned,
@@ -745,7 +791,11 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   async openEntry(entry, paneId) {
     const isApplicationBundle = entry.isDir && entry.name.toLowerCase().endsWith(".app");
     if (entry.isDir && !isApplicationBundle) {
-      await get().navigate(entry.path, { paneId });
+      if (get().folderOpenMode === "newTab") {
+        await get().openInNewTab(entry.path, paneId);
+      } else {
+        await get().navigate(entry.path, { paneId });
+      }
       return;
     }
     try {
@@ -1124,6 +1174,38 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   },
   setInterfaceTheme(interfaceTheme) {
     set({ interfaceTheme });
+  },
+  setDensity(density) {
+    set((state) => ({ display: { ...state.display, density } }));
+  },
+  setTextSize(size) {
+    set((state) => ({ display: { ...state.display, textSize: size } }));
+  },
+  setIconSize(size) {
+    set((state) => ({ display: { ...state.display, iconSize: size } }));
+  },
+  setColumnVisible(column, visible) {
+    set((state) => ({
+      columnVisibility: { ...state.columnVisibility, [column]: visible },
+    }));
+  },
+  resetColumnWidths() {
+    set({ columnWidths: { name: 272, date: 144, type: 120, size: 80, location: 260 } });
+  },
+  setCommandBarLabels(visible) {
+    set({ commandBarLabels: visible });
+  },
+  setSidebarVisible(visible) {
+    set({ sidebarVisible: visible });
+  },
+  toggleSidebar() {
+    set((state) => ({ sidebarVisible: !state.sidebarVisible }));
+  },
+  setFolderOpenMode(mode) {
+    set({ folderOpenMode: mode });
+  },
+  setConfirmTrashDelete(confirm) {
+    set({ confirmTrashDelete: confirm });
   },
   setColumnWidth(key, width) {
     set((state) => ({ columnWidths: { ...state.columnWidths, [key]: width } }));
@@ -1638,6 +1720,10 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     const sourcePane = paneId ?? get().activePane;
     const entries = selectedEntriesOf(get(), sourcePane);
     if (!entries.length) return;
+    if (!permanent && !get().confirmTrashDelete) {
+      void get().confirmDelete(entries.map((entry) => entry.path), false, sourcePane);
+      return;
+    }
     const count = entries.length;
     const names = entries.slice(0, 3).map((entry) => entry.name).join(", ");
     get().openDialog({
@@ -2372,6 +2458,12 @@ export function startPersistence(): void {
         previewPane: state.previewPane,
         theme: state.theme,
         interfaceTheme: state.interfaceTheme,
+        display: state.display,
+        columnVisibility: state.columnVisibility,
+        commandBarLabels: state.commandBarLabels,
+        sidebarVisible: state.sidebarVisible,
+        folderOpenMode: state.folderOpenMode,
+        confirmTrashDelete: state.confirmTrashDelete,
         columnWidths: state.columnWidths,
         sidebarWidth: state.sidebarWidth,
         pinned: state.pinned,

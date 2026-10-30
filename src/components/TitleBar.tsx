@@ -1,16 +1,23 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Icon } from "./Icon";
-import { PaneNewTabButton, PaneTabList } from "./PaneTabs";
 import { useExplorerStore } from "../state/explorerStore";
-import { acceleratorToDisplay } from "../lib/panes";
+import { APP_ICON_URL, PRODUCT_NAME } from "../lib/branding";
+import { basename } from "../lib/format";
+import { HOME_LOCATION } from "../lib/types";
 
+/**
+ * Window chrome only. Tabs live in their own Layer 3 row, and workspace controls
+ * live in the command bar, so this bar never mixes navigation with commands.
+ */
 export function TitleBar() {
-  const dualPane = useExplorerStore((state) => state.dualPane);
-  const toggleDualPane = useExplorerStore((state) => state.toggleDualPane);
-  const shortcuts = useExplorerStore((state) => state.shortcuts);
   const platform = useExplorerStore((state) => state.platform);
   const interfaceTheme = useExplorerStore((state) => state.interfaceTheme);
+  const activeTab = useExplorerStore(
+    (state) => state.panes[state.activePane].tabs.find(
+      (tab) => tab.id === state.panes[state.activePane].activeTabId,
+    ),
+  );
   const [maximized, setMaximized] = useState(false);
 
   useEffect(() => {
@@ -40,6 +47,15 @@ export function TitleBar() {
     const operation = maximized ? windowHandle.unmaximize() : windowHandle.maximize();
     void operation.catch((error) => useExplorerStore.getState().toastError(error));
   };
+
+  const label =
+    activeTab?.location === HOME_LOCATION
+      ? "Home"
+      : activeTab?.location
+        ? basename(activeTab.location) || activeTab.location
+        : PRODUCT_NAME;
+  const detail =
+    activeTab?.location && activeTab.location !== HOME_LOCATION ? activeTab.location : platform?.home ?? "";
 
   return (
     <header className="titlebar">
@@ -78,37 +94,15 @@ export function TitleBar() {
           </button>
         </div>
       ) : null}
-      <div className="tab-strip" data-tauri-drag-region>
-        {dualPane ? (
-          <span className="dual-title">
-            <Icon name="columns" size={14} />
-            Dual pane
-          </span>
-        ) : (
-          <>
-            <PaneTabList paneId="left" />
-            <PaneNewTabButton paneId="left" />
-          </>
-        )}
-        <div
-          className="titlebar-spacer"
-          data-tauri-drag-region
-          onDoubleClick={toggleMaximize}
-        />
-        <button
-          type="button"
-          className={`titlebar-dual-toggle ${dualPane ? "active" : ""}`}
-          title={`${dualPane ? "Leave" : "Enter"} dual-pane mode (${acceleratorToDisplay(
-            shortcuts.toggleDualPane,
-            platform?.platform ?? "macos",
-          )})`}
-          aria-label={dualPane ? "Leave dual-pane mode" : "Enter dual-pane mode"}
-          aria-pressed={dualPane}
-          onClick={toggleDualPane}
-        >
-          <Icon name="columns" size={14} />
-        </button>
+      <div className="titlebar-identity" data-tauri-drag-region>
+        <img className="titlebar-app-icon" src={APP_ICON_URL} alt="" aria-hidden="true" />
+        <span className="titlebar-product">{PRODUCT_NAME}</span>
+        <span className="titlebar-divider" aria-hidden="true" />
+        <span className="titlebar-location" title={detail || label}>
+          {label}
+        </span>
       </div>
+      <div className="titlebar-spacer" data-tauri-drag-region onDoubleClick={toggleMaximize} />
       <div className="window-controls" onDoubleClick={toggleMaximize}>
         <button
           type="button"

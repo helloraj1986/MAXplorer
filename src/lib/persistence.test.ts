@@ -39,6 +39,15 @@ describe("persisted theme preference", () => {
     });
     expect(value.interfaceTheme).toBe("windows");
     expect(value.theme).toBe("system");
+    expect(value.display).toEqual({
+      density: "comfortable",
+      textSize: "default",
+      iconSize: "default",
+    });
+    expect(value.sidebarVisible).toBe(true);
+    expect(value.commandBarLabels).toBe(true);
+    expect(value.folderOpenMode).toBe("sameTab");
+    expect(value.confirmTrashDelete).toBe(true);
   });
 
   it("restores a valid Finder theme alongside the light/dark preference", () => {
@@ -72,6 +81,58 @@ describe("persisted theme preference", () => {
     expect(parsePersisted("{not json")).toBeNull();
     expect(parsePersisted(JSON.stringify(snapshot({ version: 2 })))).toBeNull();
     expect(parsePersisted(JSON.stringify(snapshot({ tabs: [] })))).toBeNull();
+  });
+
+  it("restores display, layout, behavior, and column preferences", () => {
+    const parsed = parsePersisted(
+      JSON.stringify(
+        snapshot({
+          display: { density: "compact", textSize: "large", iconSize: "small" },
+          columnVisibility: { date: false, type: true, size: false },
+          commandBarLabels: false,
+          sidebarVisible: false,
+          folderOpenMode: "newTab",
+          confirmTrashDelete: false,
+        }),
+      ),
+    );
+    expect(parsed?.display).toEqual({ density: "compact", textSize: "large", iconSize: "small" });
+    expect(parsed?.columnVisibility).toEqual({ date: false, type: true, size: false });
+    expect(parsed?.commandBarLabels).toBe(false);
+    expect(parsed?.sidebarVisible).toBe(false);
+    expect(parsed?.folderOpenMode).toBe("newTab");
+    expect(parsed?.confirmTrashDelete).toBe(false);
+  });
+
+  it("falls back safely for legacy snapshots without the new preferences", () => {
+    const parsed = parsePersisted(JSON.stringify(snapshot()));
+    expect(parsed?.display).toEqual({
+      density: "comfortable",
+      textSize: "default",
+      iconSize: "default",
+    });
+    expect(parsed?.columnVisibility).toEqual({ date: true, type: true, size: true });
+    expect(parsed?.commandBarLabels).toBe(true);
+    expect(parsed?.sidebarVisible).toBe(true);
+    expect(parsed?.folderOpenMode).toBe("sameTab");
+    expect(parsed?.confirmTrashDelete).toBe(true);
+
+    const invalid = parsePersisted(
+      JSON.stringify(
+        snapshot({
+          display: { density: "huge", textSize: 3, iconSize: null },
+          columnVisibility: "all",
+          folderOpenMode: "window",
+        }),
+      ),
+    );
+    expect(invalid?.display).toEqual({
+      density: "comfortable",
+      textSize: "default",
+      iconSize: "default",
+    });
+    expect(invalid?.columnVisibility).toEqual({ date: true, type: true, size: true });
+    expect(invalid?.folderOpenMode).toBe("sameTab");
   });
 
   it("keeps tabs and history intact while normalizing invalid entries", () => {

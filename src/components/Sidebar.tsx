@@ -75,7 +75,6 @@ export function Sidebar() {
   const setSidebarWidth = useExplorerStore((state) => state.setSidebarWidth);
   const sidebarWidth = useExplorerStore((state) => state.sidebarWidth);
   const moveOrCopyPaths = useExplorerStore((state) => state.moveOrCopyPaths);
-  const openDialog = useExplorerStore((state) => state.openDialog);
   const [expanded, setExpanded] = useState(true);
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
@@ -269,18 +268,6 @@ export function Sidebar() {
               </div>
             ) : null}
           </div>
-        </div>
-        <div className="sidebar-footer">
-          <button
-            type="button"
-            className="sidebar-theme-button"
-            title="Appearance and themes"
-            aria-label="Appearance and themes"
-            onClick={() => openDialog({ kind: "themes" })}
-          >
-            <Icon name="palette" size={16} />
-            <span className="nav-label">Appearance</span>
-          </button>
         </div>
       </aside>
       <div

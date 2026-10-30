@@ -7,10 +7,10 @@ existing MAXplorer shell.
 
 ## Entry points
 
-- The single toolbar search field. Its globe button opens Universal Search; typing in the field keeps the existing contextual folder search.
-- `Command+Shift+F` by default; configurable in **Options → Dual-pane mode** shortcuts.
+- The single navigation-bar search field (Layer 2). Its globe button opens Universal Search; typing in the field keeps the existing contextual folder search.
+- `Command+Shift+F` by default; configurable in **Settings → Keyboard** shortcuts.
 - `Command+F` keeps the existing contextual folder search.
-- **More → Universal Search**, **More → Search indexing**.
+- **Settings (gear) → Universal Search** and **Settings (gear) → Search indexing**. The unified command bar therefore exposes Universal Search without adding a second toolbar search field.
 
 ## Architecture
 

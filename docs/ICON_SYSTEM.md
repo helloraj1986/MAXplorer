@@ -74,7 +74,7 @@ npm run test:cargo
 npm run build
 ```
 
-Current results: **161 frontend tests across 20 files**, **28 Rust tests**, and a
+Current results: **219 frontend tests across 24 files**, **47 Rust tests**, and a
 clean production build. The icon tests cover extension mapping, case-insensitivity,
 compound extensions, dotfiles, unknown/extensionless files, MIME fallback, native
 icon failure, thumbnail failure, theme switching, list/grid/details rendering and

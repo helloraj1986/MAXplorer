@@ -18,13 +18,28 @@ Status vocabulary:
 | Shell | Tab overflow flyout | 22H2 design | Unsupported | Tabs scroll horizontally instead |
 | Shell | Window resizing/min size | UIA + screenshots | Implemented | Min 760×520; CSS responsive breakpoints |
 | Shell | Minimize/maximize/restore/close | Screenshot + interaction | Verified/implemented | Maximize to work area + restore glyph + close verified on Windows release; minimize same Tauri path |
-| Command bar | New, cut, copy, paste, rename, share, delete | UIA | Verified/implemented | All disabled/enabled states wired |
+| Command bar | New, cut, copy, paste, rename, share, delete | UIA | Verified/implemented | All disabled/enabled states wired; unified command bar tests cover selection states |
 | Command bar | Sort and View wide buttons | UIA | Verified/implemented | Menus mirror captured items |
-| Command bar | More menu | Screenshot | Implemented | Adds real options/shortcuts/about |
+| Command bar | One global command center | Explicit request | Implemented | File ops, organization, workspace, and Settings in one bar; component tests |
+| Command bar | Column configuration | Explicit request | Implemented | Show/hide Date/Type/Size and reset widths; persisted |
+| Command bar | Responsive labels and overflow | Explicit request | Implemented | Measured regular/compact/narrow tiers; low-priority commands move into Settings |
+| Command bar | Dual-pane toggle in command bar | Explicit request | Implemented | Split control + workspace menu; removed from window corner |
+| Command bar | Settings menu | Screenshot | Implemented | Appearance, display/layout, keyboard, indexing, advanced commands, About |
 | Navigation | Back / forward / up / refresh | UIA + interaction | Verified/implemented | Per-tab history; refresh re-reads disk |
 | Navigation | Breadcrumbs | UIA + screenshots | Verified/implemented | Clickable root + segments |
 | Navigation | Editable address bar | Interaction | Verified/implemented | Absolute paths, `~`, invalid-path inline error |
 | Navigation | Address dropdown | Interaction | Implemented | Copy address / edit / copy as text |
+| Navigation | Dedicated navigation/search layer | Explicit request | Implemented | Back/forward/up/refresh, breadcrumbs, editable address, search kept in one row |
+| Tabs | Dedicated Layer 3 tab row | Explicit request | Implemented | Single global row; per-pane rows in dual-pane mode |
+| Tabs | All-tabs overflow menu | Explicit request | Implemented | Lists every tab and exposes new/duplicate/close/close-others |
+| Tabs | Narrow-window tab handling | Explicit request | Implemented | Tabs scroll horizontally; all tabs remain reachable from the menu |
+| Tabs | Active pane and tab indication | Explicit request | Implemented | Pane badge, active-tab state, thin top accent in dual-pane mode |
+| Settings | Consolidated Settings dialog | Explicit request | Implemented | Appearance, Display, Layout, Behavior, Keyboard, Advanced; one dialog state |
+| Settings | Display scaling and density | Explicit request | Implemented | Text size, icon size, compact rows, defaults persisted; compact metrics unit-tested |
+| Settings | Layout and behavior preferences | Explicit request | Implemented | Sidebar visibility, command-bar labels, folder-open behavior, Trash confirmation |
+| Settings | Settings entry points | Explicit request | Implemented | Command-bar Settings menu and `Mod+,`; sidebar Appearance removed |
+| Sidebar | Navigation-only scope | Explicit request | Implemented | Appearance/theme footer removed; Home/pins/locations retained |
+| Sidebar | Collapse/restore | Explicit request | Implemented | Command-bar toggle and `Mod+B`; visibility persisted |
 | Search | Recursive name search | Search box observed | Implemented | Bounded 500 results/8 s/200k entries |
 | Search | Content/index search | Not observed | Unsupported | Name-based only; documented |
 | Sidebar | Home / Quick access | 21H2 nav pane | Implemented | Default real folders shown on Home |
@@ -90,12 +105,13 @@ Status vocabulary:
 | Properties | Security/Details tabs | Windows properties | Unsupported | General only |
 | Open With | App chooser | Windows Open With | Blocked | macOS `.app` list implemented; needs macOS run |
 | Share | Native share sheet | Windows Share | Partial | Copies path + Reveal in Finder action |
-| Themes | Interface themes: Windows 11 / macOS Finder | Windows reference + macOS HIG | Verified/implemented | Selector dialog; live switch without remount or filesystem reload |
+| Themes | Interface themes: Windows 11 / macOS Finder | Windows reference + macOS HIG | Verified/implemented | Settings → Appearance and command-bar quick switch; live switch without remount or filesystem reload |
 | Themes | Dark / light / system appearance | Captured both | Verified/implemented | Independent from the interface theme; applies to both |
 | Theming | Selected/hover/pressed/focus/disabled states | Captured core states | Implemented | CSS tokens; shared focus-visible rules |
 | Theming | Finder traffic lights / toolbar / source list | macOS HIG | Implemented | Real Tauri window APIs; CSS/SVG recreation, not AppKit |
 | Theming | Finder column view / Quick Look / tags | macOS HIG | Unsupported | Not shown as fake controls |
 | Persistence | Tabs/history/view/sort/columns/sidebar/themes | Standard Explorer | Verified/implemented | localStorage; window bounds persisted |
+| Persistence | Display/layout/behavior preferences | Explicit request | Implemented | Text/icon scale, density, column visibility, labels, sidebar visibility, folder-open, confirmations; legacy fallback tested |
 | Persistence | Theme restored without a wrong-theme flash | Requirement | Implemented | Inline pre-paint bootstrap + store seeding |
 | Persistence | Window size/position | Standard Explorer | Implemented | Restored and clamped to screen |
 | macOS | TCC usage descriptions | N/A | Implemented | Desktop/Documents/Downloads/volumes Info.plist keys |
@@ -161,6 +177,8 @@ paths; see [VALIDATION.md](VALIDATION.md) for the exact boundary.
 | Area | Feature | Reference evidence | Status | Notes |
 | --- | --- | --- | --- | --- |
 | Dual pane | Two independent panes with tabs, history, address bars, sorting, filtering, selection, and errors | Standard dual-pane file managers; explicit request | Implemented | `panes.left` / `panes.right`; single-pane renders the left pane |
+| Dual pane | Dedicated per-pane navigation and tab rows | Explicit request | Implemented | Navigation above tabs in each pane; active-pane badge and top accent |
+| Dual pane | Command-bar mode toggle and workspace controls | Explicit request | Implemented | Split toggle plus copy/move, sync navigation, comparison, sidebar visibility |
 | Dual pane | Draggable divider, keyboard resize, double-click reset, collapse/restore | Explicit request | Implemented | Ratio clamped 0.18–0.82; both panes cannot collapse |
 | Dual pane | Mode switching with preserved state | Explicit request | Implemented | Switching to single-pane keeps both pane snapshots |
 | Dual pane | Persistence of mode, pane folders/tabs, divider, sync preference, shortcuts, transfer history | Explicit request | Implemented | Version-1 snapshot extended with optional fields; legacy snapshots remain readable |
@@ -171,4 +189,4 @@ paths; see [VALIDATION.md](VALIDATION.md) for the exact boundary.
 | Comparison | Read-only folder comparison, differences filter, optional content verification | Explicit request | Implemented | Rust `compare.rs`; comparison dock; no mutation commands |
 | Comparison | Row indicators in both panes | Explicit request | Implemented | Left-only / right-only / size / date / content dots |
 | Sync navigation | Relative folder mapping, disabled by default | Explicit request | Implemented | `deriveSyncAnchors` + `mapSynchronizedPath`; no-op on invalid mappings |
-| Tests | Temp-directory coverage for transfer/compare and pure helper tests | Explicit request | Implemented | 28 Rust tests; 161 frontend tests across 20 files |
+| Tests | Temp-directory coverage for transfer/compare and pure helper tests | Explicit request | Implemented | 47 Rust tests; 219 frontend tests across 24 files (includes unified command/settings coverage) |

@@ -1,5 +1,7 @@
+import { useEffect, useRef, useState } from "react";
 import { Icon } from "./Icon";
 import { FolderIcon } from "./icons/FolderIcon";
+import { MenuPanel, type MenuItem } from "./Menu";
 import { useExplorerStore } from "../state/explorerStore";
 import { beginTabDrag } from "../state/fileDrag";
 import { basename } from "../lib/format";
@@ -10,10 +12,6 @@ function titleFor(location: string): string {
   return basename(location) || location;
 }
 
-/**
- * Tab strip for one pane. Single-pane mode renders it inside the title bar;
- * dual-pane mode renders one compact strip above each pane's address bar.
- */
 export function PaneTabList({ paneId }: { paneId: PaneId }) {
   const tabs = useExplorerStore((state) => state.panes[paneId].tabs);
   const activeTabId = useExplorerStore((state) => state.panes[paneId].activeTabId);
@@ -94,11 +92,121 @@ export function PaneNewTabButton({ paneId }: { paneId: PaneId }) {
   );
 }
 
-export function PaneTabStrip({ paneId }: { paneId: PaneId }) {
+/**
+ * Overflow and tab-management menu. It keeps every tab reachable even when the
+ * row is narrower than the sum of the tab widths.
+ */
+function TabMenuButton({ paneId }: { paneId: PaneId }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const tabs = useExplorerStore((state) => state.panes[paneId].tabs);
+  const activeTabId = useExplorerStore((state) => state.panes[paneId].activeTabId);
+  const activateTab = useExplorerStore((state) => state.activateTab);
+  const newTab = useExplorerStore((state) => state.newTab);
+  const duplicateActiveTab = useExplorerStore((state) => state.duplicateActiveTab);
+  const closeActiveTab = useExplorerStore((state) => state.closeActiveTab);
+  const closeOtherTabs = useExplorerStore((state) => state.closeOtherTabs);
+  const platform = useExplorerStore((state) => state.platform);
+  const mod = platform?.modifier === "cmd" ? "Cmd" : "Ctrl";
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: PointerEvent) => {
+      if (!wrapRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    window.addEventListener("pointerdown", close, true);
+    return () => window.removeEventListener("pointerdown", close, true);
+  }, [open]);
+
+  const items: MenuItem[] = [
+    ...tabs.map((tab) => ({
+      label: titleFor(tab.location),
+      checked: tab.id === activeTabId,
+      onClick: () => void activateTab(tab.id, paneId),
+    })),
+    { type: "separator" },
+    { label: "New tab", icon: "plus", shortcut: `${mod}+T`, onClick: () => void newTab(undefined, paneId) },
+    { label: "Duplicate tab", icon: "copy", onClick: () => duplicateActiveTab(paneId) },
+    { label: "Close tab", icon: "close", shortcut: `${mod}+W`, onClick: () => void closeActiveTab(paneId) },
+    {
+      label: "Close other tabs",
+      icon: "close",
+      disabled: tabs.length < 2,
+      onClick: () => closeOtherTabs(activeTabId, paneId),
+    },
+  ];
+
   return (
-    <div className="pane-tab-strip">
-      <PaneTabList paneId={paneId} />
-      <PaneNewTabButton paneId={paneId} />
+    <div className="tab-menu-wrap" ref={wrapRef}>
+      <button
+        type="button"
+        className={`tab-menu ${open ? "open" : ""}`}
+        title="All tabs"
+        aria-label="All tabs"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <Icon name="chevronDown" size={12} />
+      </button>
+      {open ? (
+        <div className="dropdown-menu align-right tab-menu-dropdown">
+          <MenuPanel items={items} width={214} itemHeight={30} showIcons onClose={() => setOpen(false)} />
+        </div>
+      ) : null}
     </div>
   );
+}
+
+/**
+ * Layer 3 tab row. Single-pane mode renders one global row; dual-pane mode
+ * renders a row per pane with an active-pane badge and a collapse control.
+ */
+export function TabBar({
+  paneId,
+  showPaneLabel = false,
+  onCollapse,
+}: {
+  paneId: PaneId;
+  showPaneLabel?: boolean;
+  onCollapse?: () => void;
+}) {
+  const activePane = useExplorerStore((state) => state.activePane);
+  const setActivePane = useExplorerStore((state) => state.setActivePane);
+  const active = activePane === paneId;
+  return (
+    <div
+      className={`tabbar ${showPaneLabel ? "pane-tabbar" : ""} ${active ? "active-pane" : ""}`}
+      data-pane={paneId}
+      onPointerDown={() => setActivePane(paneId)}
+      role="toolbar"
+      aria-label={`${showPaneLabel ? (paneId === "left" ? "Left pane" : "Right pane") : "Tab"} tabs`}
+    >
+      {showPaneLabel ? (
+        <span className={`tabbar-pane-badge ${active ? "active" : ""}`} aria-label={`${active ? "Active" : "Inactive"} pane`}>
+          <span className="tabbar-pane-dot" aria-hidden="true" />
+          {paneId === "left" ? "Left" : "Right"}
+        </span>
+      ) : null}
+      <PaneTabList paneId={paneId} />
+      <PaneNewTabButton paneId={paneId} />
+      <TabMenuButton paneId={paneId} />
+      {onCollapse ? (
+        <button
+          type="button"
+          className="pane-collapse"
+          title="Collapse this pane"
+          aria-label="Collapse this pane"
+          onClick={onCollapse}
+        >
+          <Icon name={paneId === "left" ? "chevronLeft" : "chevronRight"} size={13} />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** Dual-pane header row: Layer 3 tabs for one pane. */
+export function PaneTabStrip({ paneId, onCollapse }: { paneId: PaneId; onCollapse?: () => void }) {
+  return <TabBar paneId={paneId} showPaneLabel onCollapse={onCollapse} />;
 }

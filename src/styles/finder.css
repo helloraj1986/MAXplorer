@@ -155,12 +155,13 @@
 
 /* --------------------------------------------------------- Unified toolbar */
 
+/* Layer 1: a compact macOS toolbar. Navigation and tabs have their own rows. */
 [data-ui-theme="finder"] .chrome {
   display: flex;
   align-items: center;
   gap: 2px;
-  height: var(--navbar-height);
-  flex: 0 0 var(--navbar-height);
+  height: 42px;
+  flex: 0 0 42px;
   padding: 0 10px;
   background: var(--finder-toolbar);
   border-bottom: 1px solid var(--finder-separator);
@@ -168,52 +169,8 @@
   z-index: 30;
 }
 
-[data-ui-theme="finder"] .chrome > .commandbar,
-[data-ui-theme="finder"] .chrome > .navbar {
+[data-ui-theme="finder"] .chrome > .commandbar {
   display: contents;
-}
-
-/* Visual order: navigation, path, actions, search. */
-[data-ui-theme="finder"] .chrome > .navbar > .nav-btn {
-  order: 1;
-  width: 28px;
-  height: 28px;
-  flex-basis: 28px;
-  border-radius: 6px;
-  color: var(--text-2);
-}
-
-[data-ui-theme="finder"] .chrome > .navbar > .nav-btn:hover:not(:disabled) {
-  background: var(--hover);
-  color: var(--text);
-}
-
-[data-ui-theme="finder"] .chrome > .navbar > .nav-btn:disabled {
-  opacity: 0.4;
-}
-
-[data-ui-theme="finder"] .chrome > .navbar > .refresh-btn {
-  margin: 0 4px 0 0;
-}
-
-[data-ui-theme="finder"] .chrome > .navbar > .address-wrap {
-  order: 2;
-  flex: 1 1 240px;
-  min-width: 96px;
-  margin: 0 10px;
-}
-
-[data-ui-theme="finder"] .chrome > .commandbar > * {
-  order: 3;
-}
-
-[data-ui-theme="finder"] .chrome > .navbar > .search-box {
-  order: 4;
-}
-
-[data-ui-theme="finder"] .chrome > .commandbar > .commandbar-spacer,
-[data-ui-theme="finder"] .chrome > .commandbar > .address-hidden {
-  display: none;
 }
 
 [data-ui-theme="finder"] .chrome > .commandbar > .cmd-btn,
@@ -231,7 +188,8 @@
 }
 
 [data-ui-theme="finder"] .chrome .cmd-btn:hover:not(:disabled),
-[data-ui-theme="finder"] .chrome .cmd-btn.open {
+[data-ui-theme="finder"] .chrome .cmd-btn.open,
+[data-ui-theme="finder"] .chrome .cmd-btn.active-toggle {
   background: var(--hover);
   color: var(--text);
 }
@@ -260,10 +218,86 @@
   top: 34px;
 }
 
-[data-ui-theme="finder"] .chrome .cmd-properties {
+[data-ui-theme="finder"] .chrome .cmd-split-caret {
+  height: 28px;
+  width: 16px;
+  border-radius: 0 6px 6px 0;
+}
+
+[data-ui-theme="finder"] .chrome .cmd-split .cmd-dual {
+  border-radius: 6px 0 0 6px;
+}
+
+/* Layer 2 and 3 in the Finder theme. */
+[data-ui-theme="finder"] .navbar {
+  height: 42px;
+  flex: 0 0 42px;
+  padding: 0 10px;
+  background: var(--finder-toolbar);
+  border-bottom: 1px solid var(--finder-separator);
+}
+
+[data-ui-theme="finder"] .navbar > .nav-btn {
   width: 28px;
   height: 28px;
+  flex-basis: 28px;
   border-radius: 6px;
+  color: var(--text-2);
+}
+
+[data-ui-theme="finder"] .navbar > .nav-btn:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+[data-ui-theme="finder"] .navbar > .nav-btn:disabled {
+  opacity: 0.4;
+}
+
+[data-ui-theme="finder"] .navbar > .refresh-btn {
+  margin: 0 4px 0 0;
+}
+
+[data-ui-theme="finder"] .navbar > .address-wrap {
+  flex: 1 1 240px;
+  min-width: 96px;
+  margin: 0 10px;
+}
+
+[data-ui-theme="finder"] .tabbar {
+  height: 36px;
+  flex: 0 0 36px;
+  align-items: center;
+  padding: 0 10px;
+  background: var(--finder-toolbar);
+  border-bottom: 1px solid var(--finder-separator);
+}
+
+[data-ui-theme="finder"] .tabbar .tabs {
+  align-items: center;
+}
+
+[data-ui-theme="finder"] .tabbar .tab {
+  height: 28px;
+  border-radius: 7px;
+}
+
+[data-ui-theme="finder"] .tabbar-pane-badge {
+  color: var(--text-3);
+}
+
+[data-ui-theme="finder"] .tabbar-pane-badge.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+[data-ui-theme="finder"] .pane-tabbar {
+  background: var(--finder-toolbar);
+  border-bottom-color: var(--finder-separator);
+}
+
+[data-ui-theme="finder"] .pane-shell.active > .pane-tabbar {
+  box-shadow: inset 0 2px 0 var(--accent);
 }
 
 /* Address / path bar */
@@ -786,4 +820,55 @@
 [data-ui-theme="finder"] .comparison-panel,
 [data-ui-theme="finder"] .transfer-panel {
   border-color: var(--finder-separator);
+}
+
+/* Title bar identity is centered like a Finder window title. */
+[data-ui-theme="finder"] .titlebar-identity {
+  flex: 1;
+  justify-content: center;
+  padding: 0;
+}
+
+[data-ui-theme="finder"] .titlebar-app-icon,
+[data-ui-theme="finder"] .titlebar-product,
+[data-ui-theme="finder"] .titlebar-divider {
+  display: none;
+}
+
+[data-ui-theme="finder"] .titlebar-location {
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+[data-ui-theme="finder"] .titlebar-spacer {
+  display: none;
+}
+
+[data-ui-theme="finder"] .titlebar {
+  justify-content: space-between;
+}
+
+[data-ui-theme="finder"][data-density="compact"] .details-row {
+  height: 25px;
+}
+
+[data-ui-theme="finder"][data-density="compact"] .list-row {
+  height: 21px;
+}
+
+[data-ui-theme="finder"][data-density="compact"] .group-row {
+  height: 25px;
+}
+
+[data-ui-theme="finder"] .settings-nav {
+  border-right-color: var(--finder-separator);
+}
+
+[data-ui-theme="finder"] .settings-nav-item {
+  border-radius: 6px;
+}
+
+[data-ui-theme="finder"] .settings-select {
+  border-radius: 6px;
 }

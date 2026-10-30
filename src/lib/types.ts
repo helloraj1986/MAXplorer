@@ -17,6 +17,33 @@ export type ThemeMode = "system" | "light" | "dark";
  * (light/dark appearance); both themes support both appearances.
  */
 export type InterfaceTheme = "windows" | "finder";
+/** Global workspace density. Compact reduces row height and vertical padding. */
+export type UiDensity = "comfortable" | "compact";
+/** Global UI text scale applied through CSS variables. */
+export type UiTextSize = "small" | "default" | "large";
+/** Global file/chrome icon scale. */
+export type UiIconSize = "small" | "default" | "large";
+/** What double-clicking an ordinary folder does in the active pane. */
+export type FolderOpenMode = "sameTab" | "newTab";
+export type SettingsSection =
+  | "appearance"
+  | "display"
+  | "layout"
+  | "behavior"
+  | "keyboard"
+  | "advanced";
+
+export interface DisplayPreferences {
+  density: UiDensity;
+  textSize: UiTextSize;
+  iconSize: UiIconSize;
+}
+
+export interface ColumnVisibility {
+  date: boolean;
+  type: boolean;
+  size: boolean;
+}
 export type ConflictPolicy = "error" | "replace" | "rename" | "skip";
 export type PaneId = "left" | "right";
 export type TransferMode = "copy" | "move";
@@ -334,11 +361,9 @@ export type DialogState =
       applications: ApplicationInfo[];
       loading: boolean;
     }
-  | { kind: "preferences" }
+  | { kind: "settings"; section?: SettingsSection }
   | { kind: "indexing" }
-  | { kind: "themes" }
-  | { kind: "about" }
-  | { kind: "shortcuts" };
+  | { kind: "about" };
 
 export type ContextMenuState =
   | {
@@ -419,6 +444,12 @@ export interface PersistedState {
   previewPane: boolean;
   theme: ThemeMode;
   interfaceTheme: InterfaceTheme;
+  display: DisplayPreferences;
+  columnVisibility: ColumnVisibility;
+  commandBarLabels: boolean;
+  sidebarVisible: boolean;
+  folderOpenMode: FolderOpenMode;
+  confirmTrashDelete: boolean;
   columnWidths: Record<string, number>;
   sidebarWidth: number;
   pinned: string[];

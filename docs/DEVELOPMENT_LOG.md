@@ -193,3 +193,42 @@
 - Merged `feature/premium-icon-system` into `main` with `--ff-only`; history stays linear.
 - Still outstanding: the macOS Tauri-window interaction pass. Native artwork for arbitrary
   files/folders and QuickLook video thumbnails would require a new Rust/AppKit bridge.
+
+## Phase 13 - Unified three-layer command center (2026-10-30)
+
+- Consolidated the existing branches onto `main`: committed the pending universal-search
+  reveal/selection work and fast-forwarded `feature/universal-search`, then started
+  `feature/unified-command-center`.
+- Split the top chrome into three explicit layers. `TitleBar` now renders window controls
+  and the location title only; `CommandBar` is the single global command area;
+  `NavigationBar` owns history/breadcrumbs/address/search; `TabBar` (in `PaneTabs.tsx`) owns
+  tabs and the all-tabs overflow menu. Single-pane mode renders one global tab row below
+  navigation; dual-pane mode renders one navigation + tab row per pane.
+- Moved the single/dual-pane toggle into the command bar as a split control with a
+  workspace menu. The workspace menu also exposes navigation-pane visibility, copy/move to
+  the other pane, synchronized navigation, and folder comparison.
+- Reworked the command bar into responsive regular/compact/narrow tiers. Labels can be
+  hidden in Settings; at narrow widths organization and secondary file operations move into
+  the one Settings menu instead of being duplicated. All command enabled states remain
+  selection/permission/clipboard/location aware.
+- Replaced the separate Themes, Options, and Shortcuts dialogs with one `SettingsDialog`
+  (Appearance, Display, Layout, Behavior, Keyboard, Advanced). Removed Appearance/theme
+  controls from the sidebar footer; the sidebar is navigation-only again.
+- Added persisted display/layout/behavior preferences: text scale, icon scale, compact row
+  density, column visibility and reset, command-bar labels, sidebar visibility, folder-open
+  behavior, and Trash confirmation. Added `Command+,` for Settings and `Command+B` for the
+  navigation pane; both are listed in the shortcut reference.
+- Added `data-density` / `data-text-size` / `data-icon-size` attributes and CSS variables;
+  `themeMetrics(theme, density)` keeps the virtualized rows aligned with the compact CSS.
+  Text and icon scale affect the chrome, menus, navigation, tabs, and file artwork.
+- Added tests for display normalization/scales/compact metrics, persistence of the new
+  preferences and legacy fallbacks, and command-bar context states/settings menu.
+- Verification: `npm run typecheck` clean, `npm test` **219 passed** across 24 files,
+  `npm run test:cargo` **47 passed**, `npm run build` clean. A temporary browser preview
+  rendered Windows light, Windows compact, Finder dark, dual-pane, and the Settings
+  Appearance/Display sections without console errors; the preview files were deleted.
+  Interactive Tauri-window validation at the minimum window size remains outstanding;
+  component behaviour and CSS structure are covered by the tests and the preview.
+- Known limitation: compact density applies to details/list/group rows; icon-grid cell
+  geometry is controlled by icon scale and the selected view, not by density. The all-tabs
+  menu is a scrolling-row complement, not an exact Windows 22H2 overflow flyout.
