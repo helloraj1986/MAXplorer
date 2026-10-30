@@ -58,9 +58,9 @@ export function CommandBar() {
   const dualPane = useExplorerStore((state) => state.dualPane);
   const syncNavigation = useExplorerStore((state) => state.syncNavigation);
   const sidebarVisible = useExplorerStore((state) => state.sidebarVisible);
-  const commandBarLabels = useExplorerStore((state) => state.commandBarLabels);
   const comparison = useExplorerStore((state) => state.comparison);
   const shortcuts = useExplorerStore((state) => state.shortcuts);
+  const commandBarLabels = useExplorerStore((state) => state.commandBarLabels);
   const isHome = activeTab?.location === HOME_LOCATION;
   const hasSelection = selectedEntries.length > 0;
   const singleSelection = selectedEntries.length === 1;
@@ -110,8 +110,6 @@ export function CommandBar() {
   const copyToOtherPane = useExplorerStore((state) => state.copyToOtherPane);
   const moveToOtherPane = useExplorerStore((state) => state.moveToOtherPane);
   const toggleSidebar = useExplorerStore((state) => state.toggleSidebar);
-  const setInterfaceTheme = useExplorerStore((state) => state.setInterfaceTheme);
-  const interfaceTheme = useExplorerStore((state) => state.interfaceTheme);
   const platformName = platform?.platform ?? "macos";
   const mod = platform?.modifier === "cmd" ? "Cmd" : "Ctrl";
   const customShortcut = (accelerator: string, fallback: string) =>
@@ -245,28 +243,12 @@ export function CommandBar() {
 
   const settingsItems: MenuItem[] = [
     { label: "Settings...", icon: "settings", shortcut: `${mod}+,`, onClick: () => openDialog({ kind: "settings", section: "appearance" }) },
-    { label: "Appearance and themes", icon: "palette", onClick: () => openDialog({ kind: "settings", section: "appearance" }) },
-    { label: "Display and layout", icon: "view", onClick: () => openDialog({ kind: "settings", section: "display" }) },
-    { label: "Keyboard shortcuts", icon: "info", onClick: () => openDialog({ kind: "settings", section: "keyboard" }) },
-    {
-      label: "Interface theme",
-      icon: "palette",
-      submenu: [
-        { label: "Windows 11 Explorer", checked: interfaceTheme === "windows", onClick: () => setInterfaceTheme("windows") },
-        { label: "macOS Finder", checked: interfaceTheme === "finder", onClick: () => setInterfaceTheme("finder") },
-      ],
-    },
     { type: "separator" },
     {
       label: "Universal Search",
       icon: "search",
       shortcut: customShortcut(shortcuts.globalSearch, DEFAULT_SHORTCUTS.globalSearch),
       onClick: () => useSearchStore.getState().openOverlay(),
-    },
-    {
-      label: "Search indexing",
-      icon: "database",
-      onClick: () => openDialog({ kind: "indexing" }),
     },
     { label: "Open in Terminal", icon: "terminal", onClick: () => void openTerminalHere(activePane) },
     {

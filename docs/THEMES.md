@@ -12,14 +12,15 @@ is no second file browser, no duplicated operation logic, and no mock data.
 
 ## How to switch
 
-Open the Appearance section of the consolidated **Settings** dialog from any of these
+Open the Appearance section of the consolidated **Settings** dialog from either of these
 entry points:
 
-- **Settings (gear) → Appearance and themes** in the command bar.
-- **Settings (gear) → Settings...**, then choose **Appearance**.
+- **Settings (gear) → Settings...** in the command bar, then choose **Appearance**.
 - `Command+,` / `Ctrl+,` opens Settings.
 
-Appearance and theme controls are no longer in the sidebar; the sidebar is navigation-only.
+The Settings menu itself contains a single Settings entry; it does not repeat the
+individual sections or provide a second theme submenu. Appearance and theme controls are no
+longer in the sidebar; the sidebar is navigation-only.
 
 The Appearance section has two preview cards:
 

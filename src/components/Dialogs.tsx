@@ -795,14 +795,6 @@ function LayoutSettings() {
   const setSidebarVisible = useExplorerStore((state) => state.setSidebarVisible);
   const commandBarLabels = useExplorerStore((state) => state.commandBarLabels);
   const setCommandBarLabels = useExplorerStore((state) => state.setCommandBarLabels);
-  const detailsPane = useExplorerStore((state) => state.detailsPane);
-  const setDetailsPane = useExplorerStore((state) => state.setDetailsPane);
-  const previewPane = useExplorerStore((state) => state.previewPane);
-  const setPreviewPane = useExplorerStore((state) => state.setPreviewPane);
-  const dualPane = useExplorerStore((state) => state.dualPane);
-  const setDualPane = useExplorerStore((state) => state.setDualPane);
-  const syncNavigation = useExplorerStore((state) => state.syncNavigation);
-  const setSyncNavigation = useExplorerStore((state) => state.setSyncNavigation);
   const setSidebarWidth = useExplorerStore((state) => state.setSidebarWidth);
   const setSplitRatio = useExplorerStore((state) => state.setSplitRatio);
 
@@ -826,25 +818,6 @@ function LayoutSettings() {
             Reset pane split
           </button>
         </div>
-      </section>
-      <section className="settings-section">
-        <h3>Panes</h3>
-        <label className="check-row">
-          <input type="checkbox" checked={dualPane} onChange={(event) => setDualPane(event.target.checked)} />
-          <span>Show two file panes side by side</span>
-        </label>
-        <label className="check-row">
-          <input type="checkbox" checked={syncNavigation} onChange={(event) => setSyncNavigation(event.target.checked)} />
-          <span>Synchronize navigation using the panes' relative folders</span>
-        </label>
-        <label className="check-row">
-          <input type="checkbox" checked={detailsPane} onChange={(event) => setDetailsPane(event.target.checked)} />
-          <span>Details pane</span>
-        </label>
-        <label className="check-row">
-          <input type="checkbox" checked={previewPane} onChange={(event) => setPreviewPane(event.target.checked)} />
-          <span>Preview pane</span>
-        </label>
       </section>
     </div>
   );
@@ -975,7 +948,6 @@ function KeyboardSettings() {
 function AdvancedSettings() {
   const openDialog = useExplorerStore((state) => state.openDialog);
   const clearRecents = useExplorerStore((state) => state.clearRecents);
-  const interfaceTheme = useExplorerStore((state) => state.interfaceTheme);
   const setInterfaceTheme = useExplorerStore((state) => state.setInterfaceTheme);
   const setDensity = useExplorerStore((state) => state.setDensity);
   const setTextSize = useExplorerStore((state) => state.setTextSize);
@@ -1022,14 +994,6 @@ function AdvancedSettings() {
           Resets display scaling, labels, navigation pane visibility, and the interface theme.
           Files, tabs, history, and selections are untouched.
         </p>
-      </section>
-      <section className="settings-section">
-        <h3>About</h3>
-        <button type="button" className="dialog-button" onClick={() => openDialog({ kind: "about" })}>
-          <Icon name="info" size={14} />
-          About {PRODUCT_NAME}
-        </button>
-        <p className="settings-hint">Current interface theme: {INTERFACE_THEME_DEFINITIONS[interfaceTheme].name}.</p>
       </section>
     </div>
   );

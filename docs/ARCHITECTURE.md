@@ -117,16 +117,19 @@ grouping, view mode, and collapse state.
 
 `Dialogs.tsx` exposes a single `SettingsDialog` with six sections: Appearance, Display,
 Layout, Behavior, Keyboard, and Advanced. There is one dialog state (`kind: "settings"` with
-an optional initial section); the command bar's quick links open that same dialog at the
-relevant section. Separate Themes, Options, and Shortcuts dialogs no longer exist.
+an optional initial section). The command bar's Settings menu contains one **Settings...**
+entry (plus non-settings commands), so there are no duplicate links to individual sections.
+Separate Themes, Options, and Shortcuts dialogs no longer exist.
 
 - Appearance: interface theme cards and the independent system/light/dark control.
 - Display: text scale, icon scale, row density/spacing, and the active pane's default view.
-- Layout: navigation-pane visibility, command-bar text labels, pane toggles, split/reset
-  actions, and synchronized navigation.
+- Layout: navigation-pane visibility, command-bar text labels, and reset actions. Pane
+  mode, synchronized navigation, and details/preview visibility stay in the command bar and
+  View menu so they are available while browsing; they are not duplicated here.
 - Behavior: folder-open behavior (same tab or new tab) and Trash confirmation.
 - Keyboard: editable accelerators plus the complete shortcut reference.
-- Advanced: search-indexing diagnostics, recent-item clearing, preference reset, and About.
+- Advanced: search-indexing diagnostics, recent-item clearing, and preference reset.
+  About remains a single command-bar menu entry.
 
 Display preferences are applied through `data-density`, `data-text-size`, and
 `data-icon-size` on `<html>` plus CSS variables. `themeMetrics(theme, density)` supplies the

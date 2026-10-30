@@ -24,7 +24,7 @@ Status vocabulary:
 | Command bar | Column configuration | Explicit request | Implemented | Show/hide Date/Type/Size and reset widths; persisted |
 | Command bar | Responsive labels and overflow | Explicit request | Implemented | Measured regular/compact/narrow tiers; low-priority commands move into Settings |
 | Command bar | Dual-pane toggle in command bar | Explicit request | Implemented | Split control + workspace menu; removed from window corner |
-| Command bar | Settings menu | Screenshot | Implemented | Appearance, display/layout, keyboard, indexing, advanced commands, About |
+| Command bar | Settings menu | Screenshot | Implemented | One Settings entry plus Universal Search, Terminal, selection commands, About; no duplicate section links |
 | Navigation | Back / forward / up / refresh | UIA + interaction | Verified/implemented | Per-tab history; refresh re-reads disk |
 | Navigation | Breadcrumbs | UIA + screenshots | Verified/implemented | Clickable root + segments |
 | Navigation | Editable address bar | Interaction | Verified/implemented | Absolute paths, `~`, invalid-path inline error |

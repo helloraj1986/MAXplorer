@@ -137,9 +137,10 @@ configured. Add your Developer ID and notarization credentials before distributi
 
 ### Switch interface themes
 
-Open **Settings** (the gear menu at the right of the command bar) and choose
-**Appearance and themes**, or press `Command+,` / `Ctrl+,`. Appearance is no longer in the
-sidebar.
+Open **Settings** from the gear menu at the right of the command bar and choose
+**Settings...**, or press `Command+,` / `Ctrl+,`. The menu contains one Settings entry and
+non-settings commands only; the six sections are selected inside the dialog. Appearance is
+no longer in the sidebar.
 
 Settings has one dialog with Appearance, Display, Layout, Behavior, Keyboard, and Advanced
 sections. The Appearance section shows two preview cards (Windows 11 Explorer and macOS

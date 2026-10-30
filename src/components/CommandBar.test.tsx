@@ -93,14 +93,17 @@ describe("command bar", () => {
     expect(useExplorerStore.getState().dualPane).toBe(true);
   });
 
-  it("opens one consolidated settings menu", () => {
+  it("opens one consolidated settings menu without duplicate section entries", () => {
     setup();
     render(<CommandBar />);
     fireEvent.click(screen.getByRole("button", { name: "Settings and more" }));
-    expect(screen.getByRole("menuitem", { name: /Settings/ })).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: /Appearance and themes/ })).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: /Display and layout/ })).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: /Keyboard shortcuts/ })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /^Settings/ })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /Universal Search/ })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /Open in Terminal/ })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: /About MAXplorer/ })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: /Appearance and themes/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /Display and layout/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /Keyboard shortcuts/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /Interface theme/ })).toBeNull();
   });
 });

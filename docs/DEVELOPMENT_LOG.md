@@ -214,6 +214,10 @@
 - Replaced the separate Themes, Options, and Shortcuts dialogs with one `SettingsDialog`
   (Appearance, Display, Layout, Behavior, Keyboard, Advanced). Removed Appearance/theme
   controls from the sidebar footer; the sidebar is navigation-only again.
+- Removed duplicate settings entry points after review: the Settings menu now has one
+  Settings... item instead of separate Appearance/Display/Keyboard links and an Interface
+  theme submenu. Layout no longer repeats pane/details/preview toggles that already live in
+  the command bar and View menu, and About lives only in the command-bar menu.
 - Added persisted display/layout/behavior preferences: text scale, icon scale, compact row
   density, column visibility and reset, command-bar labels, sidebar visibility, folder-open
   behavior, and Trash confirmation. Added `Command+,` for Settings and `Command+B` for the

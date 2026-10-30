@@ -404,8 +404,8 @@ Coverage added or updated:
   labels, sidebar visibility, folder-open behavior, and Trash confirmation; legacy and
   invalid-value fallbacks.
 - `src/components/CommandBar.test.tsx` — file operations disable without a selection and
-  enable with one; the dual-pane toggle lives in the command bar; the single Settings menu
-  exposes Appearance, Display/Layout, Keyboard, and About.
+  enable with one; the dual-pane toggle lives in the command bar; the Settings menu has one
+  Settings entry and no duplicate Appearance/Display/Keyboard/Interface-theme entries.
 
 A temporary browser preview (not a Tauri session) rendered the three layers in Windows
 light, Windows compact, Finder dark, and dual-pane layouts, plus the Appearance and Display
