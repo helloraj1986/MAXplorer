@@ -50,6 +50,38 @@ Switching themes preserves:
 No filesystem reload or component remount is triggered. Row heights are recomputed from
 `THEME_METRICS`, so virtualized lists stay aligned.
 
+## Custom themes
+
+Appearance is also the home of the visual Theme Creator. It is a separate layer from the
+two built-in interface themes:
+
+- Built-in themes remain immutable, code-defined packages.
+- A custom theme stores a base (`windows` or `finder`), a light/dark appearance, a
+  coordinated palette, shape and spacing choices, and an optional icon pack.
+- Saving adds a normalized `ThemeDesign` to the local library and makes it active.
+- Built-in and custom themes share all application state, Tauri commands, and filesystem
+  code. A custom theme changes presentation only.
+
+The creator is documented for ordinary users in
+[THEME_CREATOR_GUIDE.md](THEME_CREATOR_GUIDE.md). The package schema, token map, validation
+rules, and provider interface are in
+[THEME_PACKAGE_SPEC.md](THEME_PACKAGE_SPEC.md). AI agents that need to author a theme file
+directly should start with [AGENT_THEME_AUTHORING.md](AGENT_THEME_AUTHORING.md). Note that
+`.maxTheme` is strict JSON: comments must be stored in an ignored root `_comments` object,
+not as `//` lines.
+
+Persistence uses two additional keys:
+
+| Key | Contents |
+| --- | --- |
+| `maxplorer-appearance-v1` | User theme library, active theme, custom icon packs, active icon pack |
+| `maxplorer-theme-draft-v1` | Unfinished design, step, and Simple/Advanced mode |
+
+`main.tsx` applies the active custom design and icon pack before React renders, and
+`useTheme()` keeps them in sync afterwards. `clearThemeDesign()` removes inline token
+overrides when a built-in theme is selected.
+
+
 ## Where the preference is stored
 
 The theme pair is part of the existing versioned snapshot in `localStorage`:
@@ -101,6 +133,10 @@ design.
 | `src/components/TitleBar.tsx` | Window chrome only; Finder traffic lights (same Tauri window APIs) |
 | `src/components/CommandBar.tsx` | Layer 1 command center, theme quick switch, Settings menu |
 | `src/components/Sidebar.tsx` | Navigation-only Finder section headings and locations |
+| `src/lib/appearance/` | Theme model, colour maths, templates, packages, token mapping, offline matcher |
+| `src/state/appearanceStore.ts` | Theme library, active theme, icon packs, automatic drafts |
+| `src/components/appearance/` | Theme Creator, Appearance library, token-driven live preview |
+| `src/styles/appearance.css` | Creator, preview, library, and custom-theme application styles |
 
 ### Two independent axes
 
@@ -167,8 +203,8 @@ Automated checks (Windows dev host):
 | Command | Result |
 | --- | --- |
 | `npm run typecheck` | Pass |
-| `npm test` | **219 passed** across 24 files |
-| `npm run test:cargo` | **28 passed** |
+| `npm test` | **246 passed** across 26 files |
+| `npm run test:cargo` | **48 passed** |
 | `npm run build` | Pass |
 
 The tests cover theme normalization, appearance resolution, attribute application,
@@ -193,6 +229,11 @@ rename operation is recorded in [VALIDATION.md](VALIDATION.md). Screenshots:
 | `themes-dialog-finder-light.png` | Appearance dialog, Finder light, active card |
 | `themes-dialog-finder-dark.png` | Appearance dialog, Finder dark |
 | `themes-dialog-windows-dark.png` | Appearance dialog, Windows dark, active card |
+| `appearance-settings.png` | Current Appearance page with Create Your Theme, built-ins, templates |
+| `theme-creator-start.png` | Theme Creator start screen with visual starting options |
+| `theme-creator-colours.png` | Colour step with palettes, pickers, and live preview |
+| `theme-creator-style.png` | Style step with visual corner, spacing, and border choices |
+| `appearance-icon-packs.png` | Independent icon pack gallery below the template gallery |
 
 The screenshots above record the earlier two-row chrome and the standalone Appearance
 dialog. The theme tokens, previews, and switching behavior are unchanged; the current

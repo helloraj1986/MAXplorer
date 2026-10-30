@@ -456,6 +456,95 @@ pub fn open_path(path: String) -> Result<(), AppError> {
     }
 }
 
+/// Writes a portable `.maxTheme` or `.maxIcons` package into the user's
+/// Downloads folder (or home folder when Downloads is unavailable).
+///
+/// The web view cannot reliably trigger a file download in every desktop
+/// runtime, so the desktop app saves the package itself. The file name is
+/// sanitised, the extension is checked, and existing files are never replaced.
+#[tauri::command]
+pub fn save_appearance_package(file_name: String, contents: String) -> Result<String, AppError> {
+    const MAX_PACKAGE_BYTES: usize = 1_000_000;
+    if contents.len() > MAX_PACKAGE_BYTES {
+        return Err(AppError::invalid("This package is too large."));
+    }
+    let safe_name = safe_package_file_name(&file_name)?;
+    let directory = dirs::download_dir()
+        .or_else(dirs::home_dir)
+        .ok_or_else(|| AppError::new("internal", "No download folder is available.", None))?;
+    std::fs::create_dir_all(&directory)?;
+    let mut target = directory.join(&safe_name);
+    if target.exists() {
+        let path = Path::new(&safe_name);
+        let stem = path
+            .file_stem()
+            .map(|value| value.to_string_lossy().to_string())
+            .unwrap_or_else(|| "theme".to_string());
+        let extension = path
+            .extension()
+            .map(|value| value.to_string_lossy().to_string())
+            .unwrap_or_else(|| "maxTheme".to_string());
+        let mut available = false;
+        for index in 2..=999 {
+            let candidate = directory.join(format!("{stem}-{index}.{extension}"));
+            if !candidate.exists() {
+                target = candidate;
+                available = true;
+                break;
+            }
+        }
+        if !available {
+            return Err(AppError::new(
+                "already_exists",
+                "There are too many copies of this package in Downloads. Rename or remove an older copy first.",
+                Some(target.to_string_lossy().to_string()),
+            ));
+        }
+    }
+    std::fs::write(&target, contents.as_bytes())?;
+    Ok(target.to_string_lossy().to_string())
+}
+
+pub(crate) fn safe_package_file_name(raw: &str) -> Result<String, AppError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::invalid("The package needs a file name."));
+    }
+    let lower = trimmed.to_lowercase();
+    let extension = if lower.ends_with(".maxtheme") {
+        "maxTheme"
+    } else if lower.ends_with(".maxicons") {
+        "maxIcons"
+    } else {
+        return Err(AppError::invalid(
+            "Theme packages must end in .maxTheme or .maxIcons.",
+        ));
+    };
+    let stem = trimmed[..trimmed.len() - 9].trim();
+    let cleaned: String = stem
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric()
+                || character == '-'
+                || character == '_'
+                || character == ' '
+            {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let cleaned = cleaned
+        .trim_matches(|character: char| character == '-' || character == ' ' || character == '.');
+    let cleaned = if cleaned.is_empty() {
+        "maxplorer-theme"
+    } else {
+        cleaned
+    };
+    Ok(format!("{cleaned}.{extension}"))
+}
+
 #[tauri::command]
 pub fn reveal_path(path: String) -> Result<(), AppError> {
     let resolved = PathBuf::from(expand_user(&path));

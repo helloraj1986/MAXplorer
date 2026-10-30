@@ -1,0 +1,60 @@
+{
+  "format": "maxplorer.theme",
+  "formatVersion": 1,
+  "exportedAt": "2026-10-30T18:20:00.000Z",
+  "_comments": {
+    "about": "Atelier Noir — a warm, editorial dark theme. Notes here are ignored by MAXplorer.",
+    "direction": "Charcoal paper, ivory type, and a single muted champagne accent. Restraint over colour.",
+    "specification": "docs/THEME_PACKAGE_SPEC.md",
+    "agentGuide": "docs/AGENT_THEME_AUTHORING.md",
+    "contrast": "Primary text is 15.3:1 on surface and 16.1:1 on background."
+  },
+  "theme": {
+    "id": "atelier-noir-4d9c1a",
+    "packageId": "com.maxplorer.theme.atelier-noir-4d9c1a",
+    "name": "Atelier Noir",
+    "description": "Warm charcoal, ivory type, and a quiet champagne accent. An editorial dark theme built for focused work.",
+    "author": "MAXplorer",
+    "version": "1.0.0",
+    "base": "finder",
+    "appearance": "dark",
+    "palette": {
+      "accent": "#c8a96a",
+      "background": "#0b0a09",
+      "surface": "#121110",
+      "sidebar": "#0e0d0c",
+      "selection": "#c8a96a",
+      "text": "#ede7dc",
+      "menu": "#191715"
+    },
+    "style": {
+      "corners": "soft",
+      "density": "comfortable",
+      "borders": "minimal",
+      "elevation": "elevated",
+      "iconSize": "default",
+      "textSize": "default",
+      "sidebar": "tinted",
+      "toolbar": "flat"
+    },
+    "iconPackId": "mono-ink",
+    "overrides": {
+      "--accent-border": "#dcc491",
+      "--accent-soft": "rgba(200, 169, 106, 0.18)",
+      "--focus-ring": "#dcc491",
+      "--scrollbar": "#4b453b",
+      "--scrollbar-hover": "#6b6254",
+      "--folder-back-top": "#d8c08c",
+      "--folder-back-bottom": "#a9854a",
+      "--folder-front-top": "#ebdcb6",
+      "--folder-front-bottom": "#c6a467",
+      "--folder-stroke": "rgba(74, 56, 26, 0.38)",
+      "--folder-shine": "rgba(255, 255, 255, 0.34)",
+      "--storage-led": "#c8a96a",
+      "--app-tile-accent": "#c8a96a"
+    },
+    "presetId": null,
+    "createdAt": "2026-10-30T18:20:00.000Z",
+    "updatedAt": "2026-10-30T18:20:00.000Z"
+  }
+}

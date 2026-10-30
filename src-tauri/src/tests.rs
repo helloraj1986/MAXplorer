@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::listing::list_directory;
+    use crate::commands::safe_package_file_name;
     use crate::operations::{
         copy_paths, create_folder, create_text_file, delete_paths, duplicate_paths, move_paths,
         rename_path,
@@ -169,5 +170,29 @@ mod tests {
         let missing = root.path().join("missing");
         let error = list_directory(&missing, false).unwrap_err();
         assert_eq!(error.code, "not_found");
+    }
+
+    #[test]
+    fn sanitizes_appearance_package_names_and_extensions() {
+        assert_eq!(
+            safe_package_file_name("Midnight Blue.maxTheme").unwrap(),
+            "Midnight Blue.maxTheme"
+        );
+        assert_eq!(
+            safe_package_file_name("../../Some Theme.MAXTHEME").unwrap(),
+            "Some Theme.maxTheme"
+        );
+        assert_eq!(
+            safe_package_file_name("Packs/My Icons.maxIcons").unwrap(),
+            "Packs-My Icons.maxIcons"
+        );
+        assert_eq!(
+            safe_package_file_name("bad.exe").unwrap_err().code,
+            "invalid_request"
+        );
+        assert_eq!(
+            safe_package_file_name("   ").unwrap_err().code,
+            "invalid_request"
+        );
     }
 }

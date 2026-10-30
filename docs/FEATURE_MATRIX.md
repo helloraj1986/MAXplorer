@@ -111,6 +111,21 @@ Status vocabulary:
 | Share | Native share sheet | Windows Share | Partial | Copies path + Reveal in Finder action |
 | Themes | Interface themes: Windows 11 / macOS Finder | Windows reference + macOS HIG | Verified/implemented | Settings → Appearance and command-bar quick switch; live switch without remount or filesystem reload |
 | Themes | Dark / light / system appearance | Captured both | Verified/implemented | Independent from the interface theme; applies to both |
+| Appearance Platform | Create Your Theme entry point | Explicit request | Implemented | Prominent action in Settings → Appearance; opens the guided creator |
+| Appearance Platform | Guided six-step creator | Explicit request | Implemented | Name, Look, Colours, Style, Icons, Preview & Save; optional steps and early save |
+| Appearance Platform | Starting options | Explicit request | Implemented | Blank, copy current, Windows/Finder, 10 palettes, 12 visual templates |
+| Appearance Platform | Colour customisation | Explicit request | Implemented | Visual pickers for accent, selection, background, panel, sidebar, text; automatic matching |
+| Appearance Platform | Contrast validation | Explicit request | Implemented | WCAG ratio display, warning, and one-click automatic repair |
+| Appearance Platform | Style controls | Explicit request | Implemented | Corners, density, borders, elevation, text/icon size, sidebar and toolbar treatment |
+| Appearance Platform | Independent icon packs | Explicit request | Implemented | 5 built-in packs; per-theme or app-wide selection; `.maxIcons` import/export |
+| Appearance Platform | Live full-interface preview | Explicit request | Implemented | Toolbar, tabs, sidebar, address bar, list, grid, context menu, selection, dual pane |
+| Appearance Platform | Save / edit / duplicate / rename / delete | Explicit request | Implemented | Library actions; duplicate isolation; delete confirmation |
+| Appearance Platform | Export / share / import packages | Explicit request | Implemented | `.maxTheme` export to Downloads, clipboard share, validated preview then install |
+| Appearance Platform | Drafts, undo, and resets | Explicit request | Implemented | Automatic draft save/recovery, undo/redo, section reset, confirmed full reset |
+| Appearance Platform | Simple and Advanced modes | Explicit request | Implemented | Visual default; curated token editor, package id, and validation details |
+| Appearance Platform | Description-based generation | Explicit request | Implemented | Optional offline style matcher; normalized schema; no account, key, or network |
+| Appearance Platform | AI-agent theme authoring | Explicit request | Implemented | Strict JSON `.maxTheme`; agent guide; ignored `_comments`; validator script |
+| Persistence | Custom theme library, icon packs, drafts | Explicit request | Implemented | `maxplorer-appearance-v1` and `maxplorer-theme-draft-v1`; tolerant readers |
 | Theming | Selected/hover/pressed/focus/disabled states | Captured core states | Implemented | CSS tokens; shared focus-visible rules |
 | Theming | Finder traffic lights / toolbar / source list | macOS HIG | Implemented | Real Tauri window APIs; CSS/SVG recreation, not AppKit |
 | Theming | Finder column view / Quick Look / tags | macOS HIG | Unsupported | Not shown as fake controls |

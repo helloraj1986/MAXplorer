@@ -86,6 +86,9 @@ captured the screenshot above (Home view, real `/Users/runner` filesystem).
   Finder — each with dark and light variants plus system/light/dark mode. The themes share
   all filesystem behavior and differ only in presentation. Finder-style traffic lights,
   toolbar, source-list sidebar, menus, selection, spacing, and typography are included.
+  A visual **Theme Creator** adds a guided six-step experience for building, previewing,
+  saving, exporting, sharing, and importing custom themes and icon packs without editing
+  configuration files. See [docs/THEME_CREATOR_GUIDE.md](docs/THEME_CREATOR_GUIDE.md).
   Lucide is used for interface chrome and original SVG artwork for files and folders
   (no emoji).
 - **macOS integration**: real home folders, `/Volumes` drives, `/Applications` app list,
@@ -150,6 +153,50 @@ selection, search, sorting, or in-flight file operations. See
 **[docs/THEMES.md](docs/THEMES.md)** for the theme architecture and how to add another
 theme.
 
+### Create your own theme
+
+Open **Settings → Appearance** and choose **Create Your Theme**. The visual creator offers
+ready-made looks, colour palettes, automatic matching colours, contrast checks, corner and
+spacing choices, icon packs, and a complete live MAXplorer preview. No configuration files
+or code are needed.
+
+Saved themes appear in **Your themes** where they can be edited, duplicated, renamed,
+exported as `.maxTheme` files, shared, or deleted. Importing a `.maxTheme` or `.maxIcons`
+package validates it, previews it, and installs it with one click. The beginner guide is
+**[docs/THEME_CREATOR_GUIDE.md](docs/THEME_CREATOR_GUIDE.md)**; the developer schema is
+**[docs/THEME_PACKAGE_SPEC.md](docs/THEME_PACKAGE_SPEC.md)**.
+
+### Theme files and AI agents
+
+Any AI agent or external tool can create a `.maxTheme` file without MAXplorer or a build
+step. The agent should follow:
+
+- **[docs/AGENT_THEME_AUTHORING.md](docs/AGENT_THEME_AUTHORING.md)** — short copyable
+  checklist and safe-authoring rules.
+- **[docs/THEME_PACKAGE_SPEC.md](docs/THEME_PACKAGE_SPEC.md)** — authoritative schema,
+  validation, token allowlist, and package format.
+
+`.maxTheme` files are strict JSON, so `//` and `/* */` comments are invalid. Put notes in
+the ignored `_comments` object at the package root instead:
+
+```json
+"_comments": {
+  "about": "Notes for humans and AI agents.",
+  "specification": "docs/THEME_PACKAGE_SPEC.md"
+}
+```
+
+An annotated example is available at
+[`themes/midnight-black-colour-pop.maxTheme`](themes/midnight-black-colour-pop.maxTheme).
+Validate any generated package with the application parser:
+
+```bash
+npm run theme:validate -- themes/midnight-black-colour-pop.maxTheme
+```
+
+The generated file is installed through **Appearance → Import theme → Preview → Install**.
+No manifest editing, extraction, or asset placement is required.
+
 ### Tests
 
 ```bash
@@ -191,9 +238,10 @@ src-tauri/                 Rust backend
   src/paths.rs             Path/name validation and safety checks
   src/types.rs             Serialized contracts
 docs/                      Reference research, feature matrix, validation, screenshots
+themes/                    Ready-to-import .maxTheme examples and annotations
 branding/                  Canonical SVG artwork and high-resolution master icon
 reference/                 Evidence captured from Windows 11 and REA
-scripts/                   Verification and screenshot tooling
+scripts/                   Verification, screenshot, and theme-validation tooling
 ```
 
 The icon artwork, colour palette, regeneration command, and the bundle-identifier
@@ -229,6 +277,9 @@ See:
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — design decisions and contracts.
 - [docs/ICON_SYSTEM.md](docs/ICON_SYSTEM.md) — icon tokens, file registry, native icons, and thumbnails.
 - [docs/THEMES.md](docs/THEMES.md) — interface themes, persistence, and adding a theme.
+- [docs/THEME_CREATOR_GUIDE.md](docs/THEME_CREATOR_GUIDE.md) — create a theme with no coding.
+- [docs/AGENT_THEME_AUTHORING.md](docs/AGENT_THEME_AUTHORING.md) — AI-agent checklist for creating theme files.
+- [docs/THEME_PACKAGE_SPEC.md](docs/THEME_PACKAGE_SPEC.md) — `.maxTheme`/`.maxIcons` format.
 - [docs/MACOS_DMG.md](docs/MACOS_DMG.md) — DMG build, signing, notarization, Gatekeeper.
 - [docs/VALIDATION.md](docs/VALIDATION.md) — what was run, what was seen, what was not.
 - [docs/DEVELOPMENT_LOG.md](docs/DEVELOPMENT_LOG.md) — concise build log.
@@ -276,6 +327,13 @@ These are honest, intentional boundaries of this build:
   components. It does not implement Finder's column view, Quick Look, tags, or native
   translucent material; translucency is approximated with opaque tokens and blur where
   WebView2 supports it.
+- **Theme sharing is local.** `.maxTheme`/`.maxIcons` exports are written to Downloads and
+  the Share action copies the package text; nothing is uploaded automatically. The optional
+  description-to-theme feature uses a built-in offline style matcher in this build and does
+  not call a remote AI service.
+- **Custom themes are token-based.** They can change colours, shape, density, typography
+  scale, sidebar/toolbar treatment, and an installed icon pack. They cannot replace
+  individual React components or introduce arbitrary CSS.
 - **App sandbox** is not enabled. macOS uses TCC folder permissions; Distribution via the
   Mac App Store would require sandbox entitlements and additional review work.
 - Deleting `/Applications`, `/System`, `/Library`, and similar protected roots is refused

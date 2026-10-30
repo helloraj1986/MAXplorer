@@ -51,6 +51,14 @@ Since that release, the project has gained these changes:
 - **Premium icon system** — Lucide functional icons with shared sizing/stroke tokens, a
   typed file-type registry, theme-aware folder/storage artwork, real transfer-state
   indicators, and lazy image thumbnails. See `docs/ICON_SYSTEM.md`.
+- **Visual Appearance Platform** — a six-step Theme Creator for non-technical users,
+  12 ready-made templates, coordinated palette generation, contrast repair, optional
+  icon packs, live MAXplorer previews, automatic drafts, undo/redo, and one-click save,
+  export, share, and import of `.maxTheme` / `.maxIcons` packages. See
+  `docs/THEME_CREATOR_GUIDE.md` and `docs/THEME_PACKAGE_SPEC.md`. Theme files are strict
+  JSON and can be authored by AI agents using `docs/AGENT_THEME_AUTHORING.md`; use the
+  ignored root `_comments` object for notes, and validate with
+  `scripts/validate-theme.ts`.
 - **Dual-pane workspace** — independent left/right panes, resizable/collapsible split,
   real streamed copy/move with conflict prompts and progress, read-only folder comparison,
   and optional synchronized navigation. See `docs/ARCHITECTURE.md` and
@@ -87,9 +95,10 @@ Verified before this handover:
 - The owner's macOS `transferHistory` (read from the app's WKWebView localStorage)
   confirmed that cut+paste ran as `mode: move` / `completed`, which isolated the
   2026-10-29 report to stale source-pane reloads rather than a copy fallback.
-- `npm run typecheck`, `npm test` (**219 tests / 24 files**), `cargo test` (**47 tests**),
+- `npm run typecheck`, `npm test` (**246 tests / 26 files**), `cargo test` (**48 tests**),
   `npm run build` all passing on the development host (dual-pane feature pass, cut/paste
-  fix, premium icon system, Universal Search, and unified command center).
+  fix, premium icon system, Universal Search, unified command center, and Appearance
+  Platform).
 - Windows release build exercised for UI/interaction validation.
 - Theme switching, persistence, keyboard activation, both appearances, and synthetic
   `.app` icons exercised in the Windows dev build; see `docs/VALIDATION.md`.
@@ -134,15 +143,19 @@ Read in this order:
 2. `docs/BRANDING.md` — product identity, application icon, metadata, and theme independence.
 3. `docs/ARCHITECTURE.md` — data flow, module boundaries, contracts.
 4. `docs/THEMES.md` — interface theme model, tokens, persistence, adding a theme.
-5. `docs/FEATURE_MATRIX.md` — every studied Explorer feature and its status.
-6. `docs/VALIDATION.md` — what was actually run and observed.
-7. `docs/MACOS_DMG.md` — packaging, signing, notarization, Gatekeeper.
-8. `docs/REFERENCE.md` — how the Windows 11 reference was captured and measured.
-9. `docs/DEVELOPMENT_LOG.md` — chronological build log.
+5. `docs/THEME_CREATOR_GUIDE.md` — create a theme visually, no coding required.
+6. `docs/AGENT_THEME_AUTHORING.md` — short checklist for AI-authored theme files.
+7. `docs/THEME_PACKAGE_SPEC.md` — `.maxTheme` / `.maxIcons` schema and validation.
+8. `docs/FEATURE_MATRIX.md` — every studied Explorer feature and its status.
+9. `docs/VALIDATION.md` — what was actually run and observed.
+10. `docs/MACOS_DMG.md` — packaging, signing, notarization, Gatekeeper.
+11. `docs/REFERENCE.md` — how the Windows 11 reference was captured and measured.
+12. `docs/DEVELOPMENT_LOG.md` — chronological build log.
 
 The UI follows the Windows Explorer reference closely, so most "why does it look like this?"
 questions are answered by `docs/REFERENCE.md` (colors, geometry, control inventory from a
-real Windows 11 21H2 host plus REA 6.8.0 PE-resource evidence).
+real Windows 11 21H2
+host plus REA 6.8.0 PE-resource evidence).
 
 ---
 
@@ -169,12 +182,16 @@ src/                          React + TypeScript UI
   hooks/                      Keyboard, theme, virtual rows, marquee, window persistence
   lib/                        Typed IPC API, themes, app icons, formatting, sorting, history,
                               tabs, persistence
+    appearance/               Theme model, colour maths, templates, packages, token map,
+                              offline description matcher, icon packs
     icons/                    File-type registry, native icon service, thumbnail service
   state/explorerStore.ts      Single Zustand store: panes, tabs, navigation, selection,
                               clipboard, transfers, dialogs
+  state/appearanceStore.ts    Custom theme library, active theme, icon packs, drafts
   styles/                     tokens.css + app.css + finder.css (scoped Finder layout)
+                              + appearance.css (creator, preview, custom themes)
 src-tauri/                    Rust backend
-  src/commands.rs             All 31 Tauri commands; platform launching
+  src/commands.rs             All 32 Tauri commands; platform launching
   src/listing.rs              Directory reads, metadata, hidden files, symlinks
   src/operations.rs           Copy/move/rename/delete/duplicate/conflict resolution
   src/transfer.rs             Streamed copy/move queue: 256 KB chunks, progress, pause/cancel
@@ -189,8 +206,9 @@ src-tauri/                    Rust backend
   tauri.conf.json             Window, CSP, asset protocol, DMG layout, ad-hoc signing
   capabilities/default.json   Tauri permission allowlist
 docs/                         Architecture, themes, reference, matrix, validation, DMG, log
+themes/                       Ready-to-import .maxTheme examples and annotations
 reference/                    Windows 11 screenshots, UIA dumps, fixtures, REA JSON
-scripts/                      build-macos-dmg.sh + verification helpers
+scripts/                      build-macos-dmg.sh + verification helpers + theme validator
 .github/workflows/            macos-build.yml, macos-smoke.yml
 ```
 
@@ -235,7 +253,7 @@ Rules the codebase follows:
   `FileTypeIcon`, `FolderIcon`, `StorageIcon`, and `SyncStatusIcon` own their visual
   states. Theme switching changes tokens only.
 
-### Tauri command surface (31 commands)
+### Tauri command surface (32 commands)
 
 | Group | Commands |
 | --- | --- |
@@ -248,6 +266,7 @@ Rules the codebase follows:
 | Compare | `compare_folders`, `cancel_compare` |
 | Inspect | `get_properties`, `get_folder_stats`, `read_text_preview`, `list_applications`, `read_app_icon` |
 | Launch | `open_path`, `reveal_path`, `open_terminal`, `open_with`, `open_system_settings` |
+| Appearance | `save_appearance_package` |
 
 ### Persistence
 
@@ -288,7 +307,7 @@ npm run tauri:dev
 ```bash
 npm run typecheck     # tsc --noEmit
 npm test              # vitest, 219 tests / 24 files
-npm run test:cargo    # cargo test, 47 tests (filesystem, app icons, transfer, comparison, search/index)
+npm run test:cargo    # cargo test, 48 tests (filesystem, app icons, transfer, comparison, search/index)
 npm run build         # tsc -b && vite build
 ```
 

@@ -137,6 +137,7 @@ pub fn run() {
             commands::list_applications,
             commands::read_app_icon,
             commands::open_path,
+            commands::save_appearance_package,
             commands::reveal_path,
             commands::open_terminal,
             commands::open_with,

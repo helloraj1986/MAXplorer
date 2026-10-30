@@ -282,6 +282,33 @@ Finder shell ─────┘
 - Persistence is part of the existing snapshot (`interfaceTheme` + `theme`), so switching
   is debounced and restored exactly like the other preferences.
 
+## Custom themes and package authoring
+
+Custom themes are a third presentation layer, expressed as normalized `ThemeDesign` data
+rather than React forks:
+
+```
+Theme Creator ─┐
+               ├── ThemeDesign ── token map ── <html> CSS properties ── shared components
+.maxTheme ─────┘
+```
+
+- `lib/appearance/model.ts` owns the schema, normalizer, contrast validation, package
+  envelopes, and safe token sanitization.
+- `lib/appearance/tokens.ts` converts a user-friendly design into the CSS custom properties
+  consumed by the existing shell. `useTheme` applies the design and icon pack to
+  `<html>`; `clearThemeDesign` removes them for built-in themes.
+- `state/appearanceStore.ts` owns the custom theme library, active theme, icon packs, and
+  automatic drafts. Built-in themes remain immutable.
+- `.maxTheme` and `.maxIcons` are strict JSON packages, validated and previewed before
+  installation. Standard JSON comments are invalid; annotations use an ignored root
+  `_comments` object.
+- External and AI-authored packages follow `docs/AGENT_THEME_AUTHORING.md` and
+  `docs/THEME_PACKAGE_SPEC.md`. `scripts/validate-theme.ts` runs the same parser and
+  validator as the app.
+- Desktop export is the `save_appearance_package` command; it writes to Downloads without
+  overwriting existing files.
+
 ## Dual-pane mode
 
 `PaneId` is `"left" | "right"`; every pane owns its tabs, active tab, view/sort/group,

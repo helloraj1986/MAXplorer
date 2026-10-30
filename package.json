@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:cargo": "cargo test --manifest-path src-tauri/Cargo.toml"
+    "test:cargo": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "theme:validate": "vite-node --script scripts/validate-theme.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",

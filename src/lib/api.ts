@@ -169,6 +169,8 @@ export const api = {
   openWith: (app: string, path: string) => call<void>("open_with", { app, path }),
   openSystemSettings: (section: string) =>
     call<void>("open_system_settings", { section }),
+  saveAppearancePackage: (fileName: string, contents: string) =>
+    call<string>("save_appearance_package", { fileName, contents }),
 };
 
 export function assetUrl(path: string): string {

@@ -1,0 +1,54 @@
+{
+  "format": "maxplorer.theme",
+  "formatVersion": 1,
+  "exportedAt": "2026-10-30T17:20:00.000Z",
+  "_comments": {
+    "about": "Notes for humans and AI agents. MAXplorer ignores this object. Standard JSON does not allow // comments, so keep notes here instead.",
+    "import": "Settings > Appearance > Import theme > select this file > Preview > Install.",
+    "specification": "docs/THEME_PACKAGE_SPEC.md is the authoritative field and validation reference.",
+    "agentGuide": "docs/AGENT_THEME_AUTHORING.md is the short AI-agent authoring checklist.",
+    "safeEditing": "Edit theme.name, theme.palette, theme.style, theme.iconPackId, and theme.overrides only. Do not add CSS, script, URLs, or unsupported tokens.",
+    "palette": "accent = main highlights; selection = selected rows; background = window; surface = file panel; sidebar = navigation; text = primary text; menu = menus.",
+    "style": "corners: square/soft/rounded; density: compact/comfortable/spacious; borders: minimal/subtle/prominent; elevation: flat/elevated; iconSize and textSize: small/default/large; sidebar: plain/tinted/contrast; toolbar: flat/subtle/elevated.",
+    "iconPackId": "null follows the app-wide pack. Built-ins: classic, soft-rounded, bold-contrast, mono-ink, sunset-folders.",
+    "overrides": "Only token names listed in docs/THEME_PACKAGE_SPEC.md are accepted."
+  },
+  "theme": {
+    "id": "midnight-black-colour-pop",
+    "packageId": "com.maxplorer.theme.midnight-black-colour-pop",
+    "name": "Midnight Black — Colour Pop",
+    "description": "A midnight-black workspace with violet highlights, cyan selection, and warm coral folders.",
+    "author": "MAXplorer",
+    "version": "1.0.0",
+    "base": "windows",
+    "appearance": "dark",
+    "palette": {
+      "accent": "#8b5cf6",
+      "background": "#050506",
+      "surface": "#0a0a0d",
+      "sidebar": "#070709",
+      "selection": "#22d3ee",
+      "text": "#f5f5f7",
+      "menu": "#121218"
+    },
+    "style": {
+      "corners": "rounded",
+      "density": "comfortable",
+      "borders": "subtle",
+      "elevation": "elevated",
+      "iconSize": "default",
+      "textSize": "default",
+      "sidebar": "tinted",
+      "toolbar": "subtle"
+    },
+    "iconPackId": "sunset-folders",
+    "overrides": {
+      "--accent-border": "#a78bfa",
+      "--storage-led": "#22d3ee",
+      "--app-tile-accent": "#8b5cf6"
+    },
+    "presetId": "midnight-dark",
+    "createdAt": "2026-10-30T17:20:00.000Z",
+    "updatedAt": "2026-10-30T17:20:00.000Z"
+  }
+}

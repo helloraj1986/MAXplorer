@@ -252,3 +252,49 @@
   identifiers and were intentionally not renamed.
 - This phase changed documentation only; the branding implementation and verification were
   completed in the earlier rebrand commit.
+
+## Phase 15 - Visual Appearance Platform (2026-10-30)
+
+- Added a complete visual Theme Creator for non-technical users: start options, name,
+  look, colours, style, icons, preview and save, with live preview on every step.
+- Added 12 ready-made templates, 10 ready-made palettes, automatic matching colour
+  generation, WCAG contrast checks with one-click repair, reset per section, reset all,
+  undo/redo, keyboard focus handling, and automatic draft recovery.
+- Added a persisted custom theme library and icon pack registry. Built-in themes remain
+  immutable; duplicating or customising one always creates a separate identity.
+- Added Simple and Advanced modes. Advanced Mode exposes a curated token editor, package
+  identity, validation details, and an explicit reset, while state is shared across modes.
+- Added optional description-based creation through an offline, deterministic provider
+  interface. Generated output is normalized through the same schema as hand-made themes;
+  unsupported tokens and dangerous values are rejected.
+- Added `.maxTheme` and `.maxIcons` export/share/import with validation previews before
+  installation. Desktop exports are written to Downloads by the new
+  `save_appearance_package` command without overwriting existing files.
+- Added a token-driven live MAXplorer preview covering toolbar, sidebar, tabs, address
+  bar, list, grid, context menu, selected rows, and dual-pane mode.
+- Added beginner documentation with five implementation screenshots:
+  [THEME_CREATOR_GUIDE.md](THEME_CREATOR_GUIDE.md). Added the developer schema and security
+  model: [THEME_PACKAGE_SPEC.md](THEME_PACKAGE_SPEC.md).
+- Verification: `npm run typecheck` clean, `npm test` **246 passed** across 26 files,
+  `cargo test` **48 passed**, `npm run build` clean. The screenshots were captured from the
+  real Theme Creator and Appearance page in a browser preview at desktop size.
+- Known limitations: Export saves to Downloads rather than a native save panel; Share
+  copies the package text; the optional AI path is a local style matcher in this build;
+  Advanced Mode edits a curated token list rather than arbitrary component CSS.
+
+## Phase 16 - Agent-authoring documentation and annotated theme (2026-10-30)
+
+- Added `docs/AGENT_THEME_AUTHORING.md`, a short copyable checklist for AI agents and
+  external tools that create `.maxTheme` files without MAXplorer or a build step.
+- Documented that `.maxTheme`/`.maxIcons` are strict JSON: `//` comments are invalid.
+  Notes belong in an ignored root `_comments` object, which imports safely and is not
+  retained after installation.
+- Added `scripts/validate-theme.ts` and documented the command in `themes/README.md`.
+  The validator uses the application's real `parseThemePackage` and
+  `validateThemeDesign` functions and reports contrast ratios.
+- Added `themes/midnight-black-colour-pop.maxTheme`, an annotated midnight-black example
+  with violet highlights, cyan selection, coral folders, and field notes in `_comments`.
+- Updated README, HANDOVER, THEMES, the beginner guide, the package specification, and the
+  feature matrix with the agent workflow and Appearance Platform capability rows.
+- Verification: the example package parses and validates with no issues; text contrast is
+  18.16:1 against the main panel.

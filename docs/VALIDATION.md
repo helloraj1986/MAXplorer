@@ -443,3 +443,29 @@ The native arm64 DMG was
 and not notarized. Universal packaging, Developer ID signing, and notarization remain CI or
 owner tasks. See [BRANDING.md](BRANDING.md).
 
+
+## Appearance Platform and agent authoring (2026-10-30)
+
+The visual Theme Creator, custom theme library, icon packs, package import/export, and the
+agent-authoring documentation were validated with automated tests and a desktop-size browser
+preview of the real React components.
+
+| Check | Result | Notes |
+| --- | --- | --- |
+| `npm run typecheck` | Pass | Strict TypeScript |
+| `npm test` | Pass | **246 tests across 26 files** |
+| `npm run test:cargo` | Pass | **48 Rust tests**, including package-file-name sanitization |
+| `npm run build` | Pass | Production frontend bundle |
+| Theme Creator preview | Pass | Start, Colour, and Style steps rendered with live MAXplorer preview |
+| Appearance page preview | Pass | Create Your Theme hero, built-ins, Your themes, templates, icon packs |
+| Screenshot captures | Pass | `appearance-settings.png`, `theme-creator-start.png`, `theme-creator-colours.png`, `theme-creator-style.png`, `appearance-icon-packs.png` |
+| `.maxTheme` parser | Pass | `themes/midnight-black-colour-pop.maxTheme` parses with no issues |
+| Contrast check | Pass | Text 18.16:1 on the main panel; 18.71:1 on the background |
+| `_comments` annotation | Pass | Ignored root object imports safely; notes are not retained after installation |
+| Theme validator script | Pass | `scripts/validate-theme.ts` reports package, base, contrast, and validation |
+| Save/export/share/import tests | Pass | Component tests cover save, export/share controls, and the package identity |
+
+Not performed in this pass: interactive Tauri validation of the Theme Creator in the macOS
+webview, native Downloads export through the packaged app, and clipboard sharing on macOS.
+The code paths use the same store and validation as the browser preview; these remain
+valuable checks for the next interactive pass.

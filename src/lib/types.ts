@@ -33,6 +33,15 @@ export type SettingsSection =
   | "keyboard"
   | "advanced";
 
+/** How the visual Theme Creator should begin when opened from Appearance. */
+export type ThemeCreatorStart =
+  | { kind: "blank" }
+  | { kind: "current" }
+  | { kind: "preset"; presetId: string }
+  | { kind: "theme"; themeId: string }
+  | { kind: "builtin"; theme: InterfaceTheme; appearance: "light" | "dark" }
+  | { kind: "palette"; paletteId: string };
+
 export interface DisplayPreferences {
   density: UiDensity;
   textSize: UiTextSize;
@@ -362,6 +371,7 @@ export type DialogState =
       loading: boolean;
     }
   | { kind: "settings"; section?: SettingsSection }
+  | { kind: "themeCreator"; start?: ThemeCreatorStart }
   | { kind: "indexing" }
   | { kind: "about" };
 
