@@ -15,7 +15,34 @@ const IMAGE_EXTENSIONS = new Set([
   "avif",
   "ico",
 ]);
-const VIDEO_EXTENSIONS = new Set(["mp4", "mov", "m4v", "avi", "mkv", "wmv", "webm", "flv", "mpg", "mpeg"]);
+const VIDEO_EXTENSIONS = new Set([
+  "mp4",
+  "mov",
+  "m4v",
+  "avi",
+  "mkv",
+  "wmv",
+  "webm",
+  "flv",
+  "mpg",
+  "mpeg",
+  "3g2",
+  "3gp",
+  "asf",
+  "divx",
+  "dv",
+  "f4v",
+  "m2ts",
+  "mts",
+  "mxf",
+  "ogv",
+  "rm",
+  "rmvb",
+  "ts",
+  "vob",
+  "vro",
+  "mod",
+]);
 const AUDIO_EXTENSIONS = new Set(["mp3", "m4a", "aac", "wav", "flac", "ogg", "wma", "aiff", "mid"]);
 const TEXT_EXTENSIONS = new Set([
   "txt",

@@ -156,6 +156,11 @@ export interface StorageScanResult {
   notes: string[];
 }
 
+export interface CachedStorageScan {
+  scan: StorageScanResult;
+  cachedAt: number;
+}
+
 export interface StorageChildren {
   path: string;
   directory: StorageDirectory;

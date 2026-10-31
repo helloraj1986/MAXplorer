@@ -280,6 +280,24 @@
   margin-left: auto;
 }
 
+.storage-cache-banner {
+  align-items: center;
+  flex-wrap: wrap;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 7px;
+  margin: 8px 14px 0;
+  background: var(--accent-tint);
+}
+
+.storage-cache-banner > span {
+  flex: 1 1 420px;
+}
+
+.storage-cache-banner .storage-toolbar-button {
+  margin-left: auto;
+}
+
 .storage-info-banner {
   color: var(--text-2);
 }

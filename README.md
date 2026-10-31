@@ -103,6 +103,9 @@ captured the screenshot above (Home view, real `/Users/runner` filesystem).
 - **Local diagnostics**: rotating crash log, Rust panic hook with backtrace, React error
   boundary, global unhandled-error capture, **Settings → Reveal diagnostic log**, and
   `npm run logs`. Nothing is uploaded. See [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md).
+- **Persistent analysis cache**: completed scans are stored in a versioned local SQLite cache
+  under app-data and restored after restart or reinstall. Cached drill-down works offline;
+  destructive cleanup requires a fresh rescan.
 - **Persistence**: tabs, location history, view mode, sorting, grouping, column widths and
   visibility, sidebar width/visibility, pinned folders, recent items, interface theme,
   light/dark theme, text/icon scale, row density, command-bar labels, folder-open behavior,

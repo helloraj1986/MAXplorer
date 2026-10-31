@@ -231,6 +231,8 @@ paths; see [VALIDATION.md](VALIDATION.md) for the exact boundary.
 | Overview | Category usage bar and legend | Explicit request | Implemented | Real bytes/files; click-through to filtered file view; uninspected space kept separate |
 | Overview | At-a-glance statistics | Explicit request | Implemented | Largest file/folder, cleanup estimate, duplicate status, recent/stale files, scan status |
 | Scan | Cancellable background scan | Explicit request | Implemented | Progress event; no invented percentage; partial/cancelled state labelled |
+| Scan | Direct arbitrary-folder scan | Explicit request | Implemented | Header **Scan folder...** prompt avoids whole-volume entry caps for nested folders |
+| Scan | Video extension coverage | Explicit request | Implemented | MP4/MOV/AVI/3GP/VOB/RM/MTS/M2TS/OGV/MOD and related camera formats |
 | Scan | Symlink and loop safety | Explicit request | Implemented | `follow_links(false)`; symlinks listed but never traversed |
 | Scan | Permission/error resilience | Explicit request | Implemented | Errors counted; scan continues; notes suggest Full Disk Access only as an option |
 | Scan | Mount-boundary handling | Explicit request | Implemented | Nested mounts and reserved metadata directories skipped to prevent double counting |
@@ -252,6 +254,8 @@ paths; see [VALIDATION.md](VALIDATION.md) for the exact boundary.
 | Cleanup | Multi-file progress and cancellation | Explicit request | Implemented | Per-item progress event and safe cancellation after the current item |
 | Privacy | Local-only analysis | Explicit request | Implemented | No uploads, no remote AI, no file execution; hashes stay local |
 | Limitations | System-managed storage | Explicit request | Partial | Snapshots/System Data/purgeable space shown as uninspected, not fabricated |
-| Indexing | Persistent full analyzer index | Explicit request | Unsupported | In-memory scan index only; opening the analyzer does not force a scan |
+| Indexing | Persistent full analyzer index | Explicit request | Implemented | Versioned SQLite cache in app-data; restores summary, children, and file queries after restart/reinstall |
+| Indexing | Cached scan safety | Explicit request | Implemented | Cached results are read-only for cleanup until a fresh rescan; clear action removes cache |
+| Indexing | Cache history | Explicit request | Implemented | Rolling eight scans; same-root replacement; stale write protection |
 | Developer storage | Tool-native cleanup execution | Explicit request | Partial | Locations recognized and recommendations explain the owning tool; commands are not executed |
 | Tests | Rust/frontend coverage | Explicit request | Implemented | Temp-directory scan/duplicate/delete tests; selection/treemap/workspace tests |

@@ -108,6 +108,8 @@ beforeEach(() => {
     volumesError: null,
     selectedVolumePath: "/",
     scan,
+    scanFromCache: false,
+    cachedAt: null,
     scanning: false,
     scanError: null,
     progress: null,
@@ -130,6 +132,8 @@ afterEach(() => {
     selectedFile: null,
     selectedDirectory: null,
     excludedRecommendations: [],
+    scanFromCache: false,
+    cachedAt: null,
   });
 });
 
@@ -200,6 +204,29 @@ describe("StorageWorkspace", () => {
     );
     expect(useStorageStore.getState().excludedRecommendations).toContain("/Users/test/Library/Caches");
     expect(screen.queryByRole("button", { name: /Exclude \/Users\/test\/Library\/Caches/ })).toBeNull();
+  });
+
+  it("marks restored cached scans as read-only for cleanup", () => {
+    useStorageStore.setState({
+      scanFromCache: true,
+      cachedAt: 2,
+      picks: [
+        {
+          path: "/Users/test/Library/Caches",
+          name: "Caches",
+          size: 100_000,
+          isDirectory: true,
+          modified: 1,
+          category: "caches",
+          risk: "review",
+          source: "recommendation",
+        },
+      ],
+    });
+    render(<StorageWorkspace />);
+    expect(screen.getByText(/Showing the cached scan/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Rescan to enable cleanup/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Review cleanup/i })).toBeNull();
   });
 
   it("offers a scan state when no result exists", () => {

@@ -1,8 +1,9 @@
 import { useEffect } from "react";
 import { Icon, type IconName } from "../Icon";
 import { StorageIcon } from "../icons/StorageIcon";
+import { useExplorerStore } from "../../state/explorerStore";
 import { useStorageStore } from "../../state/storageStore";
-import { formatCount, formatSize } from "../../lib/format";
+import { formatCount, formatDate, formatSize } from "../../lib/format";
 import { DEEP_SCAN_MAX_ENTRIES, type StorageView } from "../../lib/storage/types";
 import { StorageOverview } from "./StorageOverview";
 import { StorageTreeView } from "./StorageTreeView";
@@ -54,8 +55,11 @@ export function StorageWorkspace() {
   const selectVolume = useStorageStore((state) => state.selectVolume);
   const loadVolumes = useStorageStore((state) => state.loadVolumes);
   const scan = useStorageStore((state) => state.scan);
+  const scanFromCache = useStorageStore((state) => state.scanFromCache);
+  const cachedAt = useStorageStore((state) => state.cachedAt);
   const scanning = useStorageStore((state) => state.scanning);
   const scanError = useStorageStore((state) => state.scanError);
+  const rescan = useStorageStore((state) => state.rescan);
   const startScan = useStorageStore((state) => state.startScan);
   const cancelScan = useStorageStore((state) => state.cancelScan);
   const clearIndex = useStorageStore((state) => state.clearIndex);
@@ -74,6 +78,23 @@ export function StorageWorkspace() {
   }, [initialize]);
 
   const canShowView = view === "overview" || Boolean(scan);
+
+  const scanSpecificFolder = () => {
+    const explorer = useExplorerStore.getState();
+    explorer.openDialog({
+      kind: "prompt",
+      title: "Scan a specific folder",
+      label: "Absolute folder path",
+      initialValue: explorer.currentFolder(),
+      confirmLabel: "Scan folder",
+      onConfirm: (value) => {
+        const path = value.trim().replace(/^["']|["']$/g, "");
+        if (!path) return;
+        explorer.closeDialog();
+        void startScan(path, DEEP_SCAN_MAX_ENTRIES);
+      },
+    });
+  };
 
   return (
     <div className="storage-workspace">
@@ -142,6 +163,16 @@ export function StorageWorkspace() {
                 <Icon name="database" size={13} />
                 Deep scan
               </button>
+              <button
+                type="button"
+                className="storage-toolbar-button"
+                onClick={scanSpecificFolder}
+                disabled={scanning}
+                title="Scan one folder directly instead of the whole volume"
+              >
+                <Icon name="folderOpen" size={13} />
+                Scan folder...
+              </button>
             </>
           )}
           <button
@@ -157,6 +188,21 @@ export function StorageWorkspace() {
       </header>
 
       <ScanProgress />
+
+      {scanFromCache ? (
+        <div className="storage-info-banner storage-cache-banner">
+          <Icon name="database" size={14} />
+          <span>
+            Showing the cached scan of <strong>{scan?.root}</strong>
+            {cachedAt ? ` from ${formatDate(cachedAt)}` : ""}. Drill-down is available; cleanup is read-only until a fresh
+            rescan.
+          </span>
+          <button type="button" className="storage-toolbar-button" onClick={() => void rescan()}>
+            <Icon name="refresh" size={13} />
+            Rescan now
+          </button>
+        </div>
+      ) : null}
 
       {scanError ? (
         <div className="storage-error-banner" role="alert">

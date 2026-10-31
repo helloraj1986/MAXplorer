@@ -54,6 +54,12 @@ impl fmt::Display for AppError {
 
 impl std::error::Error for AppError {}
 
+impl From<rusqlite::Error> for AppError {
+    fn from(error: rusqlite::Error) -> Self {
+        Self::new("database_error", error.to_string(), None)
+    }
+}
+
 impl From<io::Error> for AppError {
     fn from(error: io::Error) -> Self {
         let code = match error.kind() {

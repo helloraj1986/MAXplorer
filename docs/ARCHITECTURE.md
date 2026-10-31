@@ -113,6 +113,7 @@ src-tauri/src/
   operations.rs               Create/copy/move/rename/delete/duplicate/conflicts
   search.rs                   Bounded recursive search + cancellation
   storage.rs                  Volumes, cancellable scan index, categories, duplicates, cleanup
+  storage_cache.rs            Versioned SQLite scan cache and cached children/file queries
   metadata.rs                 Properties, folder stats, previews, sidebar, apps
   app_icons.rs                .app bundle icon lookup + ICNS/PNG extraction
   paths.rs                    Expansion, name validation, unique names, safety
@@ -276,11 +277,12 @@ boundaries are:
 - The workspace is independent of pane/tab state. `src/App.tsx` swaps the normal workspace
   for `StorageWorkspace` while `storageWorkspaceOpen` is true, leaving pane state untouched.
   Sidebar and command-bar entry points call the same store action.
-- The full index is intentionally in-memory for the current process. Opening the analyzer
-  does not force a scan; capacity is shown immediately and the last completed result remains
-  available until the process exits or a new scan replaces it. This avoids a second large
-  persistent database while the universal-search SQLite index remains authoritative for
-  search.
+- The live index is in memory for the current process. Completed scans are also persisted to
+  a versioned SQLite cache under app-data (`storage/cache.sqlite3`) with a rolling eight-scan
+  history. On launch or volume switch, the backend restores the latest cached scan for that
+  volume; folder children and paginated file queries fall back to SQLite when no live index is
+  loaded. Cached results are read-only for cleanup until a fresh rescan. Opening the analyzer
+  still shows capacity immediately and never forces a scan.
 
 ## Diagnostics
 
@@ -321,9 +323,10 @@ operation live in the store.
 
 The Storage Analyzer has its own `storageStore`: workspace visibility, volumes, the current
 scan result and progress, view/folder/file-query state, children cache, cleanup picks,
-duplicate results, and cleanup outcome. The only persisted analyzer preference is the last
-selected volume path; the scan itself is intentionally process-local. Analyzer actions never
-mutate pane tabs, histories, or selections.
+duplicate results, and cleanup outcome. The selected volume path is a browser preference; the
+completed scan index is persisted separately in the versioned app-data SQLite cache and
+restored into the store on launch/volume switch. Cached scans are read-only for cleanup until
+a rescan. Analyzer actions never mutate pane tabs, histories, or selections.
 
 Persisted (versioned) fields exclude derived/transient state. Invalid stored values are
 rejected or clamped. Window bounds are stored separately and clamped to the visible screen.

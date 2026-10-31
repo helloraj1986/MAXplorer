@@ -374,3 +374,46 @@
   launches logged clean setup/frontend diagnostics with no new panic.
 - Known limitation: logs from a fatal crash before Tauri setup cannot be captured by the file
   logger; normal startup, command, panic, and React failures are covered.
+
+## Phase 19 - Scan scope and video classification (2026-10-31)
+
+- Investigated a report that a 208 GB `My Library` folder with ~1,200 video files showed only
+  two videos. The log showed a whole-volume scan stopping at its 2,000,000-entry cap long
+  before reaching that nested folder, so the videos were never inspected.
+- Added **Scan folder...** to the analyzer header: an absolute-path prompt that scans one
+  folder directly, avoiding the whole-volume cap. The existing **Rescan this folder** action
+  remains for folders already in the tree.
+- Raised the Deep scan ceiling to 5,000,000 entries; truncated scans are labelled **Not
+  scanned / system-managed**, with explicit warnings that the remainder is not a cleanup
+  estimate and direct actions for Deep scan Home folder or Deep scan volume.
+- Expanded video classification to MP4, MOV, M4V, AVI, MKV, WMV, WebM, FLV, MPEG/MPG,
+  3G2/3GP, ASF, DivX, DV, F4V, M2TS/MTS, MXF, OGV, RM/RMVB, TS, VOB, VRO, and MOD. Backend
+  category and file-type grouping and the shared frontend video-extension set now agree.
+- Verification: `npm run typecheck` clean, `npm test` **266 passed** across 30 files,
+  `cargo test` **63 passed**, `npm run build` clean.
+- Known limitation: a single folder can still exceed the 5,000,000-entry hard cap. Whole-volume
+  coverage depends on file count, not byte count; scan the specific data folder for complete
+  results.
+
+## Phase 20 - Persistent storage-scan cache (2026-10-31)
+
+- Added `src-tauri/src/storage_cache.rs`, a versioned SQLite cache at
+  `<app-data>/storage/cache.sqlite3`. It stores the full scan summary plus one row per file and
+  directory, with indexes for parent, size, category, and file type.
+- Completed scans are cached in a background thread after the scan result is returned. A
+  rolling eight-scan history is retained, same-root scans are replaced, and a stale write
+  cannot overwrite a newer result.
+- On launch or volume switch, the backend restores the latest cached scan belonging to that
+  volume. `get_storage_children` and `query_storage_files` transparently fall back to cached
+  SQLite rows when no live in-memory index is loaded, so folder drill-down, category filters,
+  and file-type lists work after restart/reinstall.
+- Cached results are explicitly read-only for cleanup. The selection bar replaces the review
+  action with **Rescan to enable cleanup**, and the backend guard also rejects cached cleanup
+  attempts. **Clear analysis results** clears both memory and cache.
+- App-data survives replacing the `.app` bundle, so a normal reinstall/update keeps the last
+  scan. Deleting app-data removes the cache.
+- Verification: `npm run typecheck` clean, `npm test` **268 passed** across 30 files,
+  `cargo test` **64 passed**, `npm run build` clean.
+- Known limitation: a very large full-volume cache can take a few seconds to write in the
+  background; app-data cleanup removes it. Cached data must be rescanned before destructive
+  actions.

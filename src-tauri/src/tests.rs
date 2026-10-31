@@ -223,6 +223,25 @@ mod tests {
             ),
             "videos"
         );
+        for extension in ["vob", "rm", "rmvb", "3gp", "mts", "m2ts", "ogv"] {
+            assert_eq!(
+                crate::storage::file_type_for(
+                    std::path::Path::new(&format!("/Users/example/Movies/clip.{extension}")),
+                    Some(extension),
+                    "videos"
+                ),
+                "videos",
+                "extension {extension} should be a video"
+            );
+            assert_eq!(
+                crate::storage::category_for(
+                    std::path::Path::new(&format!("/Users/example/Movies/clip.{extension}")),
+                    Some(extension)
+                ),
+                "videos",
+                "extension {extension} should be categorized as video"
+            );
+        }
         let children = crate::storage::children_core(&index, &index.scan.root, 100).unwrap();
         assert_eq!(children.total_size, 6000);
         assert_eq!(children.directories.len(), 2);
@@ -279,6 +298,69 @@ mod tests {
             .largest_files
             .iter()
             .any(|file| file.path.contains("/link/payload.bin")));
+    }
+
+    #[test]
+    fn storage_cache_restores_summaries_children_and_queries() {
+        use crate::storage::{scan_storage_index, StorageFileQuery};
+        use crate::storage_cache::StorageCache;
+        let scan_root = tempdir().unwrap();
+        let cache_root = tempdir().unwrap();
+        fs::create_dir(scan_root.path().join("videos")).unwrap();
+        fs::write(scan_root.path().join("videos").join("clip.mp4"), vec![b'v'; 2048]).unwrap();
+        fs::write(scan_root.path().join("notes.txt"), vec![b'n'; 10]).unwrap();
+        let index = scan_storage_index(
+            scan_root.path(),
+            55,
+            20_000,
+            &AtomicBool::new(false),
+            &|_| {},
+        )
+        .unwrap();
+        let cache = StorageCache::new(cache_root.path().join("cache.sqlite3")).unwrap();
+        cache
+            .store(
+                &index.scan,
+                &index.files,
+                &index.directories.values().cloned().collect::<Vec<_>>(),
+            )
+            .unwrap();
+        let root_text = scan_root.path().to_string_lossy().to_string();
+        let restored = cache.latest(Some(&root_text)).unwrap().expect("cached scan");
+        assert_eq!(restored.scan.scan_id, 55);
+        assert_eq!(restored.scan.total_logical_bytes, 2058);
+        assert_eq!(restored.scan.scanned_files, 2);
+        let children = cache.children(55, &root_text, 100).unwrap();
+        assert_eq!(children.total_size, 2058);
+        assert_eq!(children.directories.len(), 1);
+        assert_eq!(children.directories[0].name, "videos");
+        let page = cache
+            .query_files(&StorageFileQuery {
+                scan_id: 55,
+                directory: Some(root_text),
+                recursive: true,
+                min_size: Some(2000),
+                sort: "size".into(),
+                direction: "desc".into(),
+                limit: 10,
+                offset: 0,
+                category: None,
+                file_type: Some("videos".into()),
+                name: None,
+                extension: None,
+                max_size: None,
+                modified_after: None,
+                modified_before: None,
+                created_after: None,
+                created_before: None,
+                hidden: None,
+                symlinks: None,
+            })
+            .unwrap();
+        assert_eq!(page.total, 1);
+        assert_eq!(page.files[0].name, "clip.mp4");
+        cache.clear().unwrap();
+        assert!(cache.latest(None).unwrap().is_none());
     }
 
     #[test]

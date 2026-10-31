@@ -12,6 +12,8 @@ export function StorageSelectionBar() {
   const revealInFinder = useStorageStore((state) => state.revealInFinder);
   const performCleanup = useStorageStore((state) => state.performCleanup);
   const running = useStorageStore((state) => state.cleanupRunning);
+  const scanFromCache = useStorageStore((state) => state.scanFromCache);
+  const rescan = useStorageStore((state) => state.rescan);
   const progress = useStorageStore((state) => state.cleanupProgress);
   const cancelCleanup = useStorageStore((state) => state.cancelCleanup);
   const error = useStorageStore((state) => state.cleanupError);
@@ -76,19 +78,26 @@ export function StorageSelectionBar() {
               Clear
             </button>
           )}
-          <button
-            type="button"
-            className="storage-primary-button danger"
-            onClick={() => {
-              setPermanent(trashOnly);
-              setAcknowledged(false);
-              setReviewing(true);
-            }}
-            disabled={running}
-          >
-            <Icon name={running ? "spinner" : "trash"} size={14} className={running ? "spin" : ""} />
-            {running ? "Cleaning up..." : "Review cleanup"}
-          </button>
+          {scanFromCache ? (
+            <button type="button" className="storage-toolbar-button" onClick={() => void rescan()}>
+              <Icon name="refresh" size={13} />
+              Rescan to enable cleanup
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="storage-primary-button danger"
+              onClick={() => {
+                setPermanent(trashOnly);
+                setAcknowledged(false);
+                setReviewing(true);
+              }}
+              disabled={running}
+            >
+              <Icon name={running ? "spinner" : "trash"} size={14} className={running ? "spin" : ""} />
+              {running ? "Cleaning up..." : "Review cleanup"}
+            </button>
+          )}
         </div>
       </div>
 

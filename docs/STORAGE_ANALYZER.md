@@ -171,7 +171,11 @@ Backend contracts are all camelCase and registered in `src-tauri/src/lib.rs`.
 - Bounded by a configurable entry cap (default 500,000; the Deep scan control raises it to
   5,000,000; hard ceiling 5,000,000) and can be cancelled by request ID. Partial results are
   reported honestly. Separate controls cover quick overview, deep scan, deep scan of the Home
-  folder, rescan this folder, duplicate detection, and cancel.
+  folder, **Scan folder...** for an arbitrary absolute path, rescan this folder, duplicate
+  detection, and cancel.
+- A whole-volume scan traverses system data, caches, application support, and every user
+  folder in one global cap. It can reach the cap before a deeply nested user folder. Scan that
+  folder directly with **Scan folder...** for complete, fast coverage of just those files.
 - Progress events (`storage-scan-progress`) contain entries/files/folders/bytes/elapsed and
   the current path; no completion percentage is invented.
 - Directory aggregates are computed bottom-up once after traversal. A directory contributes
@@ -180,15 +184,36 @@ Backend contracts are all camelCase and registered in `src-tauri/src/lib.rs`.
   their bytes are not added twice.
 - Allocated size uses `st_blocks * 512` on Unix; logical size uses file length.
 
-### Index strategy
+### Index and persistent cache
 
-The full file/directory index is kept **in memory for the current scan**, keyed by scan ID.
-This keeps drill-down, filters, categories, and cleanup verification consistent without
-writing a second large database. The search index remains the only persistent SQLite index.
-Opening the analyzer shows volume capacity immediately and does not force a full scan. The
-last completed result is available while the application process is running. **Clear analysis
-results** in the analyzer rail discards the in-memory index. A future persistent storage index
-can reuse the same contracts.
+The full file/directory index is kept **in memory for the current scan**, keyed by scan ID,
+so drill-down, filters, categories, and deletion revalidation are fast. Completed scans are
+also written to a versioned local SQLite cache:
+
+```text
+<app data>/storage/cache.sqlite3
+```
+
+macOS path:
+
+```text
+~/Library/Application Support/com.replica.win11explorer/storage/cache.sqlite3
+```
+
+The cache stores the scan summary JSON plus one row per file and directory. A rolling set of
+the eight most recent scans is retained; scans for the same root replace older rows, and a
+stale background write can never overwrite a newer result. On launch or volume switch, the
+analyzer restores the most recent cached scan belonging to that volume, including folder
+children, file queries, category/type totals, largest files/folders, and recommendations.
+
+Cached scans are explicitly marked **read-only for cleanup**. Moving or deleting requires a
+fresh rescan so type, size, modification date, canonical containment, and protected-path
+checks run against current filesystem state. **Clear analysis results** clears both the
+in-memory index and the persistent cache.
+
+Because the cache lives in the application-data directory, replacing the `.app` bundle (a
+normal reinstall/update) keeps the previous scan available. Deleting the app-data directory
+removes the cache as well. The universal-search SQLite index remains separate.
 
 Large result lists are never sent over IPC wholesale. The backend exposes:
 
@@ -232,6 +257,10 @@ File-type groups are separate from location categories and use extension/path me
 Videos, Images, Audio, PDF, Documents, Archives, Disk images, Applications, Developer,
 Virtual machines, Databases, Fonts, Other.
 
+Video grouping covers MP4, MOV, M4V, AVI, MKV, WMV, WebM, FLV, MPEG/MPG, 3G2/3GP, ASF,
+DivX, DV, F4V, M2TS/MTS, MXF, OGV, RM/RMVB, TS, VOB, VRO, and MOD. This matches the
+extensions used by common cameras, phones, and camcorders.
+
 No file is opened or executed for classification. The only byte reads are explicit
 duplicate verification.
 
@@ -262,7 +291,8 @@ duplicate verification.
   protected areas. A truncated scan labels the remainder as **not scanned**, not as hidden
   files or recoverable space. Run Deep scan, Deep scan Home folder, or scan a narrower folder
   for deeper coverage.
-- The in-memory index is not persisted across application restarts.
+- Cached scans are restored after restart/reinstall from app-data, but cached results are
+  read-only for cleanup until a fresh rescan. Removing app-data deletes the cache.
 - The analyzer recognizes common developer/application locations but does not execute each
   tool's native cleanup command. Where known, recommendations say to use the owning tool.
 - Cloud placeholders are identified conservatively (for example `*.icloud`) and are never
@@ -299,7 +329,7 @@ Frontend tests:
 - Treemap bounds, proportions, zero-size handling, hit testing, and many-item stability.
 - Workspace rendering, cleanup navigation, no-scan state, and explicit permanent-delete
   acknowledgement.
-- Full suite: `npm test` (266 tests), `npm run typecheck`, `npm run build`.
+- Full suite: `npm test` (268 tests), `npm run typecheck`, `npm run build`.
 
 Manual validation checklist:
 

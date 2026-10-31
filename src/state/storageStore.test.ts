@@ -75,6 +75,8 @@ beforeEach(() => {
     workspaceOpen: true,
     volumes: [internal, usb],
     selectedVolumePath: "/",
+    scanFromCache: false,
+    cachedAt: null,
     scan: scan("/", [
       {
         id: "a",
@@ -102,7 +104,14 @@ beforeEach(() => {
 
 afterEach(() => {
   window.localStorage.clear();
-  useStorageStore.setState({ workspaceOpen: false, picks: [], excludedRecommendations: [] });
+  useStorageStore.setState({
+    workspaceOpen: false,
+    picks: [],
+    excludedRecommendations: [],
+    scanFromCache: false,
+    cachedAt: null,
+    cleanupError: null,
+  });
 });
 
 describe("storage store state", () => {
@@ -120,6 +129,26 @@ describe("storage store state", () => {
     useStorageStore.setState({ selectedVolumePath: null, scan: folderScan });
     useStorageStore.getState().selectVolume("/Volumes/USB");
     expect(useStorageStore.getState().scan?.root).toBe("/Volumes/USB/Projects");
+  });
+
+  it("rejects cleanup from a cached scan", async () => {
+    useStorageStore.setState({
+      scanFromCache: true,
+      picks: [
+        {
+          path: "/Users/test/Library/Caches",
+          name: "Caches",
+          size: 100,
+          isDirectory: true,
+          modified: 1,
+          category: "caches",
+          source: "recommendation",
+        },
+      ],
+    });
+    await useStorageStore.getState().performCleanup(false);
+    expect(useStorageStore.getState().cleanupRunning).toBe(false);
+    expect(useStorageStore.getState().cleanupError).toMatch(/cached scan/i);
   });
 
   it("excludes and restores recommendation paths", () => {

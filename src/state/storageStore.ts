@@ -115,6 +115,8 @@ export interface StorageState {
   volumesError: string | null;
   selectedVolumePath: string | null;
   scan: StorageScanResult | null;
+  scanFromCache: boolean;
+  cachedAt: number | null;
   scanning: boolean;
   scanError: string | null;
   progress: StorageScanProgress | null;
@@ -150,6 +152,7 @@ export interface StorageState {
   openWorkspace: () => Promise<void>;
   closeWorkspace: () => void;
   selectVolume: (mountPoint: string) => void;
+  loadCachedScan: (root?: string | null) => Promise<boolean>;
   startScan: (root?: string, maxEntries?: number) => Promise<void>;
   cancelScan: () => Promise<void>;
   rescan: () => Promise<void>;
@@ -204,6 +207,8 @@ export const useStorageStore = create<StorageState>((set, get) => ({
   volumesError: null,
   selectedVolumePath: null,
   scan: null,
+  scanFromCache: false,
+  cachedAt: null,
   scanning: false,
   scanError: null,
   progress: null,
@@ -297,6 +302,8 @@ export const useStorageStore = create<StorageState>((set, get) => ({
           .sort((left, right) => right.mountPoint.length - left.mountPoint.length)[0];
         set({
           scan: current,
+          scanFromCache: false,
+          cachedAt: null,
           lastScanAt: current.finishedAt,
           selectedVolumePath: volume?.mountPoint ?? preferred,
           treePath: current.root,
@@ -305,9 +312,12 @@ export const useStorageStore = create<StorageState>((set, get) => ({
         if (get().view === "tree" || get().view === "treemap") {
           await get().loadChildren(current.root);
         }
+      } else {
+        await get().loadCachedScan(preferred);
       }
     } catch {
-      // A missing or expired in-memory scan is not an error; the user can scan.
+      // A missing or expired in-memory scan is not an error; try the cache.
+      await get().loadCachedScan(get().selectedVolumePath);
     }
   },
 
@@ -330,7 +340,49 @@ export const useStorageStore = create<StorageState>((set, get) => ({
       duplicates: keepScan ? get().duplicates : null,
       cleanupOutcome: keepScan ? get().cleanupOutcome : null,
       picks: keepScan ? get().picks : [],
+      scanFromCache: keepScan ? get().scanFromCache : false,
+      cachedAt: keepScan ? get().cachedAt : null,
     });
+    if (!keepScan) {
+      void get().loadCachedScan(mountPoint);
+    }
+  },
+
+  async loadCachedScan(root) {
+    if (!isTauri) return false;
+    const live = get().scan;
+    if (live && !get().scanFromCache) return false;
+    try {
+      const requested = root ?? get().selectedVolumePath;
+      const cached = await api.getStorageCachedScan(requested);
+      if (!cached) return false;
+      if (root != null && get().selectedVolumePath !== root) return false;
+      if (get().scan && !get().scanFromCache) return false;
+      set({
+        scan: cached.scan,
+        scanFromCache: true,
+        cachedAt: cached.cachedAt,
+        lastScanAt: cached.scan.finishedAt,
+        treePath: cached.scan.root,
+        fileScope: { ...DEFAULT_SCOPE },
+        filePage: null,
+        fileError: null,
+        duplicates: null,
+        picks: [],
+        selectedFile: null,
+        selectedDirectory: null,
+      });
+      if (get().view === "tree" || get().view === "treemap") {
+        await get().loadChildren(cached.scan.root);
+      }
+      if (get().view === "files") {
+        await get().loadFiles();
+      }
+      return true;
+    } catch (error) {
+      logDiagnostic("warn", `Cached scan could not be restored: ${normalizeError(error).message}`, "storage.cache");
+      return false;
+    }
   },
 
   async startScan(root, maxEntries) {
@@ -370,6 +422,8 @@ export const useStorageStore = create<StorageState>((set, get) => ({
       const scannedVolume = scan.volume;
       set({
         scan,
+        scanFromCache: false,
+        cachedAt: null,
         scanning: false,
         progress: null,
         lastScanAt: scan.finishedAt,
@@ -421,6 +475,8 @@ export const useStorageStore = create<StorageState>((set, get) => ({
     }
     set({
       scan: null,
+      scanFromCache: false,
+      cachedAt: null,
       progress: null,
       lastScanAt: null,
       treePath: null,
@@ -761,6 +817,13 @@ export const useStorageStore = create<StorageState>((set, get) => ({
     const state = get();
     const scan = state.scan;
     if (!scan) return;
+    if (state.scanFromCache) {
+      set({
+        cleanupError:
+          "This is a cached scan. Rescan the folder or volume before moving or deleting anything.",
+      });
+      return;
+    }
     const summary = summarizeSelection(state.picks);
     if (!summary.picks.length) {
       set({ cleanupError: "Select at least one file or folder to clean up." });

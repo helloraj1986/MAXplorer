@@ -9,6 +9,7 @@ mod operations;
 mod paths;
 mod search;
 mod storage;
+mod storage_cache;
 mod transfer;
 mod types;
 
@@ -95,6 +96,8 @@ pub fn run() {
                 }
             };
             app.manage(service);
+            let storage_cache = data_directory.join("storage").join("cache.sqlite3");
+            app.manage(StorageState::new(storage_cache));
             logging::info("app", "Tauri setup completed");
             Ok(())
         })
@@ -105,7 +108,6 @@ pub fn run() {
         })
         .manage(TransferState::default())
         .manage(CompareState::default())
-        .manage(StorageState::default())
         .invoke_handler(tauri::generate_handler![
             commands::get_platform_info,
             commands::get_sidebar_locations,
@@ -157,6 +159,7 @@ pub fn run() {
             storage::scan_storage,
             storage::cancel_storage_scan,
             storage::get_storage_scan_result,
+            storage::get_storage_cached_scan,
             storage::get_storage_children,
             storage::query_storage_files,
             storage::find_storage_duplicates,

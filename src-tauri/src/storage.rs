@@ -12,6 +12,7 @@ use crate::logging;
 use crate::operations;
 use crate::paths::{home_dir, normalize_path, reject_unsafe_destruction, system_time_ms};
 use crate::search::engine::{hash_file, quick_fingerprint};
+use crate::storage_cache::{CachedStorageScan, StorageCache};
 use crate::types::{Entry, OperationResult};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -35,7 +36,7 @@ const ONE_DAY_MS: i64 = 86_400_000;
 /* Public contracts                                                           */
 /* ------------------------------------------------------------------------- */
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageVolume {
     pub id: String,
@@ -80,7 +81,7 @@ pub struct StorageScanProgress {
     pub cancelled: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageFile {
     pub path: String,
@@ -103,7 +104,7 @@ pub struct StorageFile {
     pub file_type: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageDirectory {
     pub path: String,
@@ -124,7 +125,7 @@ pub struct StorageDirectory {
     pub is_read_only: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageCategory {
     pub id: String,
@@ -135,7 +136,7 @@ pub struct StorageCategory {
     pub percent: f64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageFileType {
     pub id: String,
@@ -147,7 +148,7 @@ pub struct StorageFileType {
     pub extensions: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CleanupRecommendation {
     pub id: String,
@@ -166,7 +167,7 @@ pub struct CleanupRecommendation {
     pub note: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageScanResult {
     pub scan_id: u64,
@@ -375,13 +376,104 @@ pub struct StorageDeleteProgress {
 pub struct StorageState {
     current: Mutex<Option<Arc<ScanIndex>>>,
     cancels: Mutex<HashMap<u64, Arc<AtomicBool>>>,
+    cache: Option<StorageCache>,
 }
 
 impl StorageState {
-    fn store(&self, index: ScanIndex) {
-        if let Ok(mut current) = self.current.lock() {
-            *current = Some(Arc::new(index));
+    pub fn new(cache_path: PathBuf) -> Self {
+        let cache = match StorageCache::new(cache_path) {
+            Ok(cache) => {
+                logging::info(
+                    "storage.cache",
+                    format!("storage cache opened at {}", cache.path().display()),
+                );
+                Some(cache)
+            }
+            Err(error) => {
+                logging::error(
+                    "storage.cache",
+                    format!("storage cache unavailable: {error}"),
+                );
+                None
+            }
+        };
+        Self {
+            current: Mutex::new(None),
+            cancels: Mutex::new(HashMap::new()),
+            cache,
         }
+    }
+
+    fn store(&self, index: ScanIndex) -> Arc<ScanIndex> {
+        let index = Arc::new(index);
+        if let Ok(mut current) = self.current.lock() {
+            *current = Some(index.clone());
+        }
+        index
+    }
+
+    fn persist_async(&self, index: Arc<ScanIndex>) {
+        let Some(cache) = self.cache.clone() else {
+            logging::warn("storage.cache", "no cache available; scan will not persist");
+            return;
+        };
+        std::thread::spawn(move || {
+            let directories = index.directories.values().cloned().collect::<Vec<_>>();
+            if let Err(error) = cache.store(&index.scan, &index.files, &directories) {
+                logging::error("storage.cache", format!("could not persist scan: {error}"));
+            }
+        });
+    }
+
+    fn cached(&self, root: Option<&str>) -> Option<CachedStorageScan> {
+        let Some(cache) = self.cache.as_ref() else {
+            return None;
+        };
+        match cache.latest(root) {
+            Ok(value) => {
+                if let Some(value) = value.as_ref() {
+                    logging::info(
+                        "storage.cache",
+                        format!(
+                            "restored cached scan {} for {} (finished {})",
+                            value.scan.scan_id, value.scan.root, value.cached_at
+                        ),
+                    );
+                }
+                value
+            }
+            Err(error) => {
+                logging::error("storage.cache", format!("could not read cache: {error}"));
+                None
+            }
+        }
+    }
+
+    fn cached_children(
+        &self,
+        scan_id: u64,
+        path: &str,
+        limit: usize,
+    ) -> Result<StorageChildren, AppError> {
+        let Some(cache) = self.cache.as_ref() else {
+            return Err(AppError::new(
+                "no_scan",
+                "No cached scan is available.",
+                None,
+            ));
+        };
+        cache.children(scan_id, path, limit)
+    }
+
+    fn cached_query(&self, query: &StorageFileQuery) -> Result<StorageFilePage, AppError> {
+        let Some(cache) = self.cache.as_ref() else {
+            return Err(AppError::new(
+                "no_scan",
+                "No cached scan is available.",
+                None,
+            ));
+        };
+        cache.query_files(query)
     }
 
     fn current(&self) -> Option<Arc<ScanIndex>> {
@@ -413,6 +505,11 @@ impl StorageState {
     fn clear(&self) {
         if let Ok(mut current) = self.current.lock() {
             *current = None;
+        }
+        if let Some(cache) = self.cache.as_ref() {
+            if let Err(error) = cache.clear() {
+                logging::error("storage.cache", format!("could not clear cache: {error}"));
+            }
         }
     }
 }
@@ -988,8 +1085,9 @@ pub(crate) fn category_for(path: &Path, extension: Option<&str>) -> &'static str
     match ext {
         "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" | "svg" | "tif" | "tiff" | "heic"
         | "heif" | "avif" | "raw" | "cr2" | "nef" | "arw" | "dng" => "photos",
-        "mp4" | "mov" | "m4v" | "avi" | "mkv" | "wmv" | "webm" | "flv" | "mpg" | "mpeg" | "3gp"
-        | "mts" | "m2ts" => "videos",
+        "mp4" | "mov" | "m4v" | "avi" | "mkv" | "wmv" | "webm" | "flv" | "mpg" | "mpeg" | "3g2"
+        | "3gp" | "asf" | "divx" | "dv" | "f4v" | "m2ts" | "mts" | "mxf" | "ogv" | "rm"
+        | "rmvb" | "ts" | "vob" | "vro" | "mod" => "videos",
         "mp3" | "m4a" | "aac" | "wav" | "flac" | "ogg" | "wma" | "aiff" | "mid" | "midi"
         | "opus" => "audio",
         "zip" | "7z" | "rar" | "tar" | "gz" | "bz2" | "xz" | "zst" | "dmg" | "iso" | "pkg"
@@ -1022,7 +1120,32 @@ pub(crate) fn file_type_for(path: &Path, extension: Option<&str>, category: &str
     }
     if matches!(
         ext,
-        "mp4" | "mov" | "m4v" | "avi" | "mkv" | "wmv" | "webm" | "flv" | "mpg" | "mpeg"
+        "mp4"
+            | "mov"
+            | "m4v"
+            | "avi"
+            | "mkv"
+            | "wmv"
+            | "webm"
+            | "flv"
+            | "mpg"
+            | "mpeg"
+            | "3g2"
+            | "3gp"
+            | "asf"
+            | "divx"
+            | "dv"
+            | "f4v"
+            | "m2ts"
+            | "mts"
+            | "mxf"
+            | "ogv"
+            | "rm"
+            | "rmvb"
+            | "ts"
+            | "vob"
+            | "vro"
+            | "mod"
     ) {
         return "videos";
     }
@@ -2959,7 +3082,8 @@ pub async fn scan_storage(
             scan.elapsed_ms
         ),
     );
-    state.store(index);
+    let index = state.store(index);
+    state.persist_async(index);
     Ok(scan)
 }
 
@@ -2975,27 +3099,26 @@ pub fn get_storage_scan_result(state: tauri::State<'_, StorageState>) -> Option<
 }
 
 #[tauri::command]
+pub fn get_storage_cached_scan(
+    state: tauri::State<'_, StorageState>,
+    root: Option<String>,
+) -> Option<CachedStorageScan> {
+    state.cached(root.as_deref())
+}
+
+#[tauri::command]
 pub fn get_storage_children(
     state: tauri::State<'_, StorageState>,
     scan_id: u64,
     path: String,
     limit: Option<usize>,
 ) -> Result<StorageChildren, AppError> {
-    let index = state.current().ok_or_else(|| {
-        AppError::new(
-            "no_scan",
-            "Run a storage scan before opening this folder.",
-            None,
-        )
-    })?;
-    if index.scan.scan_id != scan_id {
-        return Err(AppError::new(
-            "stale_scan",
-            "The scan changed. Reopen the folder from the current results.",
-            None,
-        ));
+    if let Some(index) = state.current() {
+        if index.scan.scan_id == scan_id {
+            return children_core(&index, &path, limit.unwrap_or(2_000));
+        }
     }
-    children_core(&index, &path, limit.unwrap_or(2_000))
+    state.cached_children(scan_id, &path, limit.unwrap_or(2_000))
 }
 
 #[tauri::command]
@@ -3003,21 +3126,12 @@ pub fn query_storage_files(
     state: tauri::State<'_, StorageState>,
     query: StorageFileQuery,
 ) -> Result<StorageFilePage, AppError> {
-    let index = state.current().ok_or_else(|| {
-        AppError::new(
-            "no_scan",
-            "Run a storage scan before filtering files.",
-            None,
-        )
-    })?;
-    if index.scan.scan_id != query.scan_id {
-        return Err(AppError::new(
-            "stale_scan",
-            "The scan changed. Run the query again from the current results.",
-            None,
-        ));
+    if let Some(index) = state.current() {
+        if index.scan.scan_id == query.scan_id {
+            return Ok(query_files_core(&index, &query));
+        }
     }
-    Ok(query_files_core(&index, &query))
+    state.cached_query(&query)
 }
 
 #[tauri::command]

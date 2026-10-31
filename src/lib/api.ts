@@ -29,6 +29,7 @@ import type {
   SearchSuggestion,
 } from "./search/types";
 import type {
+  CachedStorageScan,
   StorageChildren,
   StorageDeleteOutcome,
   StorageDeleteProgress,
@@ -191,6 +192,8 @@ export const api = {
     call<StorageScanResult>("scan_storage", { request }),
   cancelStorageScan: (scanId: number) => call<void>("cancel_storage_scan", { scanId }),
   getStorageScanResult: () => call<StorageScanResult | null>("get_storage_scan_result"),
+  getStorageCachedScan: (root?: string | null) =>
+    call<CachedStorageScan | null>("get_storage_cached_scan", { root: root ?? null }),
   getStorageChildren: (scanId: number, path: string, limit = 2_000) =>
     call<StorageChildren>("get_storage_children", { scanId, path, limit }),
   queryStorageFiles: (query: StorageFileQuery) =>
