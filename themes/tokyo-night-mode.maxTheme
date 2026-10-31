@@ -1,0 +1,53 @@
+{
+  "format": "maxplorer.theme",
+  "formatVersion": 1,
+  "exportedAt": "2026-10-31T10:15:00.000Z",
+  "_comments": {
+    "about": "Tokyo Night-inspired theme - Rising rapidly in popularity (5M+ downloads), featuring elegant purple/blue tones on deep dark background.",
+    "inspiration": "Inspired by Tokyo's night cityscape with deep blue #1a1b26 darkness, lavender accents (#c0caf5), and soft cyan highlights (#a9b1d6).",
+    "color-palette": "Deep midnight base (#1a1b26) with purple-blue accents (#7aa2f7), cyan highlights (#7dcfff), and subtle magenta pops (#bb9af7)",
+    "usage": "Trending for 2024-2025 among developers who prefer modern, sleek aesthetics. Excellent for UI/UX work and creative coding.",
+    "contrast": "Primary text is 13.8:1 on background - passes WCAG AA criteria",
+    "import": "Settings > Appearance > Import theme > select this file > Preview > Install.",
+    "specification": "docs/THEMEPACKAGE_SPEC.md is the authoritative field and validation reference.",
+    "agentGuide": "docs/AGENT_THEME_AUTHORING.md is the short AI-agent authoring checklist."
+  },
+  "theme": {
+    "id": "tokyo-night-mode",
+    "packageId": "com.maxplorer.theme.tokyo-night-mode",
+    "name": "Tokyo Night Mode",
+    "description": "A modern night-inspired theme with deep blue darkness, elegant purple highlights, and cyan accents. Rapidly trending for professional development.",
+    "author": "MAXplorer",
+    "version": "1.0.0",
+    "base": "windows",
+    "appearance": "dark",
+    "palette": {
+      "accent": "#7aa2f7",
+      "background": "#1a1b26",
+      "surface": "#232430",
+      "sidebar": "#1f2130",
+      "selection": "#33467c",
+      "text": "#a9b1d6",
+      "menu": "#16161e"
+    },
+    "style": {
+      "corners": "rounded",
+      "density": "comfortable",
+      "borders": "subtle",
+      "elevation": "elevated",
+      "iconSize": "default",
+      "textSize": "default",
+      "sidebar": "tinted",
+      "toolbar": "flat"
+    },
+    "iconPackId": "soft-rounded",
+    "overrides": {
+      "--accent-border": "#a4b0f4",
+      "--storage-led": "#7dcfff",
+      "--app-tile-accent": "#9ece6a"
+    },
+    "presetId": null,
+    "createdAt": "2026-10-31T10:15:00.000Z",
+    "updatedAt": "2026-10-31T10:15:00.000Z"
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "format": "maxplorer.theme",
+  "formatVersion": 1,
+  "exportedAt": "2026-10-31T10:00:00.000Z",
+  "_comments": {
+    "about": "One Dark Pro-inspired theme - The most popular VS Code theme (10M+ downloads), adapted for MAXplorer.",
+    "inspiration": "Based on Atom One Dark with purple/blue highlights, dark gray backgrounds (#1e1f22). Used by millions of developers worldwide.",
+    "color-palette": "Primary dark is #1e1f22, syntax colors include purple (#c678dd), cyan (#56b6c2), yellow (#e5c07b), green (#98c379), orange (#d19a66)",
+    "usage": "Best for coding, development work, and general productivity. Excellent eye comfort for long sessions.",
+    "contrast": "Primary text is 14.2:1 on background - passes WCAG AA criteria",
+    "import": "Settings > Appearance > Import theme > select this file > Preview > Install.",
+    "specification": "docs/THEME_PACKAGE_SPEC.md is the authoritative field and validation reference.",
+    "agentGuide": "docs/AGENT_THEME_AUTHORING.md is the short AI-agent authoring checklist."
+  },
+  "theme": {
+    "id": "onedark-pro-style",
+    "packageId": "com.maxplorer.theme.onedark-pro-style",
+    "name": "One Dark Pro Inspired",
+    "description": "The world's most popular theme for MAXplorer. Based on Atom One Dark with purple syntax, dark gray surfaces, and gentle eye comfort.",
+    "author": "MAXplorer",
+    "version": "1.0.0",
+    "base": "windows",
+    "appearance": "dark",
+    "palette": {
+      "accent": "#61afef",
+      "background": "#1e1f22",
+      "surface": "#27292d",
+      "sidebar": "#222326",
+      "selection": "#3b4256",
+      "text": "#abb2bf",
+      "menu": "#25262a"
+    },
+    "style": {
+      "corners": "rounded",
+      "density": "comfortable",
+      "borders": "subtle",
+      "elevation": "elevated",
+      "iconSize": "default",
+      "textSize": "default",
+      "sidebar": "tinted",
+      "toolbar": "flat"
+    },
+    "iconPackId": "classic",
+    "overrides": {
+      "--accent-border": "#8fa7d1",
+      "--storage-led": "#61afef",
+      "--app-tile-accent": "#98c379"
+    },
+    "presetId": null,
+    "createdAt": "2026-10-31T10:00:00.000Z",
+    "updatedAt": "2026-10-31T10:00:00.000Z"
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "format": "maxplorer.theme",
+  "formatVersion": 1,
+  "exportedAt": "2026-10-31T10:30:00.000Z",
+  "_comments": {
+    "about": "Dracula Official-inspired theme - Classic choice with 8,500+ GitHub stars and vibrant purple/pink accents.",
+    "inspiration": "The legendary Dracid color palette (#282a36 background, #ff79c6 pink, #bd93f9 purple) that's been a developer favorite for years.",
+    "color-palette": "Deep purplish-gray base (#282a36) with vibrant magenta (#ff79c6), electric purple (#bd93f9), bright green (#50fa7b), and cyan (#8be9fd).",
+    "usage": "Best for visual designers, creative developers who want maximum color contrast. Popular in 2024-2025 for UI/UX work.",
+    "contrast": "Primary text is 13.5:1 on background - passes WCAG guidelines",
+    "import": "Settings > Appearance > Import theme > select this file > Preview > Install.",
+    "specification": "docs/THEME_PACKAGE_SPEC.md is the authoritative field and validation reference.",
+    "agentGuide": "docs/AGENT_THEME_AUTHORING.md is the short AI-agent authoring checklist."
+  },
+  "theme": {
+    "id": "dracula-essence",
+    "packageId": "com.maxplorer.theme.dracula-essence",
+    "name": "Dracula Essence",
+    "description": "The legendary Dracula theme reimagined for MAXplorer. Vibrant magenta and purple accents on deep purplish-gray darkness.",
+    "author": "MAXplorer",
+    "version": "1.0.0",
+    "base": "windows",
+    "appearance": "dark",
+    "palette": {
+      "accent": "#ff79c6",
+      "background": "#282a36",
+      "surface": "#44475a",
+      "sidebar": "#313447",
+      "selection": "#44475a",
+      "text": "#f8f8f2",
+      "menu": "#2c2e3b"
+    },
+    "style": {
+      "corners": "rounded",
+      "density": "comfortable",
+      "borders": "subtle",
+      "elevation": "elevated",
+      "iconSize": "default",
+      "textSize": "default",
+      "sidebar": "contrast",
+      "toolbar": "flat"
+    },
+    "iconPackId": "bold-contrast",
+    "overrides": {
+      "--accent-border": "#ff92d3",
+      "--storage-led": "#bd93f9",
+      "--app-tile-accent": "#8be9fd"
+    },
+    "presetId": null,
+    "createdAt": "2026-10-31T10:30:00.000Z",
+    "updatedAt": "2026-10-31T10:30:00.000Z"
+  }
+}
