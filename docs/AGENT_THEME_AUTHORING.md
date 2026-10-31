@@ -101,6 +101,47 @@ sunset-folders
 
 `null` means “follow the application-wide icon pack”.
 
+### Optional pane divider configuration
+
+Add this inside `theme` to customise the dual-pane divider without CSS. Omit it entirely
+for the safe default; legacy themes without it still install.
+
+```json
+{
+  "components": {
+    "paneDivider": {
+      "width": 2,
+      "hitAreaWidth": 14,
+      "color": null,
+      "hoverColor": null,
+      "activeColor": null,
+      "gripColor": null,
+      "showGrip": true,
+      "gripVisibility": "hover",
+      "activeIndicator": "accent-border",
+      "cornerRadius": 1,
+      "headerBackground": null,
+      "headerBorderColor": null
+    }
+  }
+}
+```
+
+Allowed values:
+
+```text
+width:          1–8 (visible line, logical px)
+hitAreaWidth:   12–28 (pointer target; always larger than width)
+color/hoverColor/activeColor/gripColor/headerBackground/headerBorderColor:
+                "#rrggbb", "rgb(...)", or null to derive from theme tokens
+showGrip:       true | false
+gripVisibility: hover | always | never
+activeIndicator: accent-border | top-line | header | none
+cornerRadius:   0–8
+```
+
+Invalid values are clamped and reported as import warnings; they do not reject the theme.
+
 ---
 
 ## Comments and notes

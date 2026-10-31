@@ -2110,7 +2110,7 @@
 }
 
 .tp-panes.dual .tp-content + .tp-content {
-  border-left: 1px solid var(--border-strong);
+  border-left: var(--pane-divider-width, 2px) solid var(--pane-divider-color, var(--border-strong));
 }
 
 .tp-list {

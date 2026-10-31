@@ -43,6 +43,17 @@ captured on the next interactive pass.
 | `theme-creator-colours.png` | Colour step with palettes, pickers, and automatic matching |
 | `theme-creator-style.png` | Style step with corner, spacing, border, and surface choices |
 | `appearance-icon-packs.png` | Independent icon pack gallery and import controls |
+| `dual-pane-divider-before.jpeg` | Dual-pane divider before the change (previous 1 px/6 px styling reproduced in the browser preview) |
+| `dual-pane-divider-dark.jpeg` | Dual-pane workspace, Windows dark theme, resting divider |
+| `dual-pane-divider-light.jpeg` | Dual-pane workspace, Windows light theme, resting divider |
+| `dual-pane-divider-hover.jpeg` | Divider hover state with grip and accent highlight |
+| `dual-pane-divider-dragging.jpeg` | Divider dragging state and resized panes |
+| `dual-pane-divider-finder-dark.jpeg` | Dual-pane workspace in the Finder dark theme |
+
+The `dual-pane-divider-*` captures come from the development-only
+`?preview=dual-pane` browser route, which renders the real `DualPaneWorkspace` and
+`PaneDivider` with sample rows. They document the current implementation without requiring
+the Tauri runtime; the rest of this index remains the Tauri/macOS evidence set.
 
 Reference captures from the real Windows 11 Explorer are in
 [`../../reference/screenshots`](../../reference/screenshots).

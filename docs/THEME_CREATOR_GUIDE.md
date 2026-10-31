@@ -356,6 +356,20 @@ original unchanged.
 
 ---
 
+## Dual-pane divider
+
+The **Dual pane** preview uses the same divider as the real workspace. In **Advanced**
+mode, the **Dual pane** token group can change its resting, hover, dragging and grip
+colours, plus the active-pane indicator and pane-header colours. These are real theme
+tokens: the preview and the live workspace update together.
+
+For dimensions, grip behaviour and indicator style beyond colours, export the theme and add
+the optional `components.paneDivider` block described in
+[THEME_PACKAGE_SPEC.md](THEME_PACKAGE_SPEC.md). You do not need to write CSS. A theme that
+omits the block keeps working and inherits a visible divider from its own palette.
+
+---
+
 ## Troubleshooting
 
 **I cannot find my exported theme.**

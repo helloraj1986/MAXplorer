@@ -44,6 +44,10 @@ if (import.meta.env.DEV && preview === "appearance") {
   void import("./dev/AppearancePreview").then(({ AppearancePreview }) => {
     root.render(<AppearancePreview />);
   });
+} else if (import.meta.env.DEV && preview === "dual-pane") {
+  void import("./dev/DualPanePreview").then(({ DualPanePreview }) => {
+    root.render(<DualPanePreview />);
+  });
 } else {
   root.render(
     <React.StrictMode>

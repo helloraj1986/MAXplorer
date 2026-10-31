@@ -81,6 +81,40 @@ Persistence uses two additional keys:
 `useTheme()` keeps them in sync afterwards. `clearThemeDesign()` removes inline token
 overrides when a built-in theme is selected.
 
+## Dual-pane divider
+
+The divider between the two file panes is a shared, theme-aware component
+(`src/components/PaneDivider.tsx`). It never hard-codes a colour:
+
+| Token | Role |
+| --- | --- |
+| `--pane-divider-color` | Resting visible line |
+| `--pane-divider-hover-color` | Pointer hover / keyboard focus |
+| `--pane-divider-active-color` | Active drag |
+| `--pane-divider-grip-color` | Centre grip dots |
+| `--pane-active-indicator-color` | Active-pane border/top line |
+| `--pane-header-background` | Optional tinted pane header |
+| `--pane-header-border-color` | Optional pane header border |
+| `--pane-focus-ring-color` | Keyboard focus ring |
+| `--pane-divider-width` | Visible line width (default `2px`) |
+| `--pane-divider-hit-area` | Pointer target width (default `14px`) |
+| `--pane-divider-radius` | Visible line radius |
+
+Built-in Windows and Finder themes define these in `tokens.css` for both light and dark
+appearances. Imported themes inherit the same semantic values; a custom theme can override
+any of them through Advanced Mode or set the richer `components.paneDivider` block
+documented in [THEME_PACKAGE_SPEC.md](THEME_PACKAGE_SPEC.md).
+
+Colour fallbacks are derived from the active theme’s strong border, accent, text and
+surface tokens. The normal divider is contrast-checked against the pane surface, so a
+third-party theme that omits divider configuration still gets a visible line instead of a
+gap or a same-colour border. Invalid colours, dimensions, or enum values are clamped and
+reported as import warnings; the theme still installs.
+
+Theme switching updates the divider, hover/dragging states, grip, active-pane indicator,
+and pane-header treatment immediately. It does not reset the split ratio or either pane’s
+navigation state.
+
 
 ## Where the preference is stored
 

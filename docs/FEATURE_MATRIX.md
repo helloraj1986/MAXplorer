@@ -196,9 +196,14 @@ paths; see [VALIDATION.md](VALIDATION.md) for the exact boundary.
 | Area | Feature | Reference evidence | Status | Notes |
 | --- | --- | --- | --- | --- |
 | Dual pane | Two independent panes with tabs, history, address bars, sorting, filtering, selection, and errors | Standard dual-pane file managers; explicit request | Implemented | `panes.left` / `panes.right`; single-pane renders the left pane |
-| Dual pane | Dedicated per-pane navigation and tab rows | Explicit request | Implemented | Navigation above tabs in each pane; active-pane badge and top accent |
+| Dual pane | Dedicated per-pane navigation and tab rows | Explicit request | Implemented | Navigation above tabs in each pane; active pane marked by a token-driven inset accent border |
 | Dual pane | Command-bar mode toggle and workspace controls | Explicit request | Implemented | Split toggle plus copy/move, sync navigation, comparison, sidebar visibility |
-| Dual pane | Draggable divider, keyboard resize, double-click reset, collapse/restore | Explicit request | Implemented | Ratio clamped 0.18–0.82; both panes cannot collapse |
+| Dual pane | High-visibility theme-aware divider with slim visual line and wide pointer target | Explicit request | Implemented | `PaneDivider`; 2 px line inside 14 px hit area by default, token-driven colours |
+| Dual pane | Draggable divider, keyboard resize, double-click reset, collapse/restore | Explicit request | Implemented | Ratio clamped 0.18–0.82 plus 300 px preferred minimum; both panes cannot collapse |
+| Dual pane | Divider theming and imported-theme compatibility | Explicit request | Implemented | Semantic tokens plus optional `components.paneDivider`; legacy themes inherit safe defaults |
+| Dual pane | Active-pane indication | Explicit request | Implemented | Theme-driven inset accent border by default; optional top line, header tint, or none |
+| Dual pane | Divider pointer/keyboard accessibility | Explicit request | Implemented | Separator ARIA semantics, arrow/Home/End/Enter, Shift large step, focus ring, pointer-cancel cleanup |
+| Dual pane | Divider position persistence | Explicit request | Implemented | Existing `splitRatio`; transient window clamps do not overwrite the saved preference |
 | Dual pane | Mode switching with preserved state | Explicit request | Implemented | Switching to single-pane keeps both pane snapshots |
 | Dual pane | Persistence of mode, pane folders/tabs, divider, sync preference, shortcuts, transfer history | Explicit request | Implemented | Version-1 snapshot extended with optional fields; legacy snapshots remain readable |
 | Dual pane | Active-pane shortcuts | Explicit request | Implemented | Tab switches panes in the file list; F5/F6 copy/move; Enter/Cmd+A/Cmd+R are pane-scoped |
@@ -209,6 +214,7 @@ paths; see [VALIDATION.md](VALIDATION.md) for the exact boundary.
 | Comparison | Row indicators in both panes | Explicit request | Implemented | Left-only / right-only / size / date / content dots |
 | Sync navigation | Relative folder mapping, disabled by default | Explicit request | Implemented | `deriveSyncAnchors` + `mapSynchronizedPath`; no-op on invalid mappings |
 | Tests | Temp-directory coverage for transfer/compare and pure helper tests | Explicit request | Implemented | Rust and frontend suites cover the feature; counts are recorded per development phase |
+| Tests | Divider geometry, pointer/keyboard, cleanup, theming, fallback and import tests | Explicit request | Implemented | `divider.test.ts`, `PaneDivider.test.tsx`, `divider-theme.test.ts` |
 
 ## Diagnostics
 

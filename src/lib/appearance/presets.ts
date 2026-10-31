@@ -1,6 +1,7 @@
 import type { InterfaceTheme } from "../types";
 import { generateMatchingPalette, type GeneratedPalette } from "./color";
 import {
+  DEFAULT_PANE_DIVIDER,
   DEFAULT_THEME_STYLE,
   createThemeIdentity,
   type ThemeAppearance,
@@ -192,6 +193,7 @@ export function designFromPreset(preset: ThemePreset, options: DesignOptions = {
     style: { ...preset.style },
     iconPackId: preset.iconPackId,
     overrides: {},
+    components: { paneDivider: { ...DEFAULT_PANE_DIVIDER } },
     presetId: preset.id,
     createdAt: now,
     updatedAt: now,
@@ -253,6 +255,7 @@ export function duplicateThemeDesign(source: ThemeDesign, name?: string): ThemeD
     palette: { ...source.palette },
     style: { ...source.style },
     overrides: { ...source.overrides },
+    components: { paneDivider: { ...source.components.paneDivider } },
     createdAt: now,
     updatedAt: now,
   };
