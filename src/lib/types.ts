@@ -173,6 +173,84 @@ export interface RecentItem {
   visitedAt: number;
 }
 
+/**
+ * A server the user saved for later access. The address is a URL such as
+ * `smb://server/share`; `mountPath` is filled in after macOS reports the
+ * mounted volume so the sidebar can reopen it without reconnecting.
+ */
+export interface NetworkConnection {
+  id: string;
+  name: string;
+  address: string;
+  mountPath: string | null;
+  createdAt: number;
+  lastConnectedAt: number | null;
+}
+
+export interface NetworkComputer {
+  name: string;
+  host: string | null;
+  address: string | null;
+}
+
+export interface StorageAuditEntry {
+  id: string;
+  label: string;
+  path: string;
+  category: string;
+  status: "active" | "legacy" | "obsolete";
+  bytes: number;
+  files: number;
+  detail: string;
+}
+
+export interface StorageAudit {
+  dataRoot: string;
+  entries: StorageAuditEntry[];
+  totalBytes: number;
+  activeBytes: number;
+  legacyBytes: number;
+  reclaimableBytes: number;
+  legacyCount: number;
+  recommendations: string[];
+}
+
+export interface StorageCleanupResult {
+  archived: string[];
+  removedCaches: string[];
+  migrated: string[];
+  skipped: string[];
+  failures: string[];
+  reclaimedBytes: number;
+}
+
+/**
+ * A user-created tag. Tags are MAXplorer metadata only: they never touch file
+ * contents or extended attributes, and their colours are stored as literal hex
+ * values so a tag keeps its identity across every interface theme.
+ */
+export interface TagDefinition {
+  id: string;
+  name: string;
+  color: string;
+  createdAt: number;
+}
+
+/**
+ * One path's tag membership plus a small metadata snapshot. The snapshot lets
+ * tag filters render without listing the filesystem, and keeps working when a
+ * file is temporarily unavailable (for example on an unmounted volume).
+ */
+export interface TagAssignment {
+  path: string;
+  name: string;
+  isDir: boolean;
+  modified: number | null;
+  size: number | null;
+  tagIds: string[];
+  updatedAt: number;
+}
+
 export interface ClipboardState {
   mode: "copy" | "cut";
   paths: string[];
@@ -215,6 +293,12 @@ export interface PaneState {
   showHidden: boolean;
   showExtensions: boolean;
   collapsed: boolean;
+  /**
+   * When set, this pane shows an overlay of every path carrying this tag. The
+   * tab's folder and history are untouched, so clearing the filter returns to
+   * exactly where the user was.
+   */
+  tagFilterId: string | null;
 }
 
 export interface ShortcutMap {
@@ -372,8 +456,23 @@ export type DialogState =
     }
   | { kind: "settings"; section?: SettingsSection }
   | { kind: "themeCreator"; start?: ThemeCreatorStart }
+  | { kind: "tagEditor"; tagId?: string; assignPaths?: string[] }
+  | {
+      kind: "networkConnection";
+      connectionId?: string;
+      initialAddress?: string;
+      initialName?: string;
+    }
+  | { kind: "storageAudit" }
   | { kind: "indexing" }
   | { kind: "about" };
+
+export type SidebarMenuTarget =
+  | { kind: "favorite"; path: string; name: string }
+  | { kind: "tag"; tagId: string }
+  | { kind: "location"; locationId: string; path: string; name: string; isVolume: boolean }
+  | { kind: "networkConnection"; connectionId: string }
+  | { kind: "recents" };
 
 export type ContextMenuState =
   | {
@@ -392,7 +491,8 @@ export type ContextMenuState =
       isDir: boolean;
       paths: string[];
     }
-  | { kind: "blank"; x: number; y: number; paneId?: PaneId };
+  | { kind: "blank"; x: number; y: number; paneId?: PaneId }
+  | { kind: "sidebar"; x: number; y: number; target: SidebarMenuTarget };
 
 export interface ToastMessage {
   id: string;
@@ -425,6 +525,7 @@ export interface PersistedPaneState {
   showHidden: boolean;
   showExtensions: boolean;
   collapsed: boolean;
+  tagFilterId: string | null;
 }
 
 export interface TransferHistoryItem {
@@ -471,6 +572,18 @@ export interface PersistedState {
   panes: Record<PaneId, PersistedPaneState>;
   shortcuts: ShortcutMap;
   transferHistory: TransferHistoryItem[];
+  tags: TagDefinition[];
+  tagAssignments: TagAssignment[];
+  networkConnections: NetworkConnection[];
 }
 
 export const HOME_LOCATION = "win11://home";
+/** Virtual location that lists recent files and folders instead of a directory. */
+export const RECENTS_LOCATION = "win11://recents";
+/** Virtual location for saved servers and mounted network volumes. */
+export const NETWORK_LOCATION = "win11://network";
+
+/** True for MAXplorer's own virtual locations, which have no filesystem path. */
+export function isVirtualLocation(path: string): boolean {
+  return path === HOME_LOCATION || path === RECENTS_LOCATION || path === NETWORK_LOCATION;
+}

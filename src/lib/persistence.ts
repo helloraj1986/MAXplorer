@@ -7,14 +7,19 @@ import type {
   PersistedState,
   PersistedTab,
   ShortcutMap,
+  NetworkConnection,
   SortDirection,
   SortKey,
   TabState,
+  TagAssignment,
+  TagDefinition,
   ThemeMode,
   TransferHistoryItem,
   ViewMode,
 } from "./types";
 import { HOME_LOCATION } from "./types";
+import { normalizeTagColor, normalizeTagName, tagPathKey } from "./tags";
+import { networkConnectionName, normalizeNetworkAddress } from "./network";
 import {
   DEFAULT_DISPLAY_PREFERENCES,
   DEFAULT_INTERFACE_THEME,
@@ -35,6 +40,7 @@ const DEFAULT_PANE: Omit<PersistedPaneState, "tabs" | "activeTabId"> = {
   showHidden: false,
   showExtensions: true,
   collapsed: false,
+  tagFilterId: null,
 };
 
 function defaultPane(tab: Pick<TabState, "id" | "location" | "history" | "historyIndex">): PersistedPaneState {
@@ -87,6 +93,9 @@ export function defaultPersisted(
     panes: { left, right },
     shortcuts: { ...DEFAULT_SHORTCUTS },
     transferHistory: [],
+    tags: [],
+    tagAssignments: [],
+    networkConnections: [],
   };
 }
 
@@ -144,6 +153,7 @@ function parsePane(value: unknown): PersistedPaneState | null {
     showHidden: Boolean(raw.showHidden),
     showExtensions: raw.showExtensions !== false,
     collapsed: Boolean(raw.collapsed),
+    tagFilterId: typeof raw.tagFilterId === "string" ? raw.tagFilterId : null,
   };
 }
 
@@ -199,6 +209,117 @@ function parseColumnVisibility(value: unknown): ColumnVisibility {
   };
 }
 
+function parseTags(value: unknown): TagDefinition[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const tags: TagDefinition[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const raw = item as Partial<TagDefinition>;
+    if (typeof raw.id !== "string" || !raw.id.trim()) continue;
+    if (seen.has(raw.id)) continue;
+    const name = normalizeTagName(typeof raw.name === "string" ? raw.name : "");
+    if (!name) continue;
+    seen.add(raw.id);
+    tags.push({
+      id: raw.id,
+      name,
+      color: normalizeTagColor(raw.color),
+      createdAt:
+        typeof raw.createdAt === "number" && Number.isFinite(raw.createdAt)
+          ? raw.createdAt
+          : Date.now(),
+    });
+  }
+  return tags;
+}
+
+function parseTagAssignments(
+  value: unknown,
+  tags: TagDefinition[],
+): TagAssignment[] {
+  if (!Array.isArray(value)) return [];
+  const validIds = new Set(tags.map((tag) => tag.id));
+  const seen = new Map<string, TagAssignment>();
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const raw = item as Partial<TagAssignment>;
+    if (typeof raw.path !== "string" || !raw.path.trim()) continue;
+    const tagIds = Array.isArray(raw.tagIds)
+      ? [...new Set(raw.tagIds.filter((id): id is string => typeof id === "string"))].filter(
+          (id) => validIds.has(id),
+        )
+      : [];
+    if (!tagIds.length) continue;
+    const key = tagPathKey(raw.path);
+    const existing = seen.get(key);
+    if (existing) {
+      existing.tagIds = [...new Set([...existing.tagIds, ...tagIds])];
+      continue;
+    }
+    const name =
+      typeof raw.name === "string" && raw.name.trim()
+        ? raw.name
+        : raw.path.split(/[\\/]/).filter(Boolean).pop() || raw.path;
+    seen.set(key, {
+      path: raw.path,
+      name,
+      isDir: raw.isDir === true,
+      modified:
+        typeof raw.modified === "number" && Number.isFinite(raw.modified)
+          ? raw.modified
+          : null,
+      size: typeof raw.size === "number" && Number.isFinite(raw.size) ? raw.size : null,
+      tagIds,
+      updatedAt:
+        typeof raw.updatedAt === "number" && Number.isFinite(raw.updatedAt)
+          ? raw.updatedAt
+          : Date.now(),
+    });
+  }
+  return [...seen.values()];
+}
+
+function parseNetworkConnections(value: unknown): NetworkConnection[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const addresses = new Set<string>();
+  const connections: NetworkConnection[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const raw = item as Partial<NetworkConnection>;
+    if (typeof raw.id !== "string" || !raw.id.trim()) continue;
+    const address = normalizeNetworkAddress(
+      typeof raw.address === "string" ? raw.address : "",
+    );
+    if (!address) continue;
+    if (seen.has(raw.id) || addresses.has(address.toLowerCase())) continue;
+    seen.add(raw.id);
+    addresses.add(address.toLowerCase());
+    connections.push({
+      id: raw.id,
+      name: networkConnectionName(
+        typeof raw.name === "string" ? raw.name : "",
+        address,
+      ),
+      address,
+      mountPath:
+        typeof raw.mountPath === "string" && raw.mountPath.trim()
+          ? raw.mountPath
+          : null,
+      createdAt:
+        typeof raw.createdAt === "number" && Number.isFinite(raw.createdAt)
+          ? raw.createdAt
+          : Date.now(),
+      lastConnectedAt:
+        typeof raw.lastConnectedAt === "number" && Number.isFinite(raw.lastConnectedAt)
+          ? raw.lastConnectedAt
+          : null,
+    });
+  }
+  return connections;
+}
+
 /**
  * Pure parser for a persisted snapshot. Returns `null` for missing, malformed,
  * or incompatible data so callers can fall back to defaults.
@@ -208,6 +329,10 @@ export function parsePersisted(raw: string | null): PersistedState | null {
   try {
     const value = JSON.parse(raw) as Partial<PersistedState>;
     if (!value || value.version !== 1) return null;
+    const tags = parseTags(value.tags);
+    const tagAssignments = parseTagAssignments(value.tagAssignments, tags);
+    const networkConnections = parseNetworkConnections(value.networkConnections);
+    const validTagIds = new Set(tags.map((tag) => tag.id));
     const legacyTabs = parseTabs(value.tabs);
     const parsedPanes = value.panes as Partial<Record<PaneId, unknown>> | undefined;
     const left =
@@ -227,6 +352,7 @@ export function parsePersisted(raw: string | null): PersistedState | null {
             showHidden: Boolean(value.showHidden),
             showExtensions: value.showExtensions !== false,
             collapsed: false,
+            tagFilterId: null,
           }
         : null);
     if (!left) return null;
@@ -235,6 +361,11 @@ export function parsePersisted(raw: string | null): PersistedState | null {
       tabs: left.tabs.map((tab) => ({ ...tab, id: `${tab.id}-right` })),
       activeTabId: `${left.activeTabId}-right`,
     };
+    const sanitizeFilter = (pane: PersistedPaneState): PersistedPaneState => ({
+      ...pane,
+      tagFilterId:
+        pane.tagFilterId && validTagIds.has(pane.tagFilterId) ? pane.tagFilterId : null,
+    });
     const columnWidths =
       value.columnWidths && typeof value.columnWidths === "object"
         ? {
@@ -288,9 +419,12 @@ export function parsePersisted(raw: string | null): PersistedState | null {
         typeof value.splitRatio === "number" ? value.splitRatio : 0.5,
       ),
       syncNavigation: value.syncNavigation === true,
-      panes: { left, right },
+      panes: { left: sanitizeFilter(left), right: sanitizeFilter(right) },
       shortcuts: parseShortcutMap(value.shortcuts),
       transferHistory: parseTransferHistory(value.transferHistory),
+      tags,
+      tagAssignments,
+      networkConnections,
     };
   } catch {
     return null;

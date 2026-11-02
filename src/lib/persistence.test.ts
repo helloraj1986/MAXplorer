@@ -29,6 +29,118 @@ function snapshot(overrides: Record<string, unknown> = {}) {
   };
 }
 
+describe("persisted tags", () => {
+  it("restores valid tag definitions and assignments", () => {
+    const parsed = parsePersisted(
+      JSON.stringify(
+        snapshot({
+          tags: [
+            { id: "tag-work", name: "  Client   Work ", color: "#ABC", createdAt: 4 },
+            { id: "tag-home", name: "Home", color: "not-a-color", createdAt: 5 },
+          ],
+          tagAssignments: [
+            {
+              path: "/Users/test/report.pdf",
+              name: "report.pdf",
+              isDir: false,
+              modified: 12,
+              size: 42,
+              tagIds: ["tag-work", "missing", "tag-work"],
+              updatedAt: 9,
+            },
+          ],
+        }),
+      ),
+    );
+    expect(parsed?.tags.map((tag) => tag.name)).toEqual(["Client Work", "Home"]);
+    expect(parsed?.tags[0].color).toBe("#aabbcc");
+    expect(parsed?.tags[1].color).toBe("#0090ff");
+    expect(parsed?.tagAssignments).toHaveLength(1);
+    expect(parsed?.tagAssignments[0].tagIds).toEqual(["tag-work"]);
+  });
+
+  it("drops unknown tags, empty assignments, and duplicate paths", () => {
+    const parsed = parsePersisted(
+      JSON.stringify(
+        snapshot({
+          tags: [{ id: "tag-work", name: "Work", color: "#0090ff", createdAt: 1 }],
+          tagAssignments: [
+            { path: "/Users/test/a.txt", name: "a.txt", tagIds: ["missing"] },
+            { path: "", tagIds: ["tag-work"] },
+            { path: "/Users/test/b.txt", name: "b.txt", tagIds: ["tag-work"] },
+            { path: "/users/test/B.txt", name: "b.txt", tagIds: ["tag-work"] },
+          ],
+        }),
+      ),
+    );
+    expect(parsed?.tagAssignments).toHaveLength(1);
+    expect(parsed?.tagAssignments[0].path).toBe("/Users/test/b.txt");
+  });
+
+  it("tolerates snapshots from builds without tags", () => {
+    const parsed = parsePersisted(JSON.stringify(snapshot()));
+    expect(parsed?.tags).toEqual([]);
+    expect(parsed?.tagAssignments).toEqual([]);
+  });
+});
+
+describe("persisted network connections", () => {
+  it("restores saved servers and strips passwords", () => {
+    const parsed = parsePersisted(
+      JSON.stringify(
+        snapshot({
+          networkConnections: [
+            {
+              id: "net-1",
+              name: "Studio",
+              address: "smb://user:secret@studio.local/share/",
+              mountPath: "/Volumes/share",
+              createdAt: 1,
+              lastConnectedAt: 2,
+            },
+          ],
+        }),
+      ),
+    );
+    expect(parsed?.networkConnections).toEqual([
+      {
+        id: "net-1",
+        name: "Studio",
+        address: "smb://user@studio.local/share",
+        mountPath: "/Volumes/share",
+        createdAt: 1,
+        lastConnectedAt: 2,
+      },
+    ]);
+  });
+
+  it("drops invalid and duplicate addresses and derives missing names", () => {
+    const parsed = parsePersisted(
+      JSON.stringify(
+        snapshot({
+          networkConnections: [
+            { id: "net-1", address: "smb://nas/media" },
+            { id: "net-2", address: "smb://NAS/media/" },
+            { id: "net-3", address: "https://example.com" },
+            { id: "net-1", address: "smb://other/share" },
+          ],
+        }),
+      ),
+    );
+    expect(parsed?.networkConnections).toHaveLength(1);
+    expect(parsed?.networkConnections[0]).toMatchObject({
+      id: "net-1",
+      name: "media",
+      address: "smb://nas/media",
+    });
+  });
+
+  it("tolerates snapshots from builds without network data", () => {
+    const parsed = parsePersisted(JSON.stringify(snapshot()));
+    expect(parsed?.networkConnections).toEqual([]);
+  });
+});
+
 describe("persisted theme preference", () => {
   it("defaults new snapshots to the Windows theme", () => {
     const value = defaultPersisted({

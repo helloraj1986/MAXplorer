@@ -5,18 +5,16 @@ import { FolderIcon } from "./icons/FolderIcon";
 import { StorageIcon } from "./icons/StorageIcon";
 import { useExplorerStore } from "../state/explorerStore";
 import { useStorageStore } from "../state/storageStore";
+import { beginFavoriteDrag, beginTagDrag } from "../state/fileDrag";
 import { basename } from "../lib/format";
-import { HOME_LOCATION, type Location } from "../lib/types";
-
-const STANDARD_IDS = new Set([
-  "desktop",
-  "downloads",
-  "documents",
-  "pictures",
-  "music",
-  "videos",
-  "applications",
-]);
+import { samePath, tagPathKey } from "../lib/tags";
+import {
+  HOME_LOCATION,
+  NETWORK_LOCATION,
+  RECENTS_LOCATION,
+  type Location,
+  type NetworkConnection,
+} from "../lib/types";
 
 const FOLDER_BADGES: Record<string, AppIconName> = {
   desktop: "desktop",
@@ -29,7 +27,30 @@ const FOLDER_BADGES: Record<string, AppIconName> = {
   applications: "applications",
 };
 
+type SidebarSection = "favorites" | "locations" | "tags";
+
 function LocationIcon({ location, className }: { location: Location; className?: string }) {
+  if (location.icon === "icloud") {
+    return (
+      <span className={`sidebar-icon sidebar-icon-blue ${className ?? ""}`}>
+        <AppIcon name="cloud" size={16} />
+      </span>
+    );
+  }
+  if (location.icon === "trash") {
+    return (
+      <span className={`sidebar-icon sidebar-icon-gray ${className ?? ""}`}>
+        <AppIcon name="trash" size={16} />
+      </span>
+    );
+  }
+  if (location.icon === "shared") {
+    return (
+      <span className={`sidebar-icon sidebar-icon-green ${className ?? ""}`}>
+        <AppIcon name="share" size={16} />
+      </span>
+    );
+  }
   if (location.kind === "drive") {
     return (
       <StorageIcon
@@ -45,7 +66,7 @@ function LocationIcon({ location, className }: { location: Location; className?:
   }
   if (location.icon === "home") {
     return (
-      <span className={`sidebar-icon ${className ?? ""}`}>
+      <span className={`sidebar-icon sidebar-icon-home ${className ?? ""}`}>
         <AppIcon name="home" size={16} />
       </span>
     );
@@ -61,38 +82,106 @@ function LocationIcon({ location, className }: { location: Location; className?:
   );
 }
 
+function shouldArmRowDrag(event: React.PointerEvent): boolean {
+  if (event.button !== 0) return false;
+  const target = event.target as HTMLElement | null;
+  return !target?.closest("button, input, a, [role='separator']");
+}
+
 export function Sidebar() {
   const platform = useExplorerStore((state) => state.platform);
   const locations = useExplorerStore((state) => state.locations);
   const pinned = useExplorerStore((state) => state.pinned);
-  const activeTab = useExplorerStore(
-    (state) => state.panes[state.activePane].tabs.find(
-      (tab) => tab.id === state.panes[state.activePane].activeTabId,
-    ),
+  const tags = useExplorerStore((state) => state.tags);
+  const tagAssignments = useExplorerStore((state) => state.tagAssignments);
+  const networkConnections = useExplorerStore((state) => state.networkConnections);
+  const openNetworkConnection = useExplorerStore((state) => state.openNetworkConnection);
+  const openNetworkConnectionDialog = useExplorerStore(
+    (state) => state.openNetworkConnectionDialog,
+  );
+  const activePane = useExplorerStore((state) => state.activePane);
+  const currentLocation = useExplorerStore((state) => {
+    const pane = state.panes[state.activePane];
+    return pane.tabs.find((tab) => tab.id === pane.activeTabId)?.location ?? HOME_LOCATION;
+  });
+  const activeTagFilter = useExplorerStore(
+    (state) => state.panes[state.activePane].tagFilterId,
   );
   const navigate = useExplorerStore((state) => state.navigate);
-  const pinPath = useExplorerStore((state) => state.pinPath);
   const unpinPath = useExplorerStore((state) => state.unpinPath);
+  const setTagFilter = useExplorerStore((state) => state.setTagFilter);
+  const openTagEditor = useExplorerStore((state) => state.openTagEditor);
   const setSidebarWidth = useExplorerStore((state) => state.setSidebarWidth);
   const sidebarWidth = useExplorerStore((state) => state.sidebarWidth);
-  const moveOrCopyPaths = useExplorerStore((state) => state.moveOrCopyPaths);
+  const showContextMenu = useExplorerStore((state) => state.showContextMenu);
+  const ejectVolume = useExplorerStore((state) => state.ejectVolume);
   const openStorageWorkspace = useStorageStore((state) => state.openWorkspace);
   const storageWorkspaceOpen = useStorageStore((state) => state.workspaceOpen);
   const storageVolume = useStorageStore((state) =>
     state.volumes.find((volume) => volume.mountPoint === state.selectedVolumePath),
   );
-  const [expanded, setExpanded] = useState(true);
+  const [openSections, setOpenSections] = useState<Record<SidebarSection, boolean>>({
+    favorites: true,
+    locations: true,
+    tags: true,
+  });
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
-  const standardLocations = useMemo(
-    () => locations.filter((location) => STANDARD_IDS.has(location.id)),
-    [locations],
+  const byId = useMemo(() => {
+    const map = new Map<string, Location>();
+    for (const location of locations) map.set(location.id, location);
+    return map;
+  }, [locations]);
+  const rootLocation = byId.get("root");
+  const volumeLocations = locations.filter(
+    (location) => location.kind === "drive" && location.id !== "root",
   );
-  const rootLocation = locations.find((location) => location.id === "root");
-  const volumeLocations = locations.filter((location) => location.kind === "drive" && location.id !== "root");
-  const networkLocation = locations.find((location) => location.id === "network");
-  const current = activeTab?.location ?? HOME_LOCATION;
+  const networkLocation = byId.get("network");
+  const networkVolumeLocations = locations.filter(
+    (location) => location.kind === "network" && location.isVolume,
+  );
+  const savedNetworkPaths = new Set(
+    networkConnections
+      .map((connection) => connection.mountPath)
+      .filter((path): path is string => Boolean(path))
+      .map(tagPathKey),
+  );
+  const unsavedNetworkVolumes = networkVolumeLocations.filter(
+    (location) => !savedNetworkPaths.has(tagPathKey(location.path)),
+  );
+  const networkCount = networkConnections.length + unsavedNetworkVolumes.length;
+  const mountedPathFor = (connection: NetworkConnection): string | null => {
+    if (!connection.mountPath) return null;
+    return (
+      locations.find((location) =>
+        samePath(location.path, connection.mountPath as string),
+      )?.path ?? null
+    );
+  };
+  const icloudLocation = byId.get("icloud");
+  const sharedLocation = byId.get("shared");
+  const trashLocation = byId.get("trash");
   const computerLabel = platform?.computerLabel ?? "This PC";
+  const homePath = platform?.home ?? "/";
+  const tagCounts = useMemo(() => {
+    // Count unique paths per tag in one pass so a large tag library cannot
+    // turn every sidebar render into a nested scan.
+    const pathsByTag = new Map<string, Set<string>>();
+    for (const assignment of tagAssignments) {
+      const pathKey = tagPathKey(assignment.path);
+      for (const tagId of assignment.tagIds) {
+        const paths = pathsByTag.get(tagId);
+        if (paths) paths.add(pathKey);
+        else pathsByTag.set(tagId, new Set([pathKey]));
+      }
+    }
+    return new Map(
+      [...pathsByTag.entries()].map(([tagId, paths]) => [tagId, paths.size]),
+    );
+  }, [tagAssignments]);
+
+  const toggleSection = (section: SidebarSection) =>
+    setOpenSections((current) => ({ ...current, [section]: !current[section] }));
 
   const startResize = (event: React.PointerEvent) => {
     event.preventDefault();
@@ -110,15 +199,37 @@ export function Sidebar() {
     window.addEventListener("pointerup", up);
   };
 
-  const renderRow = (location: Location, options: { child?: boolean; pinnable?: boolean } = {}) => {
-    const selected = current === location.path;
-    const isPinned = pinned.includes(location.path);
+  const isCurrent = (path: string) => !activeTagFilter && currentLocation === path;
+
+  const openLocationMenu = (
+    event: React.MouseEvent,
+    locationId: string,
+    path: string,
+    name: string,
+    isVolume: boolean,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    showContextMenu({
+      kind: "sidebar",
+      x: event.clientX,
+      y: event.clientY,
+      target: { kind: "location", locationId, path, name, isVolume },
+    });
+  };
+
+  const renderLocationRow = (
+    location: Location,
+    options: { indent?: boolean; droppable?: boolean } = {},
+  ) => {
+    const selected = isCurrent(location.path);
+    const canEject = location.isVolume && location.id !== "root";
     return (
       <div
         key={location.id}
-        className={`nav-row ${selected ? "selected" : ""} ${options.child ? "child" : ""}`}
-        role="treeitem"
-        aria-selected={selected}
+        className={`nav-row ${selected ? "selected" : ""}`}
+        role="button"
+        aria-current={selected ? "page" : undefined}
         tabIndex={0}
         title={location.path}
         onClick={() => void navigate(location.path)}
@@ -128,180 +239,450 @@ export function Sidebar() {
             void navigate(location.path);
           }
         }}
-        data-drop-path={location.path}
+        onContextMenu={(event) =>
+          openLocationMenu(event, location.id, location.path, location.name, location.isVolume)
+        }
+        data-drop-path={options.droppable === false ? undefined : location.path}
         data-drop-label={location.name}
       >
-        {options.child ? <span className="nav-child-indent" aria-hidden="true" /> : null}
+        {options.indent ? <span className="nav-child-indent" aria-hidden="true" /> : null}
         <LocationIcon location={location} />
         <span className="nav-label">{location.name}</span>
-        {isPinned ? (
+        {canEject ? (
           <button
             type="button"
-            className="nav-pin pinned"
-            aria-label={`Unpin ${location.name} from Quick access`}
-            title="Unpin from Quick access"
+            className="nav-pin nav-eject"
+            aria-label={`Eject ${location.name}`}
+            title={`Eject ${location.name}`}
             onClick={(event) => {
               event.stopPropagation();
-              unpinPath(location.path);
+              void ejectVolume(location.path);
             }}
           >
-            <Icon name="pin" size={12} />
-          </button>
-        ) : options.pinnable ? (
-          <button
-            type="button"
-            className="nav-pin"
-            aria-label={`Pin ${location.name} to Quick access`}
-            title="Pin to Quick access"
-            onClick={(event) => {
-              event.stopPropagation();
-              pinPath(location.path);
-            }}
-          >
-            <Icon name="pin" size={12} />
+            <Icon name="eject" size={12} />
           </button>
         ) : null}
       </div>
     );
   };
 
-  const pinnedRows = pinned
-    .filter((path) => !locations.some((location) => location.path === path && STANDARD_IDS.has(location.id)))
-    .map((path) => {
-      const known = locations.find((location) => location.path === path);
-      return (
-        <div
-          key={`pinned-${path}`}
-          className={`nav-row ${current === path ? "selected" : ""}`}
-          role="treeitem"
-          aria-selected={current === path}
-          tabIndex={0}
-          title={path}
-          onClick={() => void navigate(path)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              void navigate(path);
-            }
-          }}
-          data-drop-path={path}
-          data-drop-label={basename(path)}
-        >
+  const renderHomeRow = () => {
+    const selected = isCurrent(HOME_LOCATION);
+    return (
+      <div
+        className={`nav-row ${selected ? "selected" : ""}`}
+        role="button"
+        aria-current={selected ? "page" : undefined}
+        tabIndex={0}
+        title={homePath}
+        onClick={() => void navigate(HOME_LOCATION)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            void navigate(HOME_LOCATION);
+          }
+        }}
+        onContextMenu={(event) => openLocationMenu(event, "home", homePath, "Home", false)}
+        data-drop-path={homePath}
+        data-drop-label="Home"
+      >
+        <span className="sidebar-icon sidebar-icon-home">
+          <Icon name="home" size={16} />
+        </span>
+        <span className="nav-label">Home</span>
+      </div>
+    );
+  };
+
+  const renderRecentsRow = () => {
+    const selected = isCurrent(RECENTS_LOCATION);
+    return (
+      <div
+        className={`nav-row ${selected ? "selected" : ""}`}
+        role="button"
+        aria-current={selected ? "page" : undefined}
+        tabIndex={0}
+        title="Recently opened files and folders"
+        onClick={() => void navigate(RECENTS_LOCATION)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            void navigate(RECENTS_LOCATION);
+          }
+        }}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          showContextMenu({
+            kind: "sidebar",
+            x: event.clientX,
+            y: event.clientY,
+            target: { kind: "recents" },
+          });
+        }}
+      >
+        <span className="sidebar-icon sidebar-icon-purple">
+          <Icon name="clock" size={16} />
+        </span>
+        <span className="nav-label">Recents</span>
+      </div>
+    );
+  };
+
+  const renderNetworkConnectionRow = (connection: NetworkConnection) => {
+    const mountedPath = mountedPathFor(connection);
+    const selected = mountedPath != null && isCurrent(mountedPath);
+    return (
+      <div
+        key={`network-${connection.id}`}
+        className={`nav-row nav-network-row ${selected ? "selected" : ""}`}
+        role="button"
+        aria-current={selected ? "page" : undefined}
+        tabIndex={0}
+        title={`${connection.address}${mountedPath ? `\n${mountedPath}` : ""}`}
+        onClick={() => void openNetworkConnection(connection.id)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            void openNetworkConnection(connection.id);
+          }
+        }}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          showContextMenu({
+            kind: "sidebar",
+            x: event.clientX,
+            y: event.clientY,
+            target: { kind: "networkConnection", connectionId: connection.id },
+          });
+        }}
+        data-drop-path={mountedPath ?? undefined}
+        data-drop-label={connection.name}
+      >
+        <span className="nav-child-indent" aria-hidden="true" />
+        <span className="sidebar-icon sidebar-icon-blue">
+          <Icon name="server" size={16} />
+        </span>
+        <span className="nav-label">{connection.name}</span>
+        <span
+          className={`network-dot ${mountedPath ? "connected" : ""}`}
+          title={mountedPath ? "Connected" : "Not connected"}
+          aria-label={mountedPath ? "Connected" : "Not connected"}
+        />
+      </div>
+    );
+  };
+
+  const favoritePaths = pinned.filter(
+    (path) => !sharedLocation || !samePath(path, sharedLocation.path),
+  );
+  const favoriteRows = favoritePaths.map((path, index) => {
+    const known = locations.find((location) => samePath(location.path, path));
+    const name = known?.name ?? (basename(path) || path);
+    const selected = isCurrent(path);
+    const pseudo: Location = known ?? {
+      id: `favorite:${path}`,
+      name,
+      path,
+      kind: "folder",
+      icon: "folder",
+      isVolume: false,
+    };
+    return (
+      <div
+        key={`pinned-${path}`}
+        className={`nav-row ${selected ? "selected" : ""}`}
+        role="button"
+        aria-current={selected ? "page" : undefined}
+        tabIndex={0}
+        title={path}
+        onClick={() => void navigate(path)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            void navigate(path);
+          }
+        }}
+        onPointerDown={(event) => {
+          if (!shouldArmRowDrag(event)) return;
+          beginFavoriteDrag(event, path, name, index);
+        }}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          showContextMenu({
+            kind: "sidebar",
+            x: event.clientX,
+            y: event.clientY,
+            target: { kind: "favorite", path, name },
+          });
+        }}
+        data-drop-path={path}
+        data-drop-label={name}
+        data-drop-favorite={path}
+      >
+        {known ? (
+          <LocationIcon location={pseudo} />
+        ) : (
           <span className="sidebar-icon">
             <FolderIcon size={16} variant="favorite" />
           </span>
-          <span className="nav-label">{known?.name ?? basename(path) ?? path}</span>
-          <button
-            type="button"
-            className="nav-pin pinned"
-            aria-label="Unpin from Quick access"
-            title="Unpin from Quick access"
-            onClick={(event) => {
-              event.stopPropagation();
-              unpinPath(path);
-            }}
-          >
-            <Icon name="pin" size={12} />
-          </button>
-        </div>
-      );
-    });
+        )}
+        <span className="nav-label">{name}</span>
+        <button
+          type="button"
+          className="nav-pin pinned"
+          aria-label={`Remove ${name} from Favorites`}
+          title="Remove from Favorites"
+          onClick={(event) => {
+            event.stopPropagation();
+            unpinPath(path);
+          }}
+        >
+          <Icon name="pin" size={12} />
+        </button>
+      </div>
+    );
+  });
+
+  const renderSection = (section: SidebarSection, label: string, children: React.ReactNode) => {
+    const open = openSections[section];
+    return (
+      <section className="sidebar-section" aria-label={label} key={section}>
+        <button
+          type="button"
+          className={`sidebar-heading ${open ? "expanded" : ""}`}
+          aria-expanded={open}
+          onClick={() => toggleSection(section)}
+        >
+          <span className="sidebar-heading-chevron" aria-hidden="true">
+            <Icon name="chevronRight" size={10} />
+          </span>
+          <span>{label}</span>
+        </button>
+        {open ? <div className="nav-section">{children}</div> : null}
+      </section>
+    );
+  };
 
   return (
     <>
       <aside className="sidebar" style={{ width: sidebarWidth }} aria-label="Navigation pane">
-        <div className="sidebar-scroll" role="tree" aria-label="Locations">
-          <div className="sidebar-heading" role="presentation">Favorites</div>
-          <div
-            className={`nav-row ${current === HOME_LOCATION ? "selected" : ""}`}
-            role="treeitem"
-            aria-selected={current === HOME_LOCATION}
-            tabIndex={0}
-            onClick={() => void navigate(HOME_LOCATION)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                void navigate(HOME_LOCATION);
-              }
-            }}
-          >
-            <span className="sidebar-icon sidebar-icon-home">
-              <Icon name="home" size={16} />
-            </span>
-            <span className="nav-label">Home</span>
-          </div>
-          {pinnedRows.length ? <div className="nav-section">{pinnedRows}</div> : null}
-          <div className="sidebar-heading" role="presentation">Locations</div>
-          <div className="nav-section">
-            <div
-              className={`nav-row nav-group ${current === rootLocation?.path ? "selected" : ""}`}
-              role="treeitem"
-              aria-expanded={expanded}
-              tabIndex={0}
-              onClick={() => setExpanded((value) => !value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  setExpanded((value) => !value);
-                }
-              }}
-            >
-              <button
-                type="button"
-                className={`nav-chevron ${expanded ? "expanded" : ""}`}
-                aria-label={expanded ? "Collapse" : "Expand"}
-                tabIndex={-1}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setExpanded((value) => !value);
+        <nav className="sidebar-scroll" aria-label="Sidebar">
+          {renderSection(
+            "favorites",
+            "Favorites",
+            <>
+              {renderRecentsRow()}
+              {sharedLocation ? renderLocationRow(sharedLocation) : null}
+              {favoriteRows}
+              {!pinned.length && !sharedLocation ? (
+                <div className="sidebar-hint">
+                  Pin folders here from the file list or a location's menu.
+                </div>
+              ) : null}
+            </>,
+          )}
+
+          {renderSection(
+            "locations",
+            "Locations",
+            <>
+              {icloudLocation ? renderLocationRow(icloudLocation) : null}
+              {renderHomeRow()}
+              <div className="nav-row nav-group" role="presentation" title={computerLabel}>
+                <span className="nav-child-indent" aria-hidden="true" />
+                <span className="sidebar-icon sidebar-icon-blue">
+                  <Icon name="computer" size={16} />
+                </span>
+                <span className="nav-label">{computerLabel}</span>
+              </div>
+              <div className="nav-children">
+                {rootLocation ? renderLocationRow(rootLocation, { indent: true }) : null}
+                {volumeLocations.map((location) =>
+                  renderLocationRow(location, { indent: true }),
+                )}
+              </div>
+              <div
+                className={`nav-row ${isCurrent(NETWORK_LOCATION) ? "selected" : ""}`}
+                role="button"
+                aria-current={isCurrent(NETWORK_LOCATION) ? "page" : undefined}
+                tabIndex={0}
+                title="Servers and computers on your network"
+                onClick={() => void navigate(NETWORK_LOCATION)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    void navigate(NETWORK_LOCATION);
+                  }
                 }}
               >
-                <Icon name="chevronRight" size={10} />
-              </button>
-              <span className="sidebar-icon sidebar-icon-blue">
-                <Icon name="computer" size={16} />
-              </span>
-              <span className="nav-label">{computerLabel}</span>
-            </div>
-            {expanded ? (
-              <div className="nav-children">
-                {standardLocations.map((location) =>
-                  renderRow(location, { child: true, pinnable: true }),
-                )}
-                {rootLocation ? renderRow(rootLocation, { child: true }) : null}
-                {volumeLocations.map((location) => renderRow(location, { child: true }))}
-                {networkLocation ? renderRow(networkLocation, { child: true }) : null}
-              </div>
-            ) : null}
-          </div>
-          <div className="sidebar-heading" role="presentation">Tools</div>
-          <div className="nav-section">
-            <div
-              className={`nav-row ${storageWorkspaceOpen ? "selected" : ""}`}
-              role="treeitem"
-              aria-selected={storageWorkspaceOpen}
-              tabIndex={0}
-              title={storageVolume ? `Analyze ${storageVolume.name}` : "Analyze storage on this Mac"}
-              onClick={() => void openStorageWorkspace()}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  void openStorageWorkspace();
-                }
-              }}
-            >
-              <span className="sidebar-icon sidebar-icon-blue">
-                <StorageIcon size={16} variant={storageVolume?.isNetwork ? "network" : storageVolume?.isInternal ? "internal" : "external"} />
-              </span>
-              <span className="nav-label">Storage Analyzer</span>
-              {storageVolume ? (
-                <span className="nav-storage-percent" title={`${storageVolume.usagePercent.toFixed(1)}% used`}>
-                  {Math.round(storageVolume.usagePercent)}%
+                <span className="sidebar-icon sidebar-icon-blue">
+                  <Icon name="network" size={16} />
                 </span>
+                <span className="nav-label">Network</span>
+                {networkCount ? <span className="nav-count">{networkCount}</span> : null}
+              </div>
+              <div className="nav-children">
+                {networkConnections.map(renderNetworkConnectionRow)}
+                {unsavedNetworkVolumes.map((location) =>
+                  renderLocationRow(location, { indent: true }),
+                )}
+                {networkLocation ? (
+                  <div
+                    className="nav-row nav-network-browse"
+                    role="button"
+                    tabIndex={0}
+                    title={networkLocation.path}
+                    onClick={() => void navigate(networkLocation.path)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        void navigate(networkLocation.path);
+                      }
+                    }}
+                  >
+                    <span className="nav-child-indent" aria-hidden="true" />
+                    <span className="sidebar-icon sidebar-icon-blue">
+                      <Icon name="network" size={16} />
+                    </span>
+                    <span className="nav-label">Browse Network</span>
+                  </div>
+                ) : null}
+                <button
+                  type="button"
+                  className="nav-row nav-add-tag"
+                  onClick={() => openNetworkConnectionDialog()}
+                  title="Save a server address"
+                >
+                  <span className="nav-child-indent" aria-hidden="true" />
+                  <span className="sidebar-icon">
+                    <Icon name="plus" size={15} />
+                  </span>
+                  <span className="nav-label">Connect to Server...</span>
+                </button>
+              </div>
+              {trashLocation ? renderLocationRow(trashLocation) : null}
+            </>,
+          )}
+
+          {renderSection(
+            "tags",
+            "Tags",
+            <>
+              {tags.map((tag, index) => {
+                const selected = activeTagFilter === tag.id;
+                const count = tagCounts.get(tag.id) ?? 0;
+                return (
+                  <div
+                    key={tag.id}
+                    className={`nav-row tag-row ${selected ? "selected" : ""}`}
+                    role="button"
+                    aria-pressed={selected}
+                    tabIndex={0}
+                    title={`${tag.name} - ${count} ${count === 1 ? "item" : "items"}`}
+                    onClick={() => setTagFilter(tag.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setTagFilter(tag.id);
+                      }
+                    }}
+                    onPointerDown={(event) => {
+                      if (!shouldArmRowDrag(event)) return;
+                      beginTagDrag(event, tag.id, tag.name, index);
+                    }}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      showContextMenu({
+                        kind: "sidebar",
+                        x: event.clientX,
+                        y: event.clientY,
+                        target: { kind: "tag", tagId: tag.id },
+                      });
+                    }}
+                    data-drop-tag={tag.id}
+                    data-drop-label={tag.name}
+                  >
+                    <span className="sidebar-icon">
+                      <span
+                        className="tag-swatch"
+                        style={{ backgroundColor: tag.color }}
+                        aria-hidden="true"
+                      />
+                    </span>
+                    <span className="nav-label">{tag.name}</span>
+                    {count ? <span className="nav-count">{count}</span> : null}
+                  </div>
+                );
+              })}
+              <button
+                type="button"
+                className="nav-row nav-add-tag"
+                onClick={() => openTagEditor()}
+                title="Create a tag"
+              >
+                <span className="sidebar-icon">
+                  <Icon name="plus" size={15} />
+                </span>
+                <span className="nav-label">New Tag...</span>
+              </button>
+              {!tags.length ? (
+                <div className="sidebar-hint">
+                  Tags are MAXplorer metadata. They never change file contents.
+                </div>
               ) : null}
+            </>,
+          )}
+
+          <section className="sidebar-section" aria-label="Tools">
+            <div className="sidebar-heading static">Tools</div>
+            <div className="nav-section">
+              <div
+                className={`nav-row ${storageWorkspaceOpen ? "selected" : ""}`}
+                role="button"
+                aria-current={storageWorkspaceOpen ? "page" : undefined}
+                tabIndex={0}
+                title={
+                  storageVolume
+                    ? `Analyze ${storageVolume.name}`
+                    : "Analyze storage on this Mac"
+                }
+                onClick={() => void openStorageWorkspace()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    void openStorageWorkspace();
+                  }
+                }}
+              >
+                <span className="sidebar-icon sidebar-icon-blue">
+                  <StorageIcon
+                    size={16}
+                    variant={
+                      storageVolume?.isNetwork
+                        ? "network"
+                        : storageVolume?.isInternal
+                          ? "internal"
+                          : "external"
+                    }
+                  />
+                </span>
+                <span className="nav-label">Storage Analyzer</span>
+                {storageVolume ? (
+                  <span
+                    className="nav-storage-percent"
+                    title={`${storageVolume.usagePercent.toFixed(1)}% used`}
+                  >
+                    {Math.round(storageVolume.usagePercent)}%
+                  </span>
+                ) : null}
+              </div>
             </div>
-          </div>
-        </div>
+          </section>
+        </nav>
       </aside>
       <div
         className="sidebar-resizer"

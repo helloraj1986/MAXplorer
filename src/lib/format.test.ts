@@ -75,6 +75,12 @@ describe("paths", () => {
       { label: "rajee", path: "/Users/rajee" },
       { label: "Documents", path: "/Users/rajee/Documents" },
     ]);
+    expect(breadcrumbs("win11://recents", "Macintosh HD", "win11://home")).toEqual([
+      { label: "Recents", path: "win11://recents" },
+    ]);
+    expect(breadcrumbs("win11://network", "Macintosh HD", "win11://home")).toEqual([
+      { label: "Network", path: "win11://network" },
+    ]);
   });
 
   it("handles Windows paths for development validation", () => {

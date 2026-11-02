@@ -449,9 +449,16 @@ in the original shell, so existing behavior and details/preview panes are unchan
 ## macOS integration
 
 - `Info.plist` includes usage descriptions for Desktop, Documents, Downloads, removable
-  and network volumes. The app is **not sandboxed**; TCC prompts apply.
-- `dirs` resolves real home folders. `/Volumes` entries become drives; `/Network` is shown
-  when present. `/Applications` and `/System/Applications` feed Open With.
+  and network volumes, plus `NSLocalNetworkUsageDescription` and `NSBonjourServices` for
+  SMB discovery. The app is **not sandboxed**, so security-scoped bookmarks are not used;
+  TCC's Local Network and Network Volumes controls still apply.
+- Network servers are mounted through macOS **NetFS** (`NetFSMountURLSync`), the same
+  framework Finder uses, so the native authentication sheet and Keychain work without
+  routing through Finder. Discovery combines Bonjour, WS-Discovery, and NetBIOS; mount
+  paths are detected with `statfs(2)`. See [NETWORK_ACCESS.md](NETWORK_ACCESS.md).
+- `dirs` resolves real home folders. `/Volumes` entries become drives; mounted network
+  filesystems become Network locations even if TCC temporarily denies their contents;
+  `/Network` is shown when present. `/Applications` and `/System/Applications` feed Open With.
 - `open` opens the default app; `open -R` reveals in Finder; `open -a Terminal` opens a
   terminal; `open -a <app>` powers Open With.
 - No Windows system paths are used on macOS. "This PC" becomes "This Mac"; drive letters

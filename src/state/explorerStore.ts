@@ -46,6 +46,33 @@ import {
   type SyncAnchors,
 } from "../lib/panes";
 import { createTransferItem, summarizeResults } from "../lib/transfers";
+import {
+  createNetworkConnectionId,
+  networkAddressHasShare,
+  networkConnectionName,
+  networkDisplayName,
+  normalizeNetworkAddress,
+} from "../lib/network";
+import {
+  DEFAULT_TAG_COLOR,
+  countForTag,
+  createTagDefinition,
+  duplicateAssignmentPaths,
+  entriesForTag,
+  isPathOrDescendant,
+  normalizeTagColor,
+  normalizeTagName,
+  pruneTagIds,
+  removeAssignmentsForPaths,
+  renameAssignmentPaths,
+  replacePathPrefix,
+  samePath as sameTagPath,
+  setTagOnPaths,
+  snapshotForPath,
+  tagPathKey,
+  uniqueTagName,
+  type TagSnapshot,
+} from "../lib/tags";
 import type {
   AppError,
   ClipboardState,
@@ -62,6 +89,7 @@ import type {
   GroupBy,
   InterfaceTheme,
   Location,
+  NetworkConnection,
   OperationState,
   OperationResult,
   PaneId,
@@ -74,6 +102,8 @@ import type {
   SortDirection,
   SortKey,
   TabState,
+  TagAssignment,
+  TagDefinition,
   ThemeMode,
   ToastMessage,
   TransferHistoryItem,
@@ -85,7 +115,12 @@ import type {
   UiTextSize,
   ViewMode,
 } from "../lib/types";
-import { HOME_LOCATION } from "../lib/types";
+import {
+  HOME_LOCATION,
+  NETWORK_LOCATION,
+  RECENTS_LOCATION,
+  isVirtualLocation,
+} from "../lib/types";
 import { DEFAULT_DISPLAY_PREFERENCES, DEFAULT_INTERFACE_THEME } from "../lib/theme";
 
 interface NavigatorOptions {
@@ -138,6 +173,9 @@ interface ExplorerState {
   sidebarWidth: number;
   pinned: string[];
   recents: RecentItem[];
+  tags: TagDefinition[];
+  tagAssignments: TagAssignment[];
+  networkConnections: NetworkConnection[];
   clipboard: ClipboardState | null;
   contextMenu: ContextMenuState | null;
   dialog: DialogState | null;
@@ -162,6 +200,36 @@ interface ExplorerState {
   currentEntries: (paneId?: PaneId) => FileEntry[];
   selectedEntries: (paneId?: PaneId) => FileEntry[];
   isPinned: (path: string) => boolean;
+  tag: (id: string) => TagDefinition | undefined;
+  tagIdsForPath: (path: string) => string[];
+  tagFilterEntries: (paneId?: PaneId) => FileEntry[];
+  createTag: (name: string, color?: string) => string;
+  updateTag: (id: string, patch: { name?: string; color?: string }) => void;
+  deleteTag: (id: string) => void;
+  reorderTags: (fromId: string, toId: string) => void;
+  assignTag: (paths: string[], tagId: string, snapshots?: TagSnapshot[]) => void;
+  unassignTag: (paths: string[], tagId: string) => void;
+  toggleTag: (paths: string[], tagId: string, snapshots?: TagSnapshot[]) => void;
+  setTagFilter: (tagId: string | null, paneId?: PaneId) => void;
+  clearTagFilter: (paneId?: PaneId) => void;
+  openTagEditor: (tagId?: string, assignPaths?: string[]) => void;
+  reorderPinned: (fromPath: string, toPath: string) => void;
+  refreshLocations: () => Promise<void>;
+  ejectVolume: (path: string) => Promise<void>;
+  openNetworkConnectionDialog: (connectionId?: string) => void;
+  saveNetworkConnection: (input: {
+    id?: string;
+    name: string;
+    address: string;
+    username?: string;
+    password?: string;
+  }) => string;
+  removeNetworkConnection: (id: string) => void;
+  connectNetworkConnection: (
+    id: string,
+    credentials?: { username?: string; password?: string },
+  ) => Promise<void>;
+  openNetworkConnection: (id: string) => Promise<void>;
 
   setActivePane: (paneId: PaneId) => void;
   toggleDualPane: () => void;
@@ -334,12 +402,56 @@ function currentFolderOf(state: ExplorerState, paneId?: PaneId): string {
 }
 
 function currentEntriesOf(state: ExplorerState, paneId?: PaneId): FileEntry[] {
+  const pane = paneOf(state, paneId);
+  if (pane.tagFilterId) return entriesForTag(state.tagAssignments, pane.tagFilterId);
   const tab = activeTabOfState(state, paneId);
   return tab.searchResults ?? tab.entries;
 }
 
 function tabFolderOf(state: ExplorerState, tab: TabState): string {
-  return tab.location === HOME_LOCATION ? state.platform?.home ?? "/" : tab.location;
+  if (tab.location === HOME_LOCATION) return state.platform?.home ?? "/";
+  return tab.location;
+}
+
+/**
+ * Builds assignment snapshots from live listings in a single pass, then falls
+ * back to the path basename for items that are not currently visible.
+ */
+function snapshotsFor(
+  state: ExplorerState,
+  paths: string[],
+  provided?: TagSnapshot[],
+): Map<string, TagSnapshot> {
+  const snapshots = new Map<string, TagSnapshot>();
+  for (const snapshot of provided ?? []) {
+    snapshots.set(tagPathKey(snapshot.path), snapshot);
+  }
+  const wanted = new Set<string>();
+  for (const path of paths) {
+    const key = tagPathKey(path);
+    if (!snapshots.has(key)) wanted.add(key);
+  }
+  if (wanted.size) {
+    for (const paneId of ["left", "right"] as PaneId[]) {
+      for (const tab of state.panes[paneId].tabs) {
+        for (const entries of [tab.entries, tab.searchResults ?? []]) {
+          for (const entry of entries) {
+            const key = tagPathKey(entry.path);
+            if (!wanted.has(key)) continue;
+            snapshots.set(key, snapshotForPath(entry.path, entry));
+            wanted.delete(key);
+          }
+        }
+        if (!wanted.size) break;
+      }
+      if (!wanted.size) break;
+    }
+  }
+  for (const path of paths) {
+    const key = tagPathKey(path);
+    if (!snapshots.has(key)) snapshots.set(key, snapshotForPath(path));
+  }
+  return snapshots;
 }
 
 function findTabInFolder(
@@ -414,9 +526,73 @@ function addRecentTo(
   modified: number | null = null,
 ): RecentItem[] {
   const item = recentFor(path, isDir, modified);
-  const recents = [item, ...state.recents.filter((recent) => recent.path !== path)];
+  const recents = [
+    item,
+    ...state.recents.filter((recent) => !sameTagPath(recent.path, path)),
+  ];
   return recents.slice(0, 20);
 }
+
+/** Deduplicates paths case-insensitively while preserving the first spelling. */
+function uniquePathList(paths: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const path of paths) {
+    const key = tagPathKey(path);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(path);
+  }
+  return result;
+}
+
+/** Rewrites pinned/recents paths after a rename or move. */
+function rewritePathList(paths: string[], from: string, to: string): string[] {
+  return uniquePathList(paths.map((path) => replacePathPrefix(path, from, to) ?? path));
+}
+
+function rewriteRecentItems(recents: RecentItem[], from: string, to: string): RecentItem[] {
+  const rewritten = recents.map((recent) => {
+    const path = replacePathPrefix(recent.path, from, to);
+    if (!path) return recent;
+    return {
+      ...recent,
+      path,
+      name: sameTagPath(recent.path, from) ? basename(path) || recent.name : recent.name,
+    };
+  });
+  const seen = new Set<string>();
+  return rewritten.filter((recent) => {
+    const key = tagPathKey(recent.path);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/** Removes a deleted subtree from pinned folders and recent items. */
+function forgetDeletedPaths(
+  paths: string[],
+  values: string[],
+  recents: RecentItem[],
+): { pinned: string[]; recents: RecentItem[] } {
+  const roots = paths.filter(Boolean);
+  return {
+    pinned: values.filter(
+      (value) => !roots.some((root) => isPathOrDescendant(value, root)),
+    ),
+    recents: recents.filter(
+      (recent) => !roots.some((root) => isPathOrDescendant(recent.path, root)),
+    ),
+  };
+}
+
+// Credentials supplied in the connection dialog are kept in memory only, long
+// enough to complete the mount. They are never part of a persisted snapshot.
+const networkSessionCredentials = new Map<
+  string,
+  { username?: string; password?: string }
+>();
 
 let toastCounter = 0;
 let persistenceStarted = false;
@@ -454,6 +630,9 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   sidebarWidth: 204,
   pinned: [],
   recents: [],
+  tags: [],
+  tagAssignments: [],
+  networkConnections: [],
   clipboard: null,
   contextMenu: null,
   dialog: null,
@@ -472,7 +651,20 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   currentFolder: (paneId) => currentFolderOf(get(), paneId),
   currentEntries: (paneId) => currentEntriesOf(get(), paneId),
   selectedEntries: (paneId) => selectedEntriesOf(get(), paneId),
-  isPinned: (path) => get().pinned.includes(path),
+  isPinned: (path) => get().pinned.some((item) => sameTagPath(item, path)),
+  tag: (id) => get().tags.find((tag) => tag.id === id),
+  tagIdsForPath: (path) => {
+    const key = tagPathKey(path);
+    return (
+      get().tagAssignments.find((assignment) => tagPathKey(assignment.path) === key)
+        ?.tagIds ?? []
+    );
+  },
+  tagFilterEntries: (paneId) => {
+    const state = get();
+    const filter = paneOf(state, paneId).tagFilterId;
+    return filter ? entriesForTag(state.tagAssignments, filter) : [];
+  },
 
   async initialize() {
     if (get().initializing || get().initialized) return;
@@ -512,6 +704,9 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
       let recents: RecentItem[] = [];
       let shortcuts: ShortcutMap = { ...DEFAULT_SHORTCUTS };
       let transferHistory: TransferHistoryItem[] = [];
+      let tags: TagDefinition[] = [];
+      let tagAssignments: TagAssignment[] = [];
+      let networkConnections: NetworkConnection[] = [];
 
       if (persisted) {
         detailsPane = persisted.detailsPane;
@@ -531,7 +726,38 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
         recents = persisted.recents;
         shortcuts = persisted.shortcuts;
         transferHistory = persisted.transferHistory;
+        tags = persisted.tags;
+        tagAssignments = persisted.tagAssignments;
+        networkConnections = persisted.networkConnections;
       }
+
+      // First run only: give the Favorites section the familiar standard
+      // locations. Existing installations keep exactly the pins they chose.
+      if (!persisted) {
+        const defaultIds = ["desktop", "documents", "downloads", "applications"];
+        pinned = defaultIds
+          .map((id) => locations.find((location) => location.id === id)?.path)
+          .filter((path): path is string => Boolean(path));
+      }
+
+      const validTagIds = new Set(tags.map((tag) => tag.id));
+      tagAssignments = pruneTagIds(tagAssignments, validTagIds);
+      panes = {
+        left: {
+          ...panes.left,
+          tagFilterId:
+            panes.left.tagFilterId && validTagIds.has(panes.left.tagFilterId)
+              ? panes.left.tagFilterId
+              : null,
+        },
+        right: {
+          ...panes.right,
+          tagFilterId:
+            panes.right.tagFilterId && validTagIds.has(panes.right.tagFilterId)
+              ? panes.right.tagFilterId
+              : null,
+        },
+      };
 
       if (initialPath) {
         const resolved = await api.resolvePath(initialPath).catch(() => initialPath);
@@ -579,6 +805,9 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
         sidebarWidth,
         pinned,
         recents,
+        tags,
+        tagAssignments,
+        networkConnections,
         transferHistory,
         initialized: true,
         initializing: false,
@@ -722,7 +951,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     if (!path) return false;
     if (tab.location === path && !options.force) return true;
     let resolved = path;
-    if (path !== HOME_LOCATION) {
+    if (!isVirtualLocation(path)) {
       try {
         resolved = await api.resolvePath(path);
       } catch (error) {
@@ -744,25 +973,34 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
         ? { history: tab.history, index: tab.historyIndex }
         : pushHistory(tab.history, tab.historyIndex, resolved);
     set((current) => ({
-      panes: patchPaneTab(current.panes, paneId, tab.id, {
-        location: resolved,
-        history: historyState.history,
-        historyIndex: historyState.index,
-        selection: [],
-        anchorPath: null,
-        searchQuery: "",
-        searchResults: null,
-        searchLoading: false,
-        searchError: null,
-        entries: resolved === HOME_LOCATION ? [] : findTab(current.panes[paneId].tabs, tab.id)?.entries ?? [],
-        listingFor: null,
-        loading: resolved !== HOME_LOCATION,
-        error: null,
-      }),
+      panes: patchPane(
+        patchPaneTab(current.panes, paneId, tab.id, {
+          location: resolved,
+          history: historyState.history,
+          historyIndex: historyState.index,
+          selection: [],
+          anchorPath: null,
+          searchQuery: "",
+          searchResults: null,
+          searchLoading: false,
+          searchError: null,
+          entries:
+            isVirtualLocation(resolved)
+              ? []
+              : findTab(current.panes[paneId].tabs, tab.id)?.entries ?? [],
+          listingFor: null,
+          loading: !isVirtualLocation(resolved),
+          error: null,
+        }),
+        paneId,
+        { tagFilterId: null },
+      ),
       contextMenu: null,
-      recents: resolved === HOME_LOCATION ? current.recents : addRecentTo(current, resolved, true),
+      recents: isVirtualLocation(resolved)
+        ? current.recents
+        : addRecentTo(current, resolved, true),
     }));
-    if (resolved !== HOME_LOCATION) {
+    if (!isVirtualLocation(resolved)) {
       await get().refresh(paneId);
     }
 
@@ -772,7 +1010,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
       after.dualPane &&
       !options.skipSync &&
       after.syncAnchors &&
-      resolved !== HOME_LOCATION
+      !isVirtualLocation(resolved)
     ) {
       const other = otherPane(paneId);
       const sourceAnchor = paneId === "left" ? after.syncAnchors.left : after.syncAnchors.right;
@@ -821,19 +1059,23 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     if (!next) return;
     const location = next.history[next.index];
     set((current) => ({
-      panes: patchPaneTab(current.panes, id, tab.id, {
-        location,
-        history: next.history,
-        historyIndex: next.index,
-        selection: [],
-        anchorPath: null,
-        searchQuery: "",
-        searchResults: null,
-        loading: location !== HOME_LOCATION,
-        error: null,
-      }),
+      panes: patchPane(
+        patchPaneTab(current.panes, id, tab.id, {
+          location,
+          history: next.history,
+          historyIndex: next.index,
+          selection: [],
+          anchorPath: null,
+          searchQuery: "",
+          searchResults: null,
+          loading: !isVirtualLocation(location),
+          error: null,
+        }),
+        id,
+        { tagFilterId: null },
+      ),
     }));
-    if (location !== HOME_LOCATION) await get().refresh(id);
+    if (!isVirtualLocation(location)) await get().refresh(id);
   },
 
   async goForward(paneId) {
@@ -845,26 +1087,30 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     if (!next) return;
     const location = next.history[next.index];
     set((current) => ({
-      panes: patchPaneTab(current.panes, id, tab.id, {
-        location,
-        history: next.history,
-        historyIndex: next.index,
-        selection: [],
-        anchorPath: null,
-        searchQuery: "",
-        searchResults: null,
-        loading: location !== HOME_LOCATION,
-        error: null,
-      }),
+      panes: patchPane(
+        patchPaneTab(current.panes, id, tab.id, {
+          location,
+          history: next.history,
+          historyIndex: next.index,
+          selection: [],
+          anchorPath: null,
+          searchQuery: "",
+          searchResults: null,
+          loading: !isVirtualLocation(location),
+          error: null,
+        }),
+        id,
+        { tagFilterId: null },
+      ),
     }));
-    if (location !== HOME_LOCATION) await get().refresh(id);
+    if (!isVirtualLocation(location)) await get().refresh(id);
   },
 
   async goUp(paneId) {
     const state = get();
     const id = paneId ?? state.activePane;
     const folder = currentFolderOf(state, id);
-    if (folder === HOME_LOCATION) return;
+    if (folder === HOME_LOCATION || isVirtualLocation(folder)) return;
     const parent = parentPath(folder);
     if (!parent) return;
     await get().navigate(parent, { paneId: id });
@@ -875,11 +1121,11 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     const id = paneId ?? state.activePane;
     const tab = activeTabOfState(state, id);
     const pane = paneOf(state, id);
-    if (tab.location === HOME_LOCATION) {
+    if (isVirtualLocation(tab.location)) {
       set((current) => ({
         panes: patchPaneTab(current.panes, id, tab.id, {
           entries: [],
-          listingFor: HOME_LOCATION,
+          listingFor: tab.location,
           loading: false,
           error: null,
           truncated: false,
@@ -956,7 +1202,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
       activePane: id,
       contextMenu: null,
     });
-    if (location !== HOME_LOCATION) await get().refresh(id);
+    if (!isVirtualLocation(location)) await get().refresh(id);
   },
 
   duplicateActiveTab(paneId) {
@@ -981,7 +1227,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     if (!findTab(pane.tabs, tabId)) return;
     set({ panes: patchPane(state.panes, id, { activeTabId: tabId }), activePane: id, contextMenu: null });
     const tab = findTab(pane.tabs, tabId);
-    if (tab && tab.location !== HOME_LOCATION && (!tab.listingFor || tab.listingFor !== tab.location)) {
+    if (tab && !isVirtualLocation(tab.location) && (!tab.listingFor || tab.listingFor !== tab.location)) {
       await get().refresh(id);
     }
   },
@@ -1005,7 +1251,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     }
     set({ panes: patchPane(state.panes, id, { tabs: result.tabs, activeTabId: result.activeId }) });
     const tab = findTab(result.tabs, result.activeId);
-    if (tab && tab.location !== HOME_LOCATION && (!tab.listingFor || tab.listingFor !== tab.location)) {
+    if (tab && !isVirtualLocation(tab.location) && (!tab.listingFor || tab.listingFor !== tab.location)) {
       await get().refresh(id);
     }
   },
@@ -1021,7 +1267,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     }
     set({ panes: patchPane(state.panes, id, { tabs: result.tabs, activeTabId: result.activeId }) });
     const tab = findTab(result.tabs, result.activeId);
-    if (tab && tab.location !== HOME_LOCATION && (!tab.listingFor || tab.listingFor !== tab.location)) {
+    if (tab && !isVirtualLocation(tab.location) && (!tab.listingFor || tab.listingFor !== tab.location)) {
       await get().refresh(id);
     }
   },
@@ -1234,13 +1480,19 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
       return;
     }
     set({
-      panes: patchPaneTab(state.panes, id, tab.id, {
-        searchQuery: query,
-        searchResults: null,
-        searchLoading: false,
-        searchError: null,
-        searchRequestId: tab.searchRequestId + 1,
-      }),
+      // Searching and a tag overlay are two ways of filtering the same pane, so
+      // starting a search returns the pane to its folder view first.
+      panes: patchPane(
+        patchPaneTab(state.panes, id, tab.id, {
+          searchQuery: query,
+          searchResults: null,
+          searchLoading: false,
+          searchError: null,
+          searchRequestId: tab.searchRequestId + 1,
+        }),
+        id,
+        { tagFilterId: null },
+      ),
     });
   },
 
@@ -1255,7 +1507,13 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
       await api.cancelSearch(tab.searchRequestId).catch(() => undefined);
     }
     const requestId = tab.searchRequestId + 1;
-    const root = tab.location === HOME_LOCATION ? state.platform?.home ?? "/" : tab.location;
+    const networkRoot = state.locations.find((location) => location.id === "network")?.path;
+    const root =
+      tab.location === HOME_LOCATION || tab.location === RECENTS_LOCATION
+        ? state.platform?.home ?? "/"
+        : tab.location === NETWORK_LOCATION
+          ? networkRoot ?? state.platform?.home ?? "/"
+          : tab.location;
     set((current) => ({
       panes: patchPaneTab(current.panes, id, tab.id, {
         searchLoading: true,
@@ -1345,7 +1603,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     const clipboard = state.clipboard;
     if (!clipboard) return;
     const tab = activeTabOfState(state, id);
-    if (tab.location === HOME_LOCATION) {
+    if (isVirtualLocation(tab.location)) {
       get().toast({ title: "Choose a folder before pasting.", tone: "info" });
       return;
     }
@@ -1370,7 +1628,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     const sourcePaths = paths ?? state.clipboard?.paths ?? [];
     if (!sourcePaths.length) return;
     const target = destination ?? currentFolderOf(state, id);
-    if (target === HOME_LOCATION) return;
+    if (isVirtualLocation(target)) return;
     get().enqueueTransfer({
       mode: toTransferMode(mode ?? state.clipboard?.mode ?? "copy"),
       sources: sourcePaths,
@@ -1763,6 +2021,19 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
         });
       }
       const state = get();
+      const removed = results
+        .filter((result) => result.status === "completed")
+        .map((result) => result.source);
+      if (removed.length) {
+        set((current) => {
+          const forgotten = forgetDeletedPaths(removed, current.pinned, current.recents);
+          return {
+            tagAssignments: removeAssignmentsForPaths(current.tagAssignments, removed),
+            pinned: forgotten.pinned,
+            recents: forgotten.recents,
+          };
+        });
+      }
       get().clearSelection(sourcePane);
       await get().refresh(sourcePane);
       const mirror = otherPane(sourcePane);
@@ -1799,6 +2070,13 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   async renameTo(path, newName, paneId) {
     const id = paneId ?? get().activePane;
     const newPath = await api.renamePath(path, newName);
+    if (path !== newPath) {
+      set((state) => ({
+        tagAssignments: renameAssignmentPaths(state.tagAssignments, path, newPath),
+        pinned: rewritePathList(state.pinned, path, newPath),
+        recents: rewriteRecentItems(state.recents, path, newPath),
+      }));
+    }
     await get().refresh(id);
     get().setSelection([newPath], newPath, id);
     get().toast({ title: "Renamed", detail: newName, tone: "success" });
@@ -1808,7 +2086,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   async promptNewFolder(paneId) {
     const state = get();
     const id = paneId ?? state.activePane;
-    if (activeTabOfState(state, id).location === HOME_LOCATION) return;
+    if (isVirtualLocation(activeTabOfState(state, id).location)) return;
     const folder = currentFolderOf(state, id);
     const name = uniqueName(currentEntriesOf(state, id), "New folder");
     try {
@@ -1837,7 +2115,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   async promptNewTextFile(paneId) {
     const state = get();
     const id = paneId ?? state.activePane;
-    if (activeTabOfState(state, id).location === HOME_LOCATION) return;
+    if (isVirtualLocation(activeTabOfState(state, id).location)) return;
     const folder = currentFolderOf(state, id);
     const name = uniqueName(currentEntriesOf(state, id), "New Text Document", ".txt");
     try {
@@ -1908,6 +2186,22 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     try {
       const results = await api.duplicatePaths(entries.map((entry) => entry.path));
       const summary = operationSummary(results);
+      const copies = results.filter(
+        (result) => result.status === "completed" && result.destination,
+      );
+      if (copies.length) {
+        set((state) => {
+          let assignments = state.tagAssignments;
+          for (const result of copies) {
+            assignments = duplicateAssignmentPaths(
+              assignments,
+              result.source,
+              result.destination as string,
+            );
+          }
+          return { tagAssignments: assignments };
+        });
+      }
       get().toast({
         title: summary.failed ? "Some items couldn't be duplicated." : "Items duplicated",
         detail: summary.message,
@@ -2042,6 +2336,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     // so focus and scroll on the next frame once the file list exists.
     if (typeof window !== "undefined") {
       window.setTimeout(() => {
+        if (typeof window === "undefined") return;
         window.dispatchEvent(
           new CustomEvent("explorer:focus-path", { detail: { paneId: target, path: match.path } }),
         );
@@ -2116,11 +2411,391 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 
   pinPath(path) {
     set((state) => ({
-      pinned: state.pinned.includes(path) ? state.pinned : [...state.pinned, path],
+      pinned: state.pinned.some((item) => sameTagPath(item, path))
+        ? state.pinned
+        : [...state.pinned, path],
     }));
   },
   unpinPath(path) {
-    set((state) => ({ pinned: state.pinned.filter((item) => item !== path) }));
+    set((state) => ({ pinned: state.pinned.filter((item) => !sameTagPath(item, path)) }));
+  },
+  reorderPinned(fromPath, toPath) {
+    set((state) => {
+      const from = state.pinned.findIndex((item) => sameTagPath(item, fromPath));
+      const to = state.pinned.findIndex((item) => sameTagPath(item, toPath));
+      if (from < 0 || to < 0 || from === to) return state;
+      const pinned = [...state.pinned];
+      const [moved] = pinned.splice(from, 1);
+      pinned.splice(to, 0, moved);
+      return { pinned };
+    });
+  },
+
+  createTag(name, color = DEFAULT_TAG_COLOR) {
+    const state = get();
+    const clean = normalizeTagName(name);
+    if (!clean) return "";
+    const existing = state.tags.find(
+      (tag) => tag.name.toLowerCase() === clean.toLowerCase(),
+    );
+    if (existing) return existing.id;
+    const tag = createTagDefinition(state.tags, clean, color);
+    set({ tags: [...state.tags, tag] });
+    return tag.id;
+  },
+
+  updateTag(id, patch) {
+    set((state) => {
+      const target = state.tags.find((tag) => tag.id === id);
+      if (!target) return state;
+      const name =
+        patch.name !== undefined
+          ? uniqueTagName(state.tags, patch.name, id)
+          : target.name;
+      const color =
+        patch.color !== undefined ? normalizeTagColor(patch.color) : target.color;
+      return {
+        tags: state.tags.map((tag) =>
+          tag.id === id ? { ...tag, name, color } : tag,
+        ),
+      };
+    });
+  },
+
+  deleteTag(id) {
+    set((state) => {
+      const tags = state.tags.filter((tag) => tag.id !== id);
+      const validIds = new Set(tags.map((tag) => tag.id));
+      const clearFilter = (pane: PaneState): PaneState => {
+        if (pane.tagFilterId !== id) return pane;
+        const active = activeTabOf(pane);
+        return {
+          ...pane,
+          tagFilterId: null,
+          tabs: pane.tabs.map((tab) =>
+            tab.id === active.id ? { ...tab, selection: [], anchorPath: null } : tab,
+          ),
+        };
+      };
+      return {
+        tags,
+        tagAssignments: pruneTagIds(state.tagAssignments, validIds),
+        panes: {
+          left: clearFilter(state.panes.left),
+          right: clearFilter(state.panes.right),
+        },
+        contextMenu: null,
+      };
+    });
+  },
+
+  reorderTags(fromId, toId) {
+    set((state) => {
+      const from = state.tags.findIndex((tag) => tag.id === fromId);
+      const to = state.tags.findIndex((tag) => tag.id === toId);
+      if (from < 0 || to < 0 || from === to) return state;
+      const tags = [...state.tags];
+      const [moved] = tags.splice(from, 1);
+      tags.splice(to, 0, moved);
+      return { tags };
+    });
+  },
+
+  assignTag(paths, tagId, snapshots) {
+    const state = get();
+    if (!paths.length || !state.tags.some((tag) => tag.id === tagId)) return;
+    set({
+      tagAssignments: setTagOnPaths(
+        state.tagAssignments,
+        paths,
+        tagId,
+        true,
+        snapshotsFor(state, paths, snapshots),
+      ),
+    });
+  },
+
+  unassignTag(paths, tagId) {
+    const state = get();
+    if (!paths.length) return;
+    set({
+      tagAssignments: setTagOnPaths(state.tagAssignments, paths, tagId, false),
+    });
+  },
+
+  toggleTag(paths, tagId, snapshots) {
+    const state = get();
+    if (!paths.length || !state.tags.some((tag) => tag.id === tagId)) return;
+    const allTagged = paths.every((path) => state.tagIdsForPath(path).includes(tagId));
+    set({
+      tagAssignments: setTagOnPaths(
+        state.tagAssignments,
+        paths,
+        tagId,
+        !allTagged,
+        snapshotsFor(state, paths, snapshots),
+      ),
+    });
+  },
+
+  setTagFilter(tagId, paneId) {
+    const state = get();
+    const id = paneId ?? state.activePane;
+    if (tagId && !state.tags.some((tag) => tag.id === tagId)) return;
+    const pane = paneOf(state, id);
+    const tab = activeTabOf(pane);
+    const next = tagId && pane.tagFilterId === tagId ? null : tagId;
+    if (tab.searchLoading) {
+      void api.cancelSearch(tab.searchRequestId).catch(() => undefined);
+    }
+    const withClearedView = patchPaneTab(state.panes, id, tab.id, {
+      searchQuery: "",
+      searchResults: null,
+      searchLoading: false,
+      searchError: null,
+      selection: [],
+      anchorPath: null,
+    });
+    set({
+      panes: patchPane(withClearedView, id, { tagFilterId: next }),
+      activePane: id,
+      contextMenu: null,
+    });
+  },
+
+  clearTagFilter(paneId) {
+    const state = get();
+    const id = paneId ?? state.activePane;
+    if (!state.panes[id].tagFilterId) return;
+    const pane = state.panes[id];
+    const tab = activeTabOf(pane);
+    set({
+      panes: patchPane(
+        patchPaneTab(state.panes, id, tab.id, { selection: [], anchorPath: null }),
+        id,
+        { tagFilterId: null },
+      ),
+    });
+  },
+
+  openTagEditor(tagId, assignPaths) {
+    set({
+      contextMenu: null,
+      dialog: { kind: "tagEditor", tagId, assignPaths },
+    });
+  },
+
+  async refreshLocations() {
+    try {
+      const locations = await api.getSidebarLocations();
+      set((state) => {
+        const networkVolumes = locations.filter(
+          (location) => location.kind === "network" && location.isVolume,
+        );
+        const networkConnections = state.networkConnections.map((connection) => {
+          const currentlyMounted =
+            connection.mountPath != null &&
+            networkVolumes.some((volume) =>
+              sameTagPath(volume.path, connection.mountPath as string),
+            );
+          if (currentlyMounted) return connection;
+          if (!networkAddressHasShare(connection.address)) return connection;
+          const share = networkDisplayName(connection.address);
+          const match = networkVolumes.find((volume) =>
+            sameTagPath(basename(volume.path), share),
+          );
+          return match ? { ...connection, mountPath: match.path } : connection;
+        });
+        return { locations, networkConnections };
+      });
+    } catch (error) {
+      get().toastError(error);
+    }
+  },
+
+  async ejectVolume(path) {
+    try {
+      await api.ejectVolume(path);
+      get().toast({ title: "Volume ejected", detail: path, tone: "success" });
+      await get().refreshLocations();
+      await Promise.all([get().refresh("left"), get().refresh("right")]);
+    } catch (error) {
+      get().toastError(error);
+    }
+  },
+
+  openNetworkConnectionDialog(connectionId) {
+    set({
+      contextMenu: null,
+      dialog: { kind: "networkConnection", connectionId },
+    });
+  },
+
+  saveNetworkConnection(input) {
+    const address = normalizeNetworkAddress(input.address);
+    if (!address) return "";
+    const state = get();
+    const name = networkConnectionName(input.name, address);
+    const now = Date.now();
+    const current = input.id
+      ? state.networkConnections.find((connection) => connection.id === input.id)
+      : undefined;
+    const duplicate = state.networkConnections.find(
+      (connection) =>
+        connection.address.toLowerCase() === address.toLowerCase() &&
+        connection.id !== input.id,
+    );
+    const existing = current ?? duplicate;
+    const id = existing?.id ?? createNetworkConnectionId(now);
+    const index = state.networkConnections.findIndex(
+      (connection) => connection.id === id,
+    );
+    const next = state.networkConnections.filter(
+      (connection) =>
+        connection.id !== id &&
+        connection.address.toLowerCase() !== address.toLowerCase(),
+    );
+    const connection: NetworkConnection = {
+      id,
+      name,
+      address,
+      mountPath:
+        existing && existing.address.toLowerCase() === address.toLowerCase()
+          ? existing.mountPath
+          : null,
+      createdAt: existing?.createdAt ?? now,
+      lastConnectedAt: existing?.lastConnectedAt ?? null,
+    };
+    if (index >= 0) next.splice(Math.min(index, next.length), 0, connection);
+    else next.push(connection);
+    const suppliedUsername = input.username?.trim();
+    if (suppliedUsername || input.password) {
+      networkSessionCredentials.set(id, {
+        username: suppliedUsername || undefined,
+        password: input.password || undefined,
+      });
+    } else {
+      networkSessionCredentials.delete(id);
+    }
+    set({ networkConnections: next, contextMenu: null });
+    get().toast({
+      title: existing ? "Server updated" : "Server saved",
+      detail: name,
+      tone: "success",
+    });
+    return id;
+  },
+
+  removeNetworkConnection(id) {
+    networkSessionCredentials.delete(id);
+    set((state) => ({
+      networkConnections: state.networkConnections.filter(
+        (connection) => connection.id !== id,
+      ),
+      contextMenu: null,
+    }));
+  },
+
+  async connectNetworkConnection(id, credentials) {
+    const state = get();
+    const connection = state.networkConnections.find((item) => item.id === id);
+    if (!connection) return;
+    if (!networkAddressHasShare(connection.address)) {
+      get().openNetworkConnectionDialog(id);
+      get().toast({
+        title: "Choose a share first",
+        detail:
+          "Use Find Shares to list the folders exposed by this computer, then select one.",
+        tone: "info",
+      });
+      return;
+    }
+    const before = new Set(state.locations.map((location) => location.path));
+    const session = credentials ?? networkSessionCredentials.get(id);
+    try {
+      const reported = await api.connectNetworkLocation(
+        connection.address,
+        session?.username,
+        session?.password,
+      );
+      await get().refreshLocations();
+      let mountPath = reported?.trim() ? reported : null;
+      if (!mountPath) {
+        mountPath =
+          get().locations.find(
+            (location) =>
+              location.kind === "network" &&
+              location.isVolume &&
+              !before.has(location.path),
+          )?.path ?? null;
+      }
+      if (!mountPath && connection.mountPath) {
+        const exists = await api.pathExists(connection.mountPath).catch(() => false);
+        if (exists) mountPath = connection.mountPath;
+      }
+      set((current) => ({
+        networkConnections: current.networkConnections.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                lastConnectedAt: Date.now(),
+                mountPath: mountPath ?? item.mountPath,
+              }
+            : item,
+        ),
+      }));
+      if (mountPath) {
+        // The mount (and macOS Keychain, when the user chose to save it) now
+        // owns the credential; drop the in-memory copy.
+        networkSessionCredentials.delete(id);
+        get().toast({
+          title: "Connected to server",
+          detail: mountPath,
+          tone: "success",
+        });
+        await get().navigate(mountPath);
+      } else {
+        get().toast({
+          title: "Finish connecting in macOS",
+          detail:
+            "Complete the sign-in prompt, then refresh Network to show the server.",
+          tone: "info",
+        });
+        if (activeTabOfState(get(), get().activePane).location !== NETWORK_LOCATION) {
+          await get().navigate(NETWORK_LOCATION);
+        }
+      }
+    } catch (error) {
+      const normalized = normalizeError(error);
+      if (normalized.code !== "cancelled") {
+        get().toastError(normalized);
+      }
+    }
+  },
+
+  async openNetworkConnection(id) {
+    const state = get();
+    const connection = state.networkConnections.find((item) => item.id === id);
+    if (!connection) return;
+    const mounted = state.locations.find(
+      (location) =>
+        location.kind === "network" &&
+        location.isVolume &&
+        connection.mountPath != null &&
+        sameTagPath(location.path, connection.mountPath),
+    );
+    if (mounted) {
+      await get().navigate(mounted.path);
+      return;
+    }
+    if (connection.mountPath) {
+      const exists = await api.pathExists(connection.mountPath).catch(() => false);
+      if (exists) {
+        await get().navigate(connection.mountPath);
+        return;
+      }
+    }
+    await get().connectNetworkConnection(id);
   },
 
   async shareSelection(paneId) {
@@ -2312,6 +2987,43 @@ async function runQueuedTransfer(
       message: failed.length ? summary : null,
     };
     set((state) => ({ transferHistory: [history, ...state.transferHistory].slice(0, 40) }));
+
+    // Keep metadata attached to the actual result paths. Conflict handling can
+    // rename or replace items, so use each operation's destination instead of
+    // assuming the requested destination folder.
+    const movedOrCopied = outcome.results.filter(
+      (result) =>
+        result.status === "completed" &&
+        result.destination &&
+        result.source !== result.destination,
+    );
+    if (movedOrCopied.length) {
+      set((state) => {
+        let tagAssignments = state.tagAssignments;
+        let pinned = state.pinned;
+        let recents = state.recents;
+        for (const result of movedOrCopied) {
+          const destination = result.destination as string;
+          if (item.mode === "move") {
+            tagAssignments = renameAssignmentPaths(
+              tagAssignments,
+              result.source,
+              destination,
+            );
+            pinned = rewritePathList(pinned, result.source, destination);
+            recents = rewriteRecentItems(recents, result.source, destination);
+          } else {
+            tagAssignments = duplicateAssignmentPaths(
+              tagAssignments,
+              result.source,
+              destination,
+            );
+          }
+        }
+        return { tagAssignments, pinned: uniquePathList(pinned), recents };
+      });
+    }
+
     const refreshTargets = new Set<PaneId>([item.sourcePane, item.destinationPane]);
     if (item.mode === "move") {
       // A paste records the destination pane as the source pane, so the other
@@ -2366,8 +3078,7 @@ export function selectPaneActiveTab(state: ExplorerState, paneId?: PaneId): TabS
 export function selectVisibleEntriesForPane(state: ExplorerState, paneId?: PaneId): FileEntry[] {
   const id = paneId ?? state.activePane;
   const pane = paneOf(state, id);
-  const tab = activeTabOf(pane);
-  const entries = tab.searchResults ?? tab.entries;
+  const entries = currentEntriesOf(state, id);
   return filterEntries(sortEntries(entries, pane.sortKey, pane.sortDirection), "");
 }
 
@@ -2385,8 +3096,11 @@ export function selectSelectionStatsForPane(
 export function selectStatusTextForPane(state: ExplorerState, paneId?: PaneId): string {
   const id = paneId ?? state.activePane;
   const tab = activeTabOfState(state, id);
-  if (tab.location === HOME_LOCATION) return "Home";
-  const entries = tab.searchResults ?? tab.entries;
+  const tagFilterId = paneOf(state, id).tagFilterId;
+  if (!tagFilterId && tab.location === HOME_LOCATION) return "Home";
+  if (!tagFilterId && tab.location === RECENTS_LOCATION) return "Recents";
+  if (!tagFilterId && tab.location === NETWORK_LOCATION) return "Network";
+  const entries = currentEntriesOf(state, id);
   const stats = selectionStats(entries, tab.selection);
   const total = entries.length;
   const itemLabel = `${formatCount(total)} ${plural(total, "item")}`;
@@ -2398,6 +3112,8 @@ export function selectStatusTextForPane(state: ExplorerState, paneId?: PaneId): 
 export function selectLocationLabelForPane(state: ExplorerState, paneId?: PaneId): string {
   const tab = activeTabOfState(state, paneId);
   if (tab.location === HOME_LOCATION) return "Home";
+  if (tab.location === RECENTS_LOCATION) return "Recents";
+  if (tab.location === NETWORK_LOCATION) return "Network";
   return basename(tab.location) || tab.location;
 }
 
@@ -2475,6 +3191,9 @@ export function startPersistence(): void {
         panes: { left, right },
         shortcuts: state.shortcuts,
         transferHistory: state.transferHistory,
+        tags: state.tags,
+        tagAssignments: state.tagAssignments,
+        networkConnections: state.networkConnections,
       };
       savePersisted(snapshot);
     }, 250);

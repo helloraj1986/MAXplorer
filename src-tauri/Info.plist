@@ -12,6 +12,12 @@
   <string>MAXplorer needs access to removable volumes to browse and manage files.</string>
   <key>NSNetworkVolumesUsageDescription</key>
   <string>MAXplorer needs access to network volumes to browse and manage files.</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>MAXplorer needs local network access to discover and connect to SMB file servers and other computers on your network.</string>
+  <key>NSBonjourServices</key>
+  <array>
+    <string>_smb._tcp</string>
+  </array>
   <key>NSHumanReadableCopyright</key>
   <string>MAXplorer. Independent file manager for macOS. Not affiliated with Microsoft or Apple.</string>
 </dict>

@@ -5,11 +5,26 @@ import { MenuPanel, type MenuItem } from "./Menu";
 import { useExplorerStore } from "../state/explorerStore";
 import { beginTabDrag } from "../state/fileDrag";
 import { basename } from "../lib/format";
-import { HOME_LOCATION, type PaneId } from "../lib/types";
+import {
+  HOME_LOCATION,
+  NETWORK_LOCATION,
+  RECENTS_LOCATION,
+  isVirtualLocation,
+  type PaneId,
+} from "../lib/types";
 
 function titleFor(location: string): string {
   if (location === HOME_LOCATION) return "Home";
+  if (location === RECENTS_LOCATION) return "Recents";
+  if (location === NETWORK_LOCATION) return "Network";
   return basename(location) || location;
+}
+
+function iconFor(location: string): "home" | "clock" | "network" | "folder" {
+  if (location === HOME_LOCATION) return "home";
+  if (location === RECENTS_LOCATION) return "clock";
+  if (location === NETWORK_LOCATION) return "network";
+  return "folder";
 }
 
 export function PaneTabList({ paneId }: { paneId: PaneId }) {
@@ -17,7 +32,6 @@ export function PaneTabList({ paneId }: { paneId: PaneId }) {
   const activeTabId = useExplorerStore((state) => state.panes[paneId].activeTabId);
   const activateTab = useExplorerStore((state) => state.activateTab);
   const closeTabById = useExplorerStore((state) => state.closeTabById);
-  const platform = useExplorerStore((state) => state.platform);
 
   return (
     <div className="tabs" role="tablist" aria-label="MAXplorer tabs" data-pane={paneId}>
@@ -34,7 +48,11 @@ export function PaneTabList({ paneId }: { paneId: PaneId }) {
           data-drop-tab={tab.id}
           data-drop-tab-index={index}
           data-drop-tab-label={titleFor(tab.location)}
-          data-drop-path={tab.location === HOME_LOCATION ? platform?.home : tab.location}
+          data-drop-path={
+            isVirtualLocation(tab.location)
+              ? undefined
+              : tab.location
+          }
           data-drop-label={titleFor(tab.location)}
           onClick={() => void activateTab(tab.id, paneId)}
           onAuxClick={(event) => {
@@ -49,13 +67,13 @@ export function PaneTabList({ paneId }: { paneId: PaneId }) {
               void activateTab(tab.id, paneId);
             }
           }}
-          title={tab.location === HOME_LOCATION ? "Home" : tab.location}
+          title={isVirtualLocation(tab.location) ? titleFor(tab.location) : tab.location}
         >
           <span className="tab-icon" aria-hidden="true">
-            {tab.location === HOME_LOCATION ? (
-              <Icon name="home" size={16} />
-            ) : (
+            {iconFor(tab.location) === "folder" ? (
               <FolderIcon size={16} />
+            ) : (
+              <Icon name={iconFor(tab.location)} size={16} />
             )}
           </span>
           <span className="tab-title">{titleFor(tab.location)}</span>

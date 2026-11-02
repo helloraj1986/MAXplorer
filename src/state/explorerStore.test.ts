@@ -336,3 +336,323 @@ describe("reveal in a MAXplorer pane", () => {
     expect(useExplorerStore.getState().contextMenu).toBeNull();
   });
 });
+
+describe("explorer store tags", () => {
+  const workTag = {
+    id: "tag-work",
+    name: "Work",
+    color: "#0090ff",
+    createdAt: 1,
+  };
+  const homeTag = {
+    id: "tag-home",
+    name: "Home",
+    color: "#30a46c",
+    createdAt: 2,
+  };
+
+  it("creates, renames, recolours, and deletes tags", () => {
+    useExplorerStore.setState({ tags: [], tagAssignments: [], contextMenu: null });
+    const state = useExplorerStore.getState();
+    const id = state.createTag("  Client   Work ", "#abc");
+    expect(id).not.toBe("");
+    expect(useExplorerStore.getState().tags[0]).toMatchObject({
+      name: "Client Work",
+      color: "#aabbcc",
+    });
+
+    useExplorerStore.getState().updateTag(id, { name: "Work", color: "#30a46c" });
+    expect(useExplorerStore.getState().tags[0]).toMatchObject({
+      name: "Work",
+      color: "#30a46c",
+    });
+
+    useExplorerStore.setState({
+      tagAssignments: [
+        {
+          path: "/tmp/folder/a.txt",
+          name: "a.txt",
+          isDir: false,
+          modified: null,
+          size: null,
+          tagIds: [id],
+          updatedAt: 1,
+        },
+      ],
+      panes: {
+        left: { ...createPane("/tmp/folder"), tagFilterId: id },
+        right: { ...createPane("/tmp/other"), tagFilterId: id },
+      },
+    });
+    useExplorerStore.getState().deleteTag(id);
+    const after = useExplorerStore.getState();
+    expect(after.tags).toEqual([]);
+    expect(after.tagAssignments).toEqual([]);
+    expect(after.panes.left.tagFilterId).toBeNull();
+    expect(after.panes.right.tagFilterId).toBeNull();
+  });
+
+  it("applies and removes a tag across several paths", () => {
+    useExplorerStore.setState({
+      tags: [workTag, homeTag],
+      tagAssignments: [],
+      contextMenu: null,
+    });
+    const paths = ["/tmp/folder/a.txt", "/tmp/folder/folder"];
+    useExplorerStore.getState().assignTag(paths, workTag.id);
+    useExplorerStore.getState().assignTag(paths, homeTag.id);
+    expect(useExplorerStore.getState().tagIdsForPath(paths[0])).toEqual([
+      workTag.id,
+      homeTag.id,
+    ]);
+
+    useExplorerStore.getState().toggleTag([paths[0]], workTag.id);
+    expect(useExplorerStore.getState().tagIdsForPath(paths[0])).toEqual([homeTag.id]);
+    useExplorerStore.getState().unassignTag(paths, homeTag.id);
+    expect(useExplorerStore.getState().tagAssignments).toHaveLength(1);
+    expect(useExplorerStore.getState().tagIdsForPath(paths[1])).toEqual([workTag.id]);
+  });
+
+  it("filters only the requested pane and preserves its folder", () => {
+    const left = paneWith([entry("a.txt")]);
+    const right = paneWith([entry("b.txt")]);
+    useExplorerStore.setState({
+      dualPane: true,
+      activePane: "left",
+      panes: { left, right },
+      tags: [workTag],
+      tagAssignments: [
+        {
+          path: "/tmp/folder/a.txt",
+          name: "a.txt",
+          isDir: false,
+          modified: null,
+          size: null,
+          tagIds: [workTag.id],
+          updatedAt: 1,
+        },
+      ],
+      contextMenu: null,
+      dialog: null,
+    });
+
+    useExplorerStore.getState().setTagFilter(workTag.id, "left");
+    expect(useExplorerStore.getState().panes.left.tagFilterId).toBe(workTag.id);
+    expect(useExplorerStore.getState().panes.right.tagFilterId).toBeNull();
+    expect(useExplorerStore.getState().activeTab("left").location).toBe("/tmp/folder");
+    expect(useExplorerStore.getState().currentEntries("left").map((item) => item.name)).toEqual([
+      "a.txt",
+    ]);
+    expect(useExplorerStore.getState().currentEntries("right").map((item) => item.name)).toEqual([
+      "b.txt",
+    ]);
+
+    useExplorerStore.getState().setTagFilter(workTag.id, "right");
+    expect(useExplorerStore.getState().panes.left.tagFilterId).toBe(workTag.id);
+    expect(useExplorerStore.getState().panes.right.tagFilterId).toBe(workTag.id);
+
+    useExplorerStore.getState().setTagFilter(workTag.id, "left");
+    expect(useExplorerStore.getState().panes.left.tagFilterId).toBeNull();
+  });
+
+  it("clears a tag filter when navigating to a folder", async () => {
+    const left = { ...paneWith([entry("a.txt")]), tagFilterId: workTag.id };
+    useExplorerStore.setState({
+      activePane: "left",
+      panes: { left, right: createPane("/tmp/other") },
+      tags: [workTag],
+      tagAssignments: [],
+    });
+    vi.spyOn(api, "resolvePath").mockImplementation(async (path) => path);
+    vi.spyOn(api, "pathExists").mockResolvedValue(true);
+    vi.spyOn(api, "listDirectory").mockImplementation(async (path) => ({
+      path,
+      entries: [],
+      truncated: false,
+      readErrors: 0,
+    }));
+
+    await useExplorerStore.getState().navigate("/tmp/folder/sub", { paneId: "left" });
+
+    expect(useExplorerStore.getState().panes.left.tagFilterId).toBeNull();
+    expect(useExplorerStore.getState().activeTab("left").location).toBe("/tmp/folder/sub");
+  });
+
+  it("saves, edits, deduplicates, and removes network servers", () => {
+    useExplorerStore.setState({ networkConnections: [], contextMenu: null });
+    const state = useExplorerStore.getState();
+    const id = state.saveNetworkConnection({
+      name: "Studio",
+      address: "smb://studio.local/share",
+    });
+    expect(id).not.toBe("");
+    expect(useExplorerStore.getState().networkConnections).toHaveLength(1);
+    expect(useExplorerStore.getState().networkConnections[0]).toMatchObject({
+      id,
+      name: "Studio",
+      address: "smb://studio.local/share",
+    });
+
+    const duplicateId = useExplorerStore.getState().saveNetworkConnection({
+      name: "Studio again",
+      address: "studio.local/share/",
+    });
+    expect(duplicateId).toBe(id);
+    expect(useExplorerStore.getState().networkConnections).toHaveLength(1);
+    expect(useExplorerStore.getState().networkConnections[0].name).toBe(
+      "Studio again",
+    );
+
+    useExplorerStore.getState().saveNetworkConnection({
+      id,
+      name: "Media",
+      address: "smb://studio.local/media",
+    });
+    expect(useExplorerStore.getState().networkConnections[0]).toMatchObject({
+      id,
+      name: "Media",
+      address: "smb://studio.local/media",
+    });
+
+    useExplorerStore.getState().removeNetworkConnection(id);
+    expect(useExplorerStore.getState().networkConnections).toEqual([]);
+  });
+
+  it("keeps the mounted path after a successful connection", async () => {
+    const left = createPane("/tmp/folder");
+    useExplorerStore.setState({
+      activePane: "left",
+      panes: { left, right: createPane("/tmp/other") },
+      locations: [],
+      networkConnections: [
+        {
+          id: "net-studio",
+          name: "Studio",
+          address: "smb://studio.local/share",
+          mountPath: null,
+          createdAt: 1,
+          lastConnectedAt: null,
+        },
+      ],
+    });
+    vi.spyOn(api, "connectNetworkLocation").mockResolvedValue("/Volumes/share");
+    vi.spyOn(api, "getSidebarLocations").mockResolvedValue([
+      {
+        id: "volume:share",
+        name: "share",
+        path: "/Volumes/share",
+        kind: "network",
+        icon: "network",
+        isVolume: true,
+      },
+    ]);
+    vi.spyOn(api, "resolvePath").mockImplementation(async (path) => path);
+    vi.spyOn(api, "pathExists").mockResolvedValue(true);
+    vi.spyOn(api, "listDirectory").mockImplementation(async (path) => ({
+      path,
+      entries: [],
+      truncated: false,
+      readErrors: 0,
+    }));
+
+    await useExplorerStore.getState().connectNetworkConnection("net-studio");
+
+    expect(useExplorerStore.getState().networkConnections[0].mountPath).toBe(
+      "/Volumes/share",
+    );
+    expect(useExplorerStore.getState().networkConnections[0].lastConnectedAt).not.toBeNull();
+    expect(useExplorerStore.getState().activeTab("left").location).toBe("/Volumes/share");
+  });
+
+  it("uses dialog credentials for the next mount and never persists them", async () => {
+    const left = createPane("/tmp/folder");
+    useExplorerStore.setState({
+      activePane: "left",
+      panes: { left, right: createPane("/tmp/other") },
+      locations: [],
+      networkConnections: [],
+    });
+    const id = useExplorerStore.getState().saveNetworkConnection({
+      name: "Studio",
+      address: "smb://studio.local/share",
+      username: "rajeev",
+      password: "secret",
+    });
+    const connect = vi
+      .spyOn(api, "connectNetworkLocation")
+      .mockResolvedValue("/Volumes/share");
+    vi.spyOn(api, "getSidebarLocations").mockResolvedValue([
+      {
+        id: "volume:share",
+        name: "share",
+        path: "/Volumes/share",
+        kind: "network",
+        icon: "network",
+        isVolume: true,
+      },
+    ]);
+    vi.spyOn(api, "resolvePath").mockImplementation(async (path) => path);
+    vi.spyOn(api, "pathExists").mockResolvedValue(true);
+    vi.spyOn(api, "listDirectory").mockImplementation(async (path) => ({
+      path,
+      entries: [],
+      truncated: false,
+      readErrors: 0,
+    }));
+
+    await useExplorerStore.getState().connectNetworkConnection(id);
+
+    expect(connect).toHaveBeenCalledWith(
+      "smb://studio.local/share",
+      "rajeev",
+      "secret",
+    );
+    expect(JSON.stringify(useExplorerStore.getState().networkConnections)).not.toContain(
+      "secret",
+    );
+  });
+
+  it("moves tag assignments and pins with a rename", async () => {
+    const left = paneWith([entry("a.txt")]);
+    useExplorerStore.setState({
+      activePane: "left",
+      panes: { left, right: createPane("/tmp/other") },
+      tags: [workTag],
+      tagAssignments: [
+        {
+          path: "/tmp/folder/a.txt",
+          name: "a.txt",
+          isDir: false,
+          modified: null,
+          size: null,
+          tagIds: [workTag.id],
+          updatedAt: 1,
+        },
+      ],
+      pinned: ["/tmp/folder"],
+      recents: [
+        {
+          path: "/tmp/folder/a.txt",
+          name: "a.txt",
+          isDir: false,
+          modified: null,
+          visitedAt: 1,
+        },
+      ],
+    });
+    vi.spyOn(api, "renamePath").mockResolvedValue("/tmp/renamed");
+    vi.spyOn(api, "listDirectory").mockImplementation(async (path) => ({
+      path,
+      entries: [],
+      truncated: false,
+      readErrors: 0,
+    }));
+
+    await useExplorerStore.getState().renameTo("/tmp/folder", "renamed", "left");
+
+    const after = useExplorerStore.getState();
+    expect(after.pinned).toEqual(["/tmp/renamed"]);
+    expect(after.recents[0].path).toBe("/tmp/renamed/a.txt");
+    expect(after.tagAssignments[0].path).toBe("/tmp/renamed/a.txt");
+  });
+});

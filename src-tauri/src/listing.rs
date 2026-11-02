@@ -1,7 +1,9 @@
 use crate::error::AppError;
+use crate::metadata;
 use crate::paths::system_time_ms;
 use crate::types::{DirectoryListing, Entry};
 use std::fs;
+use std::io;
 use std::path::Path;
 
 pub const MAX_DIRECTORY_ENTRIES: usize = 50_000;
@@ -77,11 +79,16 @@ pub fn entry_from_path(path: &Path) -> Result<Entry, AppError> {
     })
 }
 
+fn map_listing_error(error: io::Error, path: &Path) -> AppError {
+    if error.kind() == io::ErrorKind::PermissionDenied && metadata::is_network_mount(path) {
+        return AppError::network_permission(path.to_string_lossy());
+    }
+    let mapped = AppError::from(error);
+    mapped.with_path(path.to_string_lossy())
+}
+
 pub fn list_directory(path: &Path, show_hidden: bool) -> Result<DirectoryListing, AppError> {
-    let metadata = fs::metadata(path).map_err(|error| {
-        let mapped = AppError::from(error);
-        mapped.with_path(path.to_string_lossy())
-    })?;
+    let metadata = fs::metadata(path).map_err(|error| map_listing_error(error, path))?;
     if !metadata.is_dir() {
         return Err(AppError::new(
             "not_a_directory",
@@ -89,10 +96,7 @@ pub fn list_directory(path: &Path, show_hidden: bool) -> Result<DirectoryListing
             Some(path.to_string_lossy().to_string()),
         ));
     }
-    let reader = fs::read_dir(path).map_err(|error| {
-        let mapped = AppError::from(error);
-        mapped.with_path(path.to_string_lossy())
-    })?;
+    let reader = fs::read_dir(path).map_err(|error| map_listing_error(error, path))?;
     let mut entries = Vec::new();
     let mut truncated = false;
     let mut read_errors = 0u32;

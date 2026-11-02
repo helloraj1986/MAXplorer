@@ -4,7 +4,11 @@ import { Icon } from "./Icon";
 import { FileTypeIcon } from "./icons/FileTypeIcon";
 import { FolderIcon } from "./icons/FolderIcon";
 import { HomeView } from "./HomeView";
+import { NetworkView } from "./NetworkView";
+import { RecentsView } from "./RecentsView";
+import { TagIndicators } from "./TagIndicators";
 import { useExplorerStore } from "../state/explorerStore";
+import { entriesForTag } from "../lib/tags";
 import { beginFileDrag } from "../state/fileDrag";
 import { useVirtualRows } from "../hooks/useVirtualRows";
 import { useFileNavigation } from "../hooks/useFileNavigation";
@@ -34,6 +38,8 @@ import {
 } from "../lib/compare";
 import {
   HOME_LOCATION,
+  NETWORK_LOCATION,
+  RECENTS_LOCATION,
   type FileEntry,
   type GroupBy,
   type PaneId,
@@ -389,6 +395,7 @@ function DetailsView({
                     <FileTypeIcon entry={entry} size={Math.round(18 * iconScale)} />
                   </span>
                   <span className="entry-name">{displayName(entry, showExtensions)}</span>
+                  <TagIndicators path={entry.path} />
                   <CompareDot category={indicator} />
                 </div>
                 {columnVisibility.date ? <div className="details-text">{formatDate(entry.modified)}</div> : null}
@@ -513,6 +520,7 @@ function ListView({
                   <FileTypeIcon entry={entry} size={Math.round(16 * iconScale)} />
                 </span>
                 <span className="entry-name">{displayName(entry, showExtensions)}</span>
+                <TagIndicators path={entry.path} />
                 <CompareDot category={indicator} />
                 {isSearch ? <span className="list-path">{displayPath(parentPath(entry.path) ?? "", home)}</span> : null}
               </div>
@@ -701,6 +709,7 @@ function GridView({
                       <span className="grid-text">
                         <span className="grid-name">
                           {displayName(entry, showExtensions)}
+                          <TagIndicators path={entry.path} />
                           <CompareDot category={indicator} />
                         </span>
                         {metrics.mode !== "grid" || mode === "small" ? (
@@ -754,6 +763,35 @@ function LoadingState({ mode }: { mode: ViewMode }) {
   );
 }
 
+function TagFilterEmptyState({
+  name,
+  paneId,
+}: {
+  name: string;
+  paneId: PaneId;
+}) {
+  return (
+    <div className="file-area-state empty-state">
+      <div className="empty-icon">
+        <Icon name="tag" size={42} />
+      </div>
+      <h2>No items have this tag</h2>
+      <p>
+        Tag files from the context menu, Properties, or by dragging them onto the
+        tag in the sidebar. The tag <strong>{name}</strong> is still selected.
+      </p>
+      <button
+        type="button"
+        className="state-button"
+        onClick={() => useExplorerStore.getState().clearTagFilter(paneId)}
+      >
+        <Icon name="close" size={14} />
+        Clear tag filter
+      </button>
+    </div>
+  );
+}
+
 function EmptyState({ search, query, paneId }: { search: boolean; query: string; paneId: PaneId }) {
   return (
     <div className="file-area-state empty-state">
@@ -788,12 +826,19 @@ function ErrorState({ paneId }: { paneId: PaneId }) {
   const revealSelection = useExplorerStore((state) => state.revealSelection);
   const error = tab?.error;
   const permission = error?.code === "permission_denied";
+  const networkPermission = error?.code === "network_permission_denied";
   return (
     <div className="file-area-state error-state">
       <div className="error-icon">
-        <Icon name={permission ? "lock" : "warning"} size={38} />
+        <Icon name={permission || networkPermission ? "lock" : "warning"} size={38} />
       </div>
-      <h2>{permission ? "You don't have permission to access this folder" : "We can't open this location"}</h2>
+      <h2>
+        {networkPermission
+          ? "MAXplorer can't access this network folder"
+          : permission
+            ? "You don't have permission to access this folder"
+            : "We can't open this location"}
+      </h2>
       <p>{error?.message ?? "The location is unavailable."}</p>
       {error?.path ? <code className="error-path">{error.path}</code> : null}
       <div className="state-actions">
@@ -801,7 +846,30 @@ function ErrorState({ paneId }: { paneId: PaneId }) {
           <Icon name="refresh" size={14} />
           Try again
         </button>
-        {permission ? (
+        {networkPermission ? (
+          <>
+            <button
+              type="button"
+              className="state-button"
+              onClick={() => {
+                void api.openSystemSettings("network_volumes").catch((cause) => useExplorerStore.getState().toastError(cause));
+              }}
+            >
+              <Icon name="settings" size={14} />
+              Network Volumes
+            </button>
+            <button
+              type="button"
+              className="state-button"
+              onClick={() => {
+                void api.openSystemSettings("local_network").catch((cause) => useExplorerStore.getState().toastError(cause));
+              }}
+            >
+              <Icon name="network" size={14} />
+              Local Network
+            </button>
+          </>
+        ) : permission ? (
           <button
             type="button"
             className="state-button"
@@ -837,26 +905,54 @@ export function FileArea({ paneId = "left" }: { paneId?: PaneId }) {
   const currentFolder = useExplorerStore((state) => state.currentFolder(paneId));
   const clearSearch = useExplorerStore((state) => state.clearSearch);
   const refresh = useExplorerStore((state) => state.refresh);
+  const clearTagFilter = useExplorerStore((state) => state.clearTagFilter);
+  const tagFilterId = pane.tagFilterId;
+  const tagFilter = useExplorerStore((state) =>
+    tagFilterId ? state.tags.find((tag) => tag.id === tagFilterId) : undefined,
+  );
+  const tagAssignments = useExplorerStore((state) => state.tagAssignments);
+  const tagEntries = useMemo(
+    () => (tagFilterId ? entriesForTag(tagAssignments, tagFilterId) : []),
+    [tagAssignments, tagFilterId],
+  );
   const indicators = useMemo(
     () => comparisonIndicators(comparison?.result ?? null)[paneId],
     [comparison, paneId],
   );
 
   const isHome = activeTab?.location === HOME_LOCATION;
-  const isSearch = activeTab?.searchResults != null;
-  const isSearchLoading = Boolean(activeTab?.searchLoading && activeTab?.searchQuery);
-  const baseEntries = isSearch ? activeTab?.searchResults ?? [] : activeTab?.entries ?? [];
+  const isRecents = activeTab?.location === RECENTS_LOCATION;
+  const isNetwork = activeTab?.location === NETWORK_LOCATION;
+  const isTagFilter = Boolean(tagFilterId);
+  const isSearch = !isTagFilter && activeTab?.searchResults != null;
+  const showLocations = isSearch || isTagFilter;
+  const isSearchLoading = Boolean(
+    !isTagFilter && activeTab?.searchLoading && activeTab?.searchQuery,
+  );
+  const baseEntries = isTagFilter
+    ? tagEntries
+    : isSearch
+      ? activeTab?.searchResults ?? []
+      : activeTab?.entries ?? [];
   const sorted = useMemo(
     () => sortEntries(baseEntries, sortKey, sortDirection),
     [baseEntries, sortKey, sortDirection],
   );
   const groups = useMemo(() => groupEntries(sorted, groupBy), [groupBy, sorted]);
 
-  if (isHome && !isSearch) {
+  if (isHome && !isSearch && !isTagFilter) {
     return <HomeView paneId={paneId} />;
   }
 
-  if (activeTab?.loading && !activeTab.entries.length) {
+  if (isRecents && !isSearch && !isTagFilter) {
+    return <RecentsView paneId={paneId} />;
+  }
+
+  if (isNetwork && !isSearch && !isTagFilter) {
+    return <NetworkView paneId={paneId} />;
+  }
+
+  if (!isTagFilter && activeTab?.loading && !activeTab.entries.length) {
     return <LoadingState mode={viewMode} />;
   }
 
@@ -864,7 +960,7 @@ export function FileArea({ paneId = "left" }: { paneId?: PaneId }) {
     return <LoadingState mode={viewMode} />;
   }
 
-  if (activeTab?.error) {
+  if (!isTagFilter && activeTab?.error) {
     return <ErrorState paneId={paneId} />;
   }
 
@@ -874,6 +970,33 @@ export function FileArea({ paneId = "left" }: { paneId?: PaneId }) {
       onContextMenu={(event) => openBlankContextMenu(event, paneId)}
       data-drop-pane={paneId}
     >
+      {isTagFilter ? (
+        <div className="tag-filter-summary">
+          <span
+            className="tag-dot tag-filter-dot"
+            style={{
+              backgroundColor: tagFilter?.color ?? "var(--text-3)",
+            }}
+            aria-hidden="true"
+          />
+          <span className="tag-filter-label">
+            <strong>{tagFilter?.name ?? "Tag"}</strong>
+            <span className="search-summary-count">
+              {" "}
+              - {formatCount(baseEntries.length)} {plural(baseEntries.length, "item")}
+            </span>
+          </span>
+          <button
+            type="button"
+            className="search-summary-clear"
+            onClick={() => clearTagFilter(paneId)}
+            title="Show the current folder again"
+          >
+            <Icon name="close" size={10} />
+            Clear filter
+          </button>
+        </div>
+      ) : null}
       {isSearch ? (
         <div className="search-summary">
           <span>
@@ -890,7 +1013,7 @@ export function FileArea({ paneId = "left" }: { paneId?: PaneId }) {
           </button>
         </div>
       ) : null}
-      {activeTab?.truncated ? (
+      {!isTagFilter && activeTab?.truncated ? (
         <div className="truncation-banner">
           <Icon name="warning" size={14} />
           Some items are not shown because this folder is very large.
@@ -899,18 +1022,22 @@ export function FileArea({ paneId = "left" }: { paneId?: PaneId }) {
           </button>
         </div>
       ) : null}
-      {activeTab?.readErrors ? (
+      {!isTagFilter && activeTab?.readErrors ? (
         <div className="truncation-banner">
           <Icon name="warning" size={14} />
           {activeTab.readErrors} {plural(activeTab.readErrors, "item")} couldn't be read because of a permissions or filesystem error.
         </div>
       ) : null}
       {baseEntries.length === 0 ? (
-        <EmptyState search={isSearch} query={activeTab?.searchQuery ?? ""} paneId={paneId} />
+        isTagFilter ? (
+          <TagFilterEmptyState name={tagFilter?.name ?? "this tag"} paneId={paneId} />
+        ) : (
+          <EmptyState search={isSearch} query={activeTab?.searchQuery ?? ""} paneId={paneId} />
+        )
       ) : viewMode === "details" ? (
-        <DetailsView entries={sorted} groups={groups} isSearch={isSearch} paneId={paneId} indicators={indicators} />
+        <DetailsView entries={sorted} groups={groups} isSearch={showLocations} paneId={paneId} indicators={indicators} />
       ) : viewMode === "list" ? (
-        <ListView entries={sorted} groups={groups} isSearch={isSearch} paneId={paneId} indicators={indicators} />
+        <ListView entries={sorted} groups={groups} isSearch={showLocations} paneId={paneId} indicators={indicators} />
       ) : (
         <GridView entries={sorted} groups={groups} mode={viewMode} paneId={paneId} indicators={indicators} />
       )}

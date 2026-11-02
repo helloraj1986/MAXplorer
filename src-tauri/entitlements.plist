@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Outbound SMB/network access. The current build is not sandboxed, but
+       keeping the entitlement makes a future App Sandbox build explicit. -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+</dict>
+</plist>

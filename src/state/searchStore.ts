@@ -297,7 +297,8 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       });
     }
     set({ listenersAttached: true });
-    await get().loadIndexStatus();
+    // Never count millions of index rows during launch. The search overlay,
+    // workspace, and indexing dashboard request status when they are opened.
   },
 
   openOverlay(query) {

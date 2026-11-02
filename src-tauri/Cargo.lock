@@ -1850,6 +1850,7 @@ name = "maxplorer"
 version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
+ "core-foundation",
  "dirs 6.0.0",
  "flate2",
  "libc",

@@ -6,7 +6,16 @@ import { useSearchStore } from "../state/searchStore";
 import { api } from "../lib/api";
 import { copyTextToClipboard, pathsAsText } from "../lib/clipboard";
 import { basename, parentPath } from "../lib/format";
-import { HOME_LOCATION, type GroupBy, type PaneId, type SortKey, type ViewMode } from "../lib/types";
+import { samePath } from "../lib/tags";
+import {
+  HOME_LOCATION,
+  RECENTS_LOCATION,
+  type GroupBy,
+  type PaneId,
+  type SortKey,
+  type TagDefinition,
+  type ViewMode,
+} from "../lib/types";
 
 const VIEW_ITEMS: Array<{ mode: ViewMode; label: string; icon: "grid" | "list" | "details" | "view" }> = [
   { mode: "extraLarge", label: "Extra large icons", icon: "grid" },
@@ -46,6 +55,28 @@ function sortMenuItems(paneId: PaneId): MenuItem[] {
   ];
 }
 
+function tagMenuItems(paths: string[], tags: TagDefinition[]): MenuItem[] {
+  const state = useExplorerStore.getState();
+  const items: MenuItem[] = tags.map((tag) => {
+    const tagged = paths.length > 0 && paths.every((path) => state.tagIdsForPath(path).includes(tag.id));
+    return {
+      label: tag.name,
+      icon: "tag",
+      checked: tagged,
+      onClick: () => state.toggleTag(paths, tag.id),
+    };
+  });
+  if (items.length) items.push({ type: "separator" });
+  items.push(
+    {
+      label: "New Tag...",
+      icon: "plus",
+      onClick: () => state.openTagEditor(undefined, paths),
+    },
+  );
+  return items;
+}
+
 function groupMenuItems(paneId: PaneId): MenuItem[] {
   const state = useExplorerStore.getState();
   const pane = state.pane(paneId);
@@ -70,6 +101,7 @@ export function ContextMenu() {
     (state) => state.panes[paneId].tabs.find((tab) => tab.id === state.panes[paneId].activeTabId),
   );
   const locations = useExplorerStore((state) => state.locations);
+  const tags = useExplorerStore((state) => state.tags);
   const clipboard = useExplorerStore((state) => state.clipboard);
   const isHome = activeTab?.location === HOME_LOCATION;
 
@@ -142,6 +174,7 @@ export function ContextMenu() {
               },
             ]
           : []),
+        { label: "Tags", icon: "tag", submenu: tagMenuItems(paths, tags) },
         { type: "separator" },
         {
           label: "Copy",
@@ -316,12 +349,211 @@ export function ContextMenu() {
       ];
     }
 
+    if (menu.kind === "sidebar") {
+      const target = menu.target;
+      if (target.kind === "recents") {
+        return [
+          {
+            label: "Open Recents",
+            icon: "clock",
+            bold: true,
+            onClick: () => void state.navigate(RECENTS_LOCATION),
+          },
+          { type: "separator" },
+          {
+            label: "Clear Recent Items",
+            icon: "trash",
+            danger: true,
+            onClick: () => state.clearRecents(),
+          },
+        ];
+      }
+      if (target.kind === "favorite") {
+        const pinned = state.isPinned(target.path);
+        return [
+          {
+            label: "Open",
+            icon: "folderOpen",
+            bold: true,
+            onClick: () => void state.navigate(target.path),
+          },
+          {
+            label: "Reveal in Finder",
+            icon: "open",
+            onClick: () => void api.revealPath(target.path).catch((error) => state.toastError(error)),
+          },
+          { type: "separator" },
+          {
+            label: pinned ? "Remove from Favorites" : "Add to Favorites",
+            icon: pinned ? "unpin" : "pin",
+            onClick: () => {
+              if (pinned) state.unpinPath(target.path);
+              else state.pinPath(target.path);
+            },
+          },
+        ];
+      }
+      if (target.kind === "networkConnection") {
+        const connection = state.networkConnections.find(
+          (item) => item.id === target.connectionId,
+        );
+        if (!connection) return [];
+        const mounted = state.locations.find(
+          (location) =>
+            location.kind === "network" &&
+            location.isVolume &&
+            connection.mountPath != null &&
+            samePath(location.path, connection.mountPath),
+        );
+        return [
+          {
+            label: mounted ? "Open" : "Connect",
+            icon: mounted ? "folderOpen" : "network",
+            bold: true,
+            onClick: () => void state.openNetworkConnection(connection.id),
+          },
+          ...(mounted
+            ? [
+                {
+                  label: "Reconnect",
+                  icon: "network" as const,
+                  onClick: () => void state.connectNetworkConnection(connection.id),
+                },
+              ]
+            : []),
+          {
+            label: "Copy address",
+            icon: "copy",
+            onClick: () => {
+              void copyTextToClipboard(connection.address).then((ok) =>
+                state.toast({
+                  title: ok ? "Server address copied" : "Couldn't copy the address",
+                  tone: ok ? "success" : "error",
+                }),
+              );
+            },
+          },
+          { type: "separator" },
+          {
+            label: "Edit Server...",
+            icon: "rename",
+            onClick: () => state.openNetworkConnectionDialog(connection.id),
+          },
+          {
+            label: "Remove Server...",
+            icon: "delete",
+            danger: true,
+            onClick: () =>
+              state.openDialog({
+                kind: "confirm",
+                title: `Remove "${connection.name}"?`,
+                message:
+                  "The saved server is removed from Network. The server itself and any mounted volume are not changed.",
+                confirmLabel: "Remove Server",
+                destructive: true,
+                onConfirm: () => state.removeNetworkConnection(connection.id),
+              }),
+          },
+        ];
+      }
+      if (target.kind === "tag") {
+        const tag = state.tag(target.tagId);
+        if (!tag) return [];
+        const paneId = state.activePane;
+        const filtering = state.panes[paneId].tagFilterId === tag.id;
+        const selectedPaths = state.selectedEntries(paneId).map((entry) => entry.path);
+        return [
+          {
+            label: filtering ? "Clear Tag Filter" : "Filter Active Pane",
+            icon: filtering ? "close" : "tag",
+            bold: true,
+            checked: filtering,
+            onClick: () => state.setTagFilter(tag.id),
+          },
+          {
+            label: selectedPaths.length
+              ? `Assign to ${selectedPaths.length} selected`
+              : "Assign to selection",
+            icon: "tag",
+            disabled: selectedPaths.length === 0,
+            onClick: () => {
+              state.assignTag(selectedPaths, tag.id);
+              state.toast({
+                title: `${tag.name} applied`,
+                detail: `Tagged ${selectedPaths.length} ${selectedPaths.length === 1 ? "item" : "items"}.`,
+                tone: "success",
+              });
+            },
+          },
+          { type: "separator" },
+          {
+            label: "Edit Tag...",
+            icon: "rename",
+            onClick: () => state.openTagEditor(tag.id),
+          },
+          {
+            label: "Delete Tag...",
+            icon: "delete",
+            danger: true,
+            onClick: () =>
+              state.openDialog({
+                kind: "confirm",
+                title: `Delete the tag "${tag.name}"?`,
+                message:
+                  "The tag is removed from every item that uses it. Files and folders are not deleted.",
+                confirmLabel: "Delete Tag",
+                destructive: true,
+                onConfirm: () => state.deleteTag(tag.id),
+              }),
+          },
+        ];
+      }
+      const pinned = state.isPinned(target.path);
+      const canEject = target.isVolume && target.locationId !== "root";
+      return [
+        {
+          label: "Open",
+          icon: "folderOpen",
+          bold: true,
+          onClick: () => void state.navigate(target.path),
+        },
+        {
+          label: "Reveal in Finder",
+          icon: "open",
+          onClick: () => void api.revealPath(target.path).catch((error) => state.toastError(error)),
+        },
+        { type: "separator" },
+        {
+          label: pinned ? "Remove from Favorites" : "Add to Favorites",
+          icon: pinned ? "unpin" : "pin",
+          disabled: target.locationId === "trash",
+          onClick: () => {
+            if (pinned) state.unpinPath(target.path);
+            else state.pinPath(target.path);
+          },
+        },
+        ...(canEject
+          ? [
+              { type: "separator" as const },
+              {
+                label: `Eject ${target.name}`,
+                icon: "eject" as const,
+                onClick: () => void state.ejectVolume(target.path),
+              },
+            ]
+          : []),
+      ];
+    }
+
     const entry = selectedEntries.find((item) => item.path === menu.path) ?? selectedEntries[0];
     const filePath = entry?.path ?? menu.path;
     const isDir = entry?.isDir ?? menu.isDir;
     const parent = isDir ? filePath : parentPath(filePath);
     const pinned = isPinned(filePath);
     const multiple = selectedEntries.length > 1;
+    const tagPaths = selectedEntries.length
+      ? selectedEntries.map((item) => item.path)
+      : [filePath];
     const openAll = () => {
       const selected = state.selectedEntries(paneId);
       if (selected.length <= 1) {
@@ -362,6 +594,11 @@ export function ContextMenu() {
           if (pinned) state.unpinPath(filePath);
           else state.pinPath(filePath);
         },
+      },
+      {
+        label: "Tags",
+        icon: "tag",
+        submenu: tagMenuItems(tagPaths, tags),
       },
       {
         label: "Copy as path",
@@ -424,11 +661,11 @@ export function ContextMenu() {
         onClick: () => void state.openProperties(filePath),
       },
     ];
-  }, [clipboard, isHome, isPinned, locations, menu, paneId, platform?.platform, selectedEntries]);
+  }, [clipboard, isHome, isPinned, locations, menu, paneId, platform?.platform, selectedEntries, tags]);
 
   if (!menu) return null;
-  const width = menu.kind === "blank" ? 270 : 304;
-  const estimatedHeight = menu.kind === "blank" ? 430 : 470;
+  const width = menu.kind === "blank" || menu.kind === "sidebar" ? 270 : 304;
+  const estimatedHeight = menu.kind === "blank" || menu.kind === "sidebar" ? 430 : 470;
   const x = Math.min(menu.x, window.innerWidth - width - 8);
   const y = Math.min(menu.y, window.innerHeight - estimatedHeight - 8);
   return (

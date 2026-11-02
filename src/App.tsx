@@ -30,7 +30,7 @@ import { useTheme } from "./hooks/useTheme";
 import { useWindowPersistence } from "./hooks/useWindowPersistence";
 import { isTauri } from "./lib/api";
 import { APP_ICON_URL, PRODUCT_NAME, TAGLINE } from "./lib/branding";
-import { HOME_LOCATION } from "./lib/types";
+import { HOME_LOCATION, NETWORK_LOCATION, RECENTS_LOCATION } from "./lib/types";
 
 export default function App() {
   const initialize = useExplorerStore((state) => state.initialize);
@@ -50,6 +50,7 @@ export default function App() {
   const searchWorkspaceOpen = useSearchStore((state) => state.workspaceOpen);
   const storageWorkspaceOpen = useStorageStore((state) => state.workspaceOpen);
   const initializeSearch = useSearchStore((state) => state.initialize);
+  const refreshLocations = useExplorerStore((state) => state.refreshLocations);
   const [osDropActive, setOsDropActive] = useState(false);
   useTheme();
 
@@ -73,6 +74,13 @@ export default function App() {
     document.addEventListener("contextmenu", prevent);
     return () => document.removeEventListener("contextmenu", prevent);
   }, []);
+
+  useEffect(() => {
+    if (!isTauri) return;
+    const refresh = () => void refreshLocations();
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [refreshLocations]);
 
   useEffect(() => {
     if (!isTauri) return;
@@ -127,7 +135,11 @@ export default function App() {
     const label =
       activeTab.location === HOME_LOCATION
         ? "Home"
-        : activeTab.location.split(/[\\/]/).filter(Boolean).pop() || PRODUCT_NAME;
+        : activeTab.location === RECENTS_LOCATION
+          ? "Recents"
+          : activeTab.location === NETWORK_LOCATION
+            ? "Network"
+            : activeTab.location.split(/[\\/]/).filter(Boolean).pop() || PRODUCT_NAME;
     document.title = `${label} - ${PRODUCT_NAME}`;
   }, [activeTab?.location, storageWorkspaceOpen]);
 

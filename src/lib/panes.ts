@@ -39,6 +39,7 @@ export function createPane(location: string, defaults: PaneDefaults = {}): PaneS
     showHidden: defaults.showHidden ?? false,
     showExtensions: defaults.showExtensions ?? true,
     collapsed: false,
+    tagFilterId: null,
   };
 }
 
@@ -274,6 +275,7 @@ export function persistedPaneFromState(pane: PaneState): PersistedPaneState {
     showHidden: pane.showHidden,
     showExtensions: pane.showExtensions,
     collapsed: pane.collapsed,
+    tagFilterId: pane.tagFilterId,
   };
 }
 
@@ -299,6 +301,7 @@ export function paneFromPersisted(
     showHidden: persisted.showHidden,
     showExtensions: persisted.showExtensions,
     collapsed: persisted.collapsed,
+    tagFilterId: persisted.tagFilterId ?? null,
   };
 }
 
@@ -326,6 +329,7 @@ export function panesFromPersisted(
     showHidden: persisted.showHidden,
     showExtensions: persisted.showExtensions,
     collapsed: false,
+    tagFilterId: null,
   };
   return {
     left: paneFromPersisted(legacy, fallback),

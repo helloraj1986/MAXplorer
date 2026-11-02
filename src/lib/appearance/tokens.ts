@@ -125,6 +125,38 @@ export const ADVANCED_TOKEN_GROUPS: readonly AdvancedTokenGroup[] = [
     ],
   },
   {
+    label: "Sidebar",
+    tokens: [
+      { name: "--sidebar-background", label: "Sidebar background" },
+      { name: "--sidebar-border-color", label: "Sidebar border" },
+      { name: "--sidebar-padding", label: "Sidebar padding" },
+      { name: "--sidebar-heading-color", label: "Section heading color" },
+      { name: "--sidebar-heading-font-size", label: "Heading font size" },
+      { name: "--sidebar-heading-font-weight", label: "Heading font weight" },
+      { name: "--sidebar-heading-padding", label: "Heading padding" },
+      { name: "--sidebar-row-height", label: "Row height" },
+      { name: "--sidebar-row-padding", label: "Row padding" },
+      { name: "--sidebar-row-gap", label: "Row gap" },
+      { name: "--sidebar-row-radius", label: "Row corner radius" },
+      { name: "--sidebar-row-color", label: "Row text" },
+      { name: "--sidebar-row-font-size", label: "Row font size" },
+      { name: "--sidebar-row-hover-background", label: "Row hover" },
+      { name: "--sidebar-row-selected-background", label: "Row selection" },
+      { name: "--sidebar-row-selected-color", label: "Selected row text" },
+      { name: "--sidebar-icon-size", label: "Icon size" },
+      { name: "--sidebar-icon-color", label: "Icon color" },
+      { name: "--sidebar-icon-selected-color", label: "Selected icon color" },
+      { name: "--sidebar-section-gap", label: "Section spacing" },
+      { name: "--sidebar-disclosure-color", label: "Disclosure color" },
+      { name: "--sidebar-count-color", label: "Count color" },
+      { name: "--sidebar-tag-dot-size", label: "Tag dot size" },
+      { name: "--sidebar-icon-blue", label: "Blue accent icon" },
+      { name: "--sidebar-icon-green", label: "Green accent icon" },
+      { name: "--sidebar-icon-purple", label: "Purple accent icon" },
+      { name: "--sidebar-icon-pink", label: "Pink accent icon" },
+    ],
+  },
+  {
     label: "Shape and type",
     tokens: [
       { name: "--theme-radius", label: "Corner radius" },
@@ -198,6 +230,13 @@ export function themeCssVariables(design: ThemeDesign): Record<string, string> {
         ? mix(palette.sidebar, text, isDark ? 0.1 : 0.06)
         : palette.sidebar;
   const sidebar = normalizeHex(sidebarBase);
+  const sidebarRowHeight =
+    style.density === "compact" ? 25 : style.density === "spacious" ? 32 : 29;
+  const sidebarFontSize =
+    style.textSize === "small" ? 11 : style.textSize === "large" ? 13 : 12;
+  const sidebarIconSize =
+    style.iconSize === "small" ? 15 : style.iconSize === "large" ? 19 : 17;
+  const sidebarSelectionText = readableOn(selection, "#ffffff", "#091018");
   const toolbar =
     style.toolbar === "flat"
       ? background
@@ -276,6 +315,33 @@ export function themeCssVariables(design: ThemeDesign): Record<string, string> {
     "--scrollbar": mix(surface, text, 0.3),
     "--scrollbar-hover": mix(surface, text, 0.5),
     "--statusbar": sidebar,
+    "--sidebar-background": sidebar,
+    "--sidebar-border-color": border,
+    "--sidebar-padding": "4px 6px 0 8px",
+    "--sidebar-heading-color": text3,
+    "--sidebar-heading-font-size": "11px",
+    "--sidebar-heading-font-weight": "600",
+    "--sidebar-heading-padding": "10px 8px 4px",
+    "--sidebar-row-height": `${sidebarRowHeight}px`,
+    "--sidebar-row-padding": "0 8px",
+    "--sidebar-row-gap": "8px",
+    "--sidebar-row-radius": `${radius}px`,
+    "--sidebar-row-color": text,
+    "--sidebar-row-font-size": `${sidebarFontSize}px`,
+    "--sidebar-row-hover-background": withAlpha(text, isDark ? 0.07 : 0.05),
+    "--sidebar-row-selected-background": selection,
+    "--sidebar-row-selected-color": sidebarSelectionText,
+    "--sidebar-icon-size": `${sidebarIconSize}px`,
+    "--sidebar-icon-color": text2,
+    "--sidebar-icon-selected-color": sidebarSelectionText,
+    "--sidebar-section-gap": "8px",
+    "--sidebar-disclosure-color": text3,
+    "--sidebar-count-color": text3,
+    "--sidebar-tag-dot-size": "10px",
+    "--sidebar-icon-blue": accent,
+    "--sidebar-icon-green": success,
+    "--sidebar-icon-purple": accent,
+    "--sidebar-icon-pink": danger,
     "--image-border": withAlpha(text, 0.14),
     "--focus-ring": accent,
     "--warning-soft": withAlpha(warning, 0.1),
