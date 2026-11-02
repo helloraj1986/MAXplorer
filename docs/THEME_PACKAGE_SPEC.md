@@ -91,6 +91,22 @@ not retained after import. Do not put instructions that affect parsing or behavi
     },
     "iconPackId": "mono-ink",
     "overrides": {},
+    "components": {
+      "paneDivider": {
+        "width": 2,
+        "hitAreaWidth": 14,
+        "color": null,
+        "hoverColor": null,
+        "activeColor": null,
+        "gripColor": null,
+        "showGrip": true,
+        "gripVisibility": "hover",
+        "activeIndicator": "accent-border",
+        "cornerRadius": 1,
+        "headerBackground": null,
+        "headerBorderColor": null
+      }
+    },
     "presetId": "midnight-dark",
     "createdAt": "2026-10-30T10:14:00.000Z",
     "updatedAt": "2026-10-30T10:14:30.000Z"
@@ -110,6 +126,50 @@ not retained after import. Do not put instructions that affect parsing or behavi
 | `appearance` | `"light"` or `"dark"`. |
 | `palette` | Seven valid colours. `#rgb`, `#rrggbb`, and `rgb()` are normalised. |
 | `style` | All eight choices below. Unknown values fall back to safe defaults. |
+| `components` | Optional. Unknown component keys are ignored; invalid divider values are clamped, not rejected. |
+
+### Component configuration
+
+`components.paneDivider` customises the dual-pane divider and active-pane indicator
+without shipping CSS. Every field is optional. Missing colours are derived from the
+theme’s border/accent/surface tokens with a guaranteed visible contrast step.
+
+| Key | Allowed values | Default |
+| --- | --- | --- |
+| `width` | number 1–8 (visible line, logical px) | `2` |
+| `hitAreaWidth` | number 12–28 (pointer target); always larger than `width` | `14` |
+| `color` | colour or `null` (derive from strong border) | `null` |
+| `hoverColor` | colour or `null` (derive from accent/text) | `null` |
+| `activeColor` | colour or `null` (derive from accent) | `null` |
+| `gripColor` | colour or `null` (derive from muted text) | `null` |
+| `showGrip` | boolean | `true` |
+| `gripVisibility` | `hover`, `always`, `never` | `hover` |
+| `activeIndicator` | `accent-border`, `top-line`, `header`, `none` | `accent-border` |
+| `cornerRadius` | number 0–8 | `1` |
+| `headerBackground` | colour or `null` (derive from toolbar surface) | `null` |
+| `headerBorderColor` | colour or `null` (derive from strong border) | `null` |
+
+A theme may opt out of the grip (`showGrip: false` or `gripVisibility: "never"`) for a flat
+minimalist divider. The active indicator is rendered with an inset box-shadow or a header
+tint, so switching panes never changes layout dimensions. Invalid values are clamped and
+reported as import warnings; the theme still installs. Existing packages without
+`components` continue to load unchanged.
+
+Minimal example:
+
+```json
+{
+  "components": {
+    "paneDivider": {
+      "width": 2,
+      "hitAreaWidth": 16,
+      "activeIndicator": "top-line",
+      "gripVisibility": "hover"
+    }
+  }
+}
+```
+
 
 ### Style values
 
@@ -176,14 +236,17 @@ the existing components. It derives:
 - accent foreground text;
 - selection, focus, menu, status bar, scrollbar, and overlay colours;
 - radius, shadows, and font scale;
-- Finder-specific sidebar and toolbar variables.
+- Finder-specific sidebar and toolbar variables;
+- dual-pane divider, grip, active-indicator and pane-header tokens. The divider colour
+  fallback is contrast-checked against the active surface so it is never invisible.
 
 `applyThemeDesign(design, iconPack)`:
 
 1. applies the icon pack variables;
 2. applies the theme tokens as inline custom properties on `<html>`;
 3. sets `data-custom-theme`, `data-ui-theme`, `data-theme`, `data-density`,
-   `data-text-size`, `data-icon-size`, `data-theme-corners`, and `data-theme-borders`.
+   `data-text-size`, `data-icon-size`, `data-theme-corners`, `data-theme-borders`,
+   `data-pane-grip`, and `data-pane-indicator`.
 
 `clearThemeDesign()` removes those properties before a built-in theme takes over.
 `useTheme()` in `src/hooks/useTheme.ts` keeps this state in sync with the store.
@@ -198,6 +261,9 @@ accepted:
 --mica --mica-2 --surface --surface-raised --surface-2 --surface-3 --field
 --text --text-2 --text-3 --text-disabled
 --border --border-strong --hover --pressed --selected --selected-inactive
+--pane-divider-color --pane-divider-hover-color --pane-divider-active-color
+--pane-divider-grip-color --pane-active-indicator-color
+--pane-header-background --pane-header-border-color --pane-focus-ring-color
 --selection-border --menu --menu-border --menu-hover --statusbar
 --scrollbar --scrollbar-hover --focus-ring --danger --danger-text --warning --success
 --theme-background --theme-sidebar --theme-toolbar --theme-radius
@@ -279,6 +345,9 @@ user selects file
 `parseThemePackage` rejects oversized files, invalid JSON, wrong format markers, future
 format versions, and themes without a valid name. Colliding ids are assigned a fresh
 identity by `importTheme`; an imported package cannot overwrite an existing saved theme.
+Invalid `components.paneDivider` values are repaired with safe defaults and returned as
+`warnings` on the parse result for theme developers; they never reject an otherwise valid
+theme.
 
 Export uses the desktop command `save_appearance_package(fileName, contents)`:
 

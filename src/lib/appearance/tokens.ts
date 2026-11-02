@@ -9,6 +9,7 @@ import {
 } from "./color";
 import {
   ALLOWED_OVERRIDE_TOKENS,
+  normalizePaneDividerDesign,
   type IconPack,
   type ThemeDesign,
   type ThemeDensity,
@@ -92,6 +93,19 @@ export const ADVANCED_TOKEN_GROUPS: readonly AdvancedTokenGroup[] = [
       { name: "--warning", label: "Warning" },
       { name: "--success", label: "Success" },
       { name: "--overlay", label: "Modal overlay" },
+    ],
+  },
+  {
+    label: "Dual pane",
+    tokens: [
+      { name: "--pane-divider-color", label: "Divider" },
+      { name: "--pane-divider-hover-color", label: "Divider hover" },
+      { name: "--pane-divider-active-color", label: "Divider dragging" },
+      { name: "--pane-divider-grip-color", label: "Divider grip" },
+      { name: "--pane-active-indicator-color", label: "Active pane indicator" },
+      { name: "--pane-header-background", label: "Pane header" },
+      { name: "--pane-header-border-color", label: "Pane header border" },
+      { name: "--pane-focus-ring-color", label: "Pane focus ring" },
     ],
   },
   {
@@ -198,6 +212,19 @@ export function themeCssVariables(design: ThemeDesign): Record<string, string> {
         ? "0 16px 48px rgba(0, 0, 0, 0.48), 0 2px 6px rgba(0, 0, 0, 0.32)"
         : "0 16px 48px rgba(15, 23, 42, 0.18), 0 2px 6px rgba(15, 23, 42, 0.08)";
 
+  const divider = normalizePaneDividerDesign(design.components?.paneDivider);
+  // The divider is never allowed to resolve to the pane surface. Even a
+  // minimalist theme gets a measurable step away from both adjacent panes; a
+  // component-level or token-level value can still override this.
+  const dividerColor = divider.color ?? ensureContrast(borderStrong, surface, 2);
+  const dividerHoverColor =
+    divider.hoverColor ?? ensureContrast(readableOn(surface, accent, text), surface, 2.6);
+  const dividerActiveColor = divider.activeColor ?? accent;
+  const dividerGripColor = divider.gripColor ?? text3;
+  const activeIndicatorColor = accent;
+  const paneHeaderBackground = divider.headerBackground ?? toolbar;
+  const paneHeaderBorderColor = divider.headerBorderColor ?? borderStrong;
+
   const variables: Record<string, string> = {
     "--theme-background": background,
     "--theme-sidebar": sidebar,
@@ -216,6 +243,17 @@ export function themeCssVariables(design: ThemeDesign): Record<string, string> {
     "--text-disabled": mix(text, surface, 0.58),
     "--border": border,
     "--border-strong": borderStrong,
+    "--pane-divider-color": dividerColor,
+    "--pane-divider-hover-color": dividerHoverColor,
+    "--pane-divider-active-color": dividerActiveColor,
+    "--pane-divider-grip-color": dividerGripColor,
+    "--pane-divider-width": `${divider.width}px`,
+    "--pane-divider-hit-area": `${divider.hitAreaWidth}px`,
+    "--pane-divider-radius": `${divider.cornerRadius}px`,
+    "--pane-active-indicator-color": activeIndicatorColor,
+    "--pane-header-background": paneHeaderBackground,
+    "--pane-header-border-color": paneHeaderBorderColor,
+    "--pane-focus-ring-color": accent,
     "--hover": mix(surface, text, 0.07),
     "--pressed": mix(surface, text, 0.12),
     "--selected": withAlpha(selection, isDark ? 0.34 : 0.22),
@@ -342,6 +380,7 @@ function applyVariables(values: Record<string, string>, target: HTMLElement): vo
 export function applyThemeDesign(design: ThemeDesign, iconPack?: IconPack | null): void {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
+  const divider = normalizePaneDividerDesign(design.components?.paneDivider);
   applyIconPack(iconPack ?? null);
   applyVariables(themeCssVariables(design), root);
   root.dataset.customTheme = "true";
@@ -352,6 +391,8 @@ export function applyThemeDesign(design: ThemeDesign, iconPack?: IconPack | null
   root.dataset.iconSize = design.style.iconSize;
   root.dataset.themeCorners = design.style.corners;
   root.dataset.themeBorders = design.style.borders;
+  root.dataset.paneGrip = divider.showGrip ? divider.gripVisibility : "never";
+  root.dataset.paneIndicator = divider.activeIndicator;
   root.style.colorScheme = design.appearance;
 }
 
@@ -406,6 +447,8 @@ export function clearThemeDesign(): void {
   delete root.dataset.customTheme;
   delete root.dataset.themeCorners;
   delete root.dataset.themeBorders;
+  delete root.dataset.paneGrip;
+  delete root.dataset.paneIndicator;
   delete root.dataset.iconPack;
 }
 

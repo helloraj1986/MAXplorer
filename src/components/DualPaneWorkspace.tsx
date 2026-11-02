@@ -3,8 +3,11 @@ import { Icon } from "./Icon";
 import { PaneTabStrip } from "./PaneTabs";
 import { NavigationBar } from "./NavigationBar";
 import { FileArea } from "./FileArea";
+import { PaneDivider } from "./PaneDivider";
+import { usePaneDividerTheme } from "../hooks/usePaneDividerTheme";
 import { useExplorerStore } from "../state/explorerStore";
 import { basename } from "../lib/format";
+import { clampRatioToBounds, leftPaneWidth, ratioBounds } from "../lib/divider";
 import type { PaneId } from "../lib/types";
 
 /** Smallest usable pane before the divider stops moving. */
@@ -81,6 +84,7 @@ export function DualPaneWorkspace() {
   const setSplitRatio = useExplorerStore((state) => state.setSplitRatio);
   const leftCollapsed = useExplorerStore((state) => state.panes.left.collapsed);
   const rightCollapsed = useExplorerStore((state) => state.panes.right.collapsed);
+  const divider = usePaneDividerTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const bothVisible = !leftCollapsed && !rightCollapsed;
@@ -95,71 +99,15 @@ export function DualPaneWorkspace() {
     return () => observer.disconnect();
   }, []);
 
-  // Keep both panes usable: the store floor is a ratio, which is far too narrow
-  // on a small window, so the divider also respects a pixel minimum.
-  const edge = containerWidth > 0 ? Math.min(0.45, MIN_PANE_WIDTH / containerWidth) : 0;
-  const minRatio = Math.max(0.18, edge);
-  const maxRatio = Math.min(0.82, 1 - edge);
-  const clampRatio = (ratio: number) => Math.min(maxRatio, Math.max(minRatio, ratio));
+  // Keep both panes usable without overwriting the user's preferred split. The
+  // rendered ratio is clamped, but the store keeps the saved value so a
+  // transient narrow window does not permanently reset the layout.
+  const bounds = ratioBounds(containerWidth, undefined, divider.hitAreaWidth);
+  const effectiveRatio = clampRatioToBounds(splitRatio, bounds);
+  const leftWidth = containerWidth > 0 ? leftPaneWidth(containerWidth, effectiveRatio, divider.hitAreaWidth) : null;
 
-  useEffect(() => {
-    if (!bothVisible || minRatio > maxRatio) return;
-    if (splitRatio < minRatio || splitRatio > maxRatio) {
-      setSplitRatio(Math.min(maxRatio, Math.max(minRatio, splitRatio)));
-    }
-  }, [bothVisible, minRatio, maxRatio, splitRatio, setSplitRatio]);
-
-  const startResize = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!bothVisible || event.button !== 0) return;
-    const container = containerRef.current;
-    if (!container) return;
-    event.preventDefault();
-    const rect = container.getBoundingClientRect();
-    const splitter = event.currentTarget;
-    // Keep receiving moves/up even when the pointer leaves the divider or window.
-    try {
-      splitter.setPointerCapture(event.pointerId);
-    } catch {
-      // Pointer capture can fail when the pointer is already gone; window
-      // listeners below still handle the drag.
-    }
-    const move = (moveEvent: PointerEvent) => {
-      if (!rect.width) return;
-      setSplitRatio(clampRatio((moveEvent.clientX - rect.left) / rect.width));
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", up);
-      if (splitter.hasPointerCapture(event.pointerId)) {
-        splitter.releasePointerCapture(event.pointerId);
-      }
-      document.body.classList.remove("resizing-panes");
-    };
-    document.body.classList.add("resizing-panes");
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
-  };
-
-  const onSplitterKey = (event: React.KeyboardEvent) => {
-    if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      setSplitRatio(clampRatio(splitRatio - 0.03));
-    } else if (event.key === "ArrowRight") {
-      event.preventDefault();
-      setSplitRatio(clampRatio(splitRatio + 0.03));
-    } else if (event.key === "Home") {
-      event.preventDefault();
-      setSplitRatio(minRatio);
-    } else if (event.key === "End") {
-      event.preventDefault();
-      setSplitRatio(maxRatio);
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      setSplitRatio(clampRatio(0.5));
-    }
-  };
+  const changeRatio = (next: number) => setSplitRatio(clampRatioToBounds(next, bounds));
+  const resetRatio = () => setSplitRatio(clampRatioToBounds(0.5, bounds));
 
   return (
     <div className="workspace dual-pane" ref={containerRef}>
@@ -173,7 +121,7 @@ export function DualPaneWorkspace() {
               ? {
                   // The left slot owns the width; the right slot absorbs the rest.
                   // Growing here would push the divider past the pointer position.
-                  flexBasis: `calc(${splitRatio * 100}% - 3px)`,
+                  flexBasis: leftWidth === null ? `${effectiveRatio * 100}%` : `${leftWidth}px`,
                   flexGrow: 0,
                   flexShrink: 0,
                 }
@@ -184,22 +132,16 @@ export function DualPaneWorkspace() {
         </div>
       )}
       {bothVisible ? (
-        <div
-          className="pane-splitter"
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize panes"
-          aria-valuemin={Math.round(minRatio * 100)}
-          aria-valuemax={Math.round(maxRatio * 100)}
-          aria-valuenow={Math.round(splitRatio * 100)}
-          tabIndex={0}
-          title="Drag to resize panes. Double-click to reset."
-          onPointerDown={startResize}
-          onDoubleClick={() => setSplitRatio(0.5)}
-          onKeyDown={onSplitterKey}
-        >
-          <span className="pane-splitter-grip" aria-hidden="true" />
-        </div>
+        <PaneDivider
+          ratio={effectiveRatio}
+          minRatio={bounds.min}
+          maxRatio={bounds.max}
+          hitAreaWidth={divider.hitAreaWidth}
+          containerRef={containerRef}
+          onRatioChange={changeRatio}
+          onReset={resetRatio}
+          disabled={containerWidth === 0}
+        />
       ) : null}
       {rightCollapsed ? (
         <CollapsedPane paneId="right" />

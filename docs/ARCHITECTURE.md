@@ -378,10 +378,12 @@ Theme Creator ─┐
 ```
 
 - `lib/appearance/model.ts` owns the schema, normalizer, contrast validation, package
-  envelopes, and safe token sanitization.
+  envelopes, safe token sanitization, and optional component configuration
+  (`components.paneDivider`). Legacy themes without that block receive safe defaults.
 - `lib/appearance/tokens.ts` converts a user-friendly design into the CSS custom properties
   consumed by the existing shell. `useTheme` applies the design and icon pack to
-  `<html>`; `clearThemeDesign` removes them for built-in themes.
+  `<html>`; `clearThemeDesign` removes them for built-in themes. Divider tokens are part of
+  the same map — there is no separate theme system for the split view.
 - `state/appearanceStore.ts` owns the custom theme library, active theme, icon packs, and
   automatic drafts. Built-in themes remain immutable.
 - `.maxTheme` and `.maxIcons` are strict JSON packages, validated and previewed before
@@ -399,15 +401,27 @@ Theme Creator ─┐
 hidden/extension preferences, and collapsed state. Single-pane mode renders the left pane
 in the original shell, so existing behavior and details/preview panes are unchanged.
 
-- `DualPaneWorkspace.tsx` renders the split, a pointer/keyboard splitter, and collapse
+- `DualPaneWorkspace.tsx` renders the split, the reusable `PaneDivider`, and collapse
   rails. The ratio is clamped to 0.18–0.82; either pane can be collapsed, but both cannot
   collapse at once. `App.tsx` keeps the global title bar, command bar, sidebar, comparison
   dock, and status bar outside the panes. Inside each pane the navigation row comes before
   the tab row, matching the single-pane layer order.
+- `PaneDivider.tsx` separates a slim, theme-token-driven visible line (1–8 px, default 2)
+  from a wider invisible pointer target (12–28 px, default 14). It supports pointer capture,
+  window/pointer cancellation cleanup, double-click reset, Home/End, arrow-key resizing,
+  Shift for a larger step, and separator ARIA semantics. `lib/divider.ts` owns the pure
+  ratio geometry so pointer and keyboard behaviour share the same minimum-width rules.
+- The active pane is marked by a theme-token-driven inset accent border by default (no layout
+  shift); imported themes may choose a tab top line, a tinted header, or no indicator through
+  `components.paneDivider.activeIndicator`. Clicking, focusing, selecting, or navigating in
+  a pane activates it; hovering does not.
+- The divider position is the existing persisted `splitRatio`. Window resizes clamp the
+  rendered ratio without overwriting the saved preference, so a transient narrow window does
+  not permanently move the divider. Theme changes preserve both the ratio and both panes'
+  navigation state.
 - `PaneTabs.tsx`, `NavigationBar.tsx`, `FileArea.tsx`, `HomeView.tsx`, and the keyboard
   hooks accept an explicit `paneId`; the active pane is the default target. Tab/shortcut
-  actions are active-pane scoped. The active pane is shown by the tab-row badge and a thin
-  top accent, not a heavy border.
+  actions are active-pane scoped.
 - `lib/panes.ts` contains the pure helpers: pane creation, split clamping, synchronized
   path mapping, conflict detection, recursive-transfer guard, accelerator parsing, and
   persistence mapping. `deriveSyncAnchors` only maps between related folder trees and

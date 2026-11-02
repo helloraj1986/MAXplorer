@@ -3684,7 +3684,7 @@ select:focus-visible,
 }
 
 .pane-shell.active {
-  box-shadow: inset 0 0 0 1px var(--accent-border);
+  box-shadow: inset 0 0 0 1px var(--pane-active-indicator-color, var(--accent));
 }
 
 .pane-head {
@@ -3762,34 +3762,104 @@ select:focus-visible,
   flex: 0 0 auto;
 }
 
-.pane-splitter {
-  flex: 0 0 6px;
+.pane-divider {
+  flex: 0 0 var(--pane-divider-hit-area, 14px);
+  width: var(--pane-divider-hit-area, 14px);
   align-self: stretch;
   cursor: col-resize;
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
-  background: var(--surface);
+  background: transparent;
   touch-action: none;
   position: relative;
-}
-
-.pane-splitter-grip {
-  width: 1px;
-  height: 34px;
-  border-radius: 1px;
-  background: var(--border-strong);
-}
-
-.pane-splitter:hover,
-.pane-splitter:focus-visible {
-  background: var(--accent-soft);
+  z-index: 20;
   outline: none;
+  user-select: none;
 }
 
-.pane-splitter:hover .pane-splitter-grip,
-.pane-splitter:focus-visible .pane-splitter-grip {
-  background: var(--accent);
+/* The pointer target is wide; the visible separation stays slim. */
+.pane-divider-line {
+  flex: 0 0 auto;
+  width: var(--pane-divider-width, 2px);
+  height: 100%;
+  border-radius: var(--pane-divider-radius, 1px);
+  background: var(--pane-divider-color, var(--border-strong));
+  transition: background-color 120ms ease;
+  position: relative;
+  z-index: 1;
+}
+
+.pane-divider::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  transition: background-color 120ms ease;
+  z-index: 0;
+}
+
+.pane-divider:hover::before {
+  background: var(--accent-tint);
+}
+
+.pane-divider:hover .pane-divider-line,
+.pane-divider:focus-visible .pane-divider-line {
+  background: var(--pane-divider-hover-color, var(--accent-border));
+}
+
+.pane-divider:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--pane-focus-ring-color, var(--focus-ring));
+}
+
+.pane-divider.is-dragging::before,
+body.resizing-panes .pane-divider::before {
+  background: var(--accent-soft);
+}
+
+.pane-divider.is-dragging .pane-divider-line,
+body.resizing-panes .pane-divider .pane-divider-line {
+  background: var(--pane-divider-active-color, var(--accent));
+}
+
+.pane-divider-grip {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 2px;
+  border-radius: calc(var(--pane-divider-radius, 1px) + 2px);
+  background: var(--surface);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+  z-index: 2;
+}
+
+.pane-divider-grip i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--pane-divider-grip-color, var(--text-3));
+}
+
+.pane-divider:hover .pane-divider-grip,
+.pane-divider:focus-visible .pane-divider-grip,
+.pane-divider.is-dragging .pane-divider-grip {
+  opacity: 1;
+}
+
+/* Theme opt-in/opt-out for the grip. Built-in themes default to hover. */
+[data-pane-grip="always"] .pane-divider-grip {
+  opacity: 1;
+}
+
+[data-pane-grip="never"] .pane-divider-grip {
+  display: none;
 }
 
 body.resizing-panes {
@@ -3797,8 +3867,8 @@ body.resizing-panes {
   user-select: none;
 }
 
-body.resizing-panes .pane-splitter {
-  background: var(--accent-soft);
+body.resizing-panes * {
+  cursor: col-resize;
 }
 
 .pane-rail {
@@ -4742,11 +4812,36 @@ body.file-dragging.file-drag-copy * {
   z-index: 11;
 }
 
-.pane-shell.active > .pane-tabbar {
-  box-shadow: inset 0 2px 0 var(--accent);
+/* Active pane indicator. The default is a 1px inset accent border, which does
+   not change layout dimensions. Themes may opt into a tab top-line, a tinted
+   header, or no indicator at all. */
+[data-pane-indicator="accent-border"] .pane-shell.active,
+.pane-shell.active {
+  box-shadow: inset 0 0 0 1px var(--pane-active-indicator-color, var(--accent));
 }
 
-.pane-shell.active {
+[data-pane-indicator="top-line"] .pane-shell.active {
+  box-shadow: none;
+}
+
+[data-pane-indicator="top-line"] .pane-shell.active > .pane-tabbar {
+  box-shadow: inset 0 2px 0 var(--pane-active-indicator-color, var(--accent));
+}
+
+[data-pane-indicator="header"] .pane-shell.active {
+  box-shadow: none;
+}
+
+[data-pane-indicator="header"] .pane-shell.active > .pane-tabbar {
+  background: var(--pane-header-background, var(--mica));
+  border-bottom-color: var(--pane-header-border-color, var(--border));
+}
+
+[data-pane-indicator="none"] .pane-shell.active {
+  box-shadow: none;
+}
+
+[data-pane-indicator="none"] .pane-shell.active > .pane-tabbar {
   box-shadow: none;
 }
 

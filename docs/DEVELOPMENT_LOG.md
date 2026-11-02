@@ -417,3 +417,35 @@
 - Known limitation: a very large full-volume cache can take a few seconds to write in the
   background; app-data cleanup removes it. Cached data must be rescanned before destructive
   actions.
+
+## Phase 21 - Theme-aware dual-pane divider (2026-10-31)
+
+- Root cause: the old `.pane-splitter` used `background: var(--surface)`, exactly the same
+  surface as both panes, and drew only a 1 px, 34 px-tall grip. The 6 px bar therefore read
+  as empty space rather than a separator, and its visible pointer target was far too small.
+- Added `src/components/PaneDivider.tsx`: a reusable separator with a slim theme-token line
+  (2 px default, 1–8 px allowed) inside a 14 px pointer target (12–28 px allowed), hover,
+  focus, and dragging states, an optional three-dot grip, and a token-driven focus ring.
+- Added `src/lib/divider.ts` for pure ratio geometry, preferred/absolute pane minimums, and
+  keyboard steps. `DualPaneWorkspace` now clamps the rendered ratio without overwriting the
+  saved `splitRatio`, so transient window resizes no longer permanently move the divider.
+- Added semantic tokens for the divider, grip, active-pane indicator, pane header, and pane
+  focus ring. Built-in Windows/Finder light and dark themes define all values; custom themes
+  derive contrast-checked fallbacks through the existing colour utilities.
+- Extended the theme schema with optional `components.paneDivider`: width, hit area, normal,
+  hover, dragging and grip colours, grip visibility, active-indicator style, corner radius,
+  and optional pane-header colours. Missing configuration inherits safe defaults; invalid
+  values are clamped and returned as import warnings. Existing `.maxTheme` files still load.
+- Added active-pane indication through an inset accent border by default, with `top-line`,
+  `header`, and `none` variants. All indicators use box-shadow/background changes, so focus
+  changes never alter pane dimensions.
+- Accessibility: `role="separator"`, accessible name, min/max/current value text, focus
+  visibility, arrow keys, Home/End, Enter/Space reset, Shift for a larger step, and full
+  pointer-cancel/blur/unmount cleanup. Resizing does not trigger file selection or drag.
+- Verification: `npm run typecheck` clean, `npm test` **302 passed** across 33 files,
+  `npm run build` clean. New suites: `lib/divider.test.ts`,
+  `components/PaneDivider.test.tsx`, `lib/appearance/divider-theme.test.ts`.
+- Known limitation: the divider is a layout control only; cross-pane file drag-and-drop is
+  untouched and still targets the pane rows. Theme-defined dimensions are clamped to safe
+  ranges and cannot disable the minimum pointer target.
+

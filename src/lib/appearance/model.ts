@@ -17,6 +17,60 @@ export type ThemeSidebarStyle = "plain" | "tinted" | "contrast";
 export type ThemeToolbarStyle = "flat" | "subtle" | "elevated";
 export type ThemeCreatorMode = "simple" | "advanced";
 
+/** When a theme shows the centred grip on the dual-pane divider. */
+export type PaneDividerGripVisibility = "hover" | "always" | "never";
+/** How a theme marks the pane that currently receives keyboard commands. */
+export type PaneActiveIndicator = "accent-border" | "top-line" | "header" | "none";
+
+/**
+ * Component-level configuration for the dual-pane divider. Every colour is
+ * optional: `null` means "derive it from the theme's semantic tokens". This is
+ * what imported themes may customise without shipping any CSS.
+ */
+export interface PaneDividerDesign {
+  /** Visible line thickness in logical pixels (1–8). */
+  width: number;
+  /** Invisible pointer target around the line (12–28 logical pixels). */
+  hitAreaWidth: number;
+  color: string | null;
+  hoverColor: string | null;
+  activeColor: string | null;
+  gripColor: string | null;
+  showGrip: boolean;
+  gripVisibility: PaneDividerGripVisibility;
+  activeIndicator: PaneActiveIndicator;
+  /** Corner radius of the visible line, in logical pixels (0–8). */
+  cornerRadius: number;
+  /** Optional active-pane header tint. `null` inherits the theme surface. */
+  headerBackground: string | null;
+  /** Optional active-pane header bottom border. `null` inherits. */
+  headerBorderColor: string | null;
+}
+
+/** Component-scoped theme configuration. Unknown keys are ignored. */
+export interface ThemeComponents {
+  paneDivider: PaneDividerDesign;
+}
+
+export const DEFAULT_PANE_DIVIDER: PaneDividerDesign = {
+  width: 2,
+  hitAreaWidth: 14,
+  color: null,
+  hoverColor: null,
+  activeColor: null,
+  gripColor: null,
+  showGrip: true,
+  gripVisibility: "hover",
+  activeIndicator: "accent-border",
+  cornerRadius: 1,
+  headerBackground: null,
+  headerBorderColor: null,
+};
+
+export const DEFAULT_THEME_COMPONENTS: ThemeComponents = {
+  paneDivider: { ...DEFAULT_PANE_DIVIDER },
+};
+
 export interface ThemePalette {
   /** The main brand colour used for buttons, focus and highlights. */
   accent: string;
@@ -67,6 +121,8 @@ export interface ThemeDesign {
   iconPackId: string | null;
   /** Advanced-mode token overrides. Simple Mode never needs these. */
   overrides: Record<string, string>;
+  /** Optional component-scoped configuration (divider, pane indicator, …). */
+  components: ThemeComponents;
   /** Which ready-made look this theme started from, when applicable. */
   presetId: string | null;
   createdAt: string;
@@ -113,7 +169,7 @@ export interface IconPackPackage {
 export interface ThemeValidationIssue {
   level: "error" | "warning" | "info";
   message: string;
-  field?: "name" | "text" | "accent" | "surface" | "background" | "package";
+  field?: "name" | "text" | "accent" | "surface" | "background" | "package" | "divider";
   /** A palette field that can be repaired automatically, when applicable. */
   repair?: "text";
 }
@@ -168,6 +224,14 @@ export const ALLOWED_OVERRIDE_TOKENS: readonly string[] = [
   "--text-disabled",
   "--border",
   "--border-strong",
+  "--pane-divider-color",
+  "--pane-divider-hover-color",
+  "--pane-divider-active-color",
+  "--pane-divider-grip-color",
+  "--pane-active-indicator-color",
+  "--pane-header-background",
+  "--pane-header-border-color",
+  "--pane-focus-ring-color",
   "--hover",
   "--pressed",
   "--selected",
@@ -298,6 +362,131 @@ export function normalizeStyle(value: unknown): ThemeStyle {
   };
 }
 
+function clampDimension(value: unknown, minimum: number, maximum: number, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.round(Math.min(maximum, Math.max(minimum, value)) * 100) / 100;
+}
+
+function optionalColor(value: unknown): string | null {
+  return isColor(value) ? normalizeHex(value) : null;
+}
+
+/**
+ * Normalises component-level divider configuration. Invalid or hostile values
+ * are clamped to safe bounds so a third-party theme can never collapse a pane,
+ * hide the pointer target, or inject arbitrary CSS. Missing values inherit the
+ * semantic fallback (represented by `null` for colours).
+ */
+export function normalizePaneDividerDesign(value: unknown): PaneDividerDesign {
+  const raw = value && typeof value === "object" ? (value as Partial<PaneDividerDesign>) : {};
+  const width = clampDimension(raw.width, 1, 8, DEFAULT_PANE_DIVIDER.width);
+  const requestedHitArea = clampDimension(
+    raw.hitAreaWidth,
+    12,
+    28,
+    DEFAULT_PANE_DIVIDER.hitAreaWidth,
+  );
+  // The pointer target must always be meaningfully larger than the line, even
+  // when a theme asks for a thick divider.
+  const hitAreaWidth = Math.min(28, Math.max(12, width + 4, requestedHitArea));
+  return {
+    width,
+    hitAreaWidth,
+    color: optionalColor(raw.color),
+    hoverColor: optionalColor(raw.hoverColor),
+    activeColor: optionalColor(raw.activeColor),
+    gripColor: optionalColor(raw.gripColor),
+    showGrip: raw.showGrip !== false,
+    gripVisibility: enumValue(
+      raw.gripVisibility,
+      new Set<PaneDividerGripVisibility>(["hover", "always", "never"]),
+      DEFAULT_PANE_DIVIDER.gripVisibility,
+    ),
+    activeIndicator: enumValue(
+      raw.activeIndicator,
+      new Set<PaneActiveIndicator>(["accent-border", "top-line", "header", "none"]),
+      DEFAULT_PANE_DIVIDER.activeIndicator,
+    ),
+    cornerRadius: clampDimension(raw.cornerRadius, 0, 8, DEFAULT_PANE_DIVIDER.cornerRadius),
+    headerBackground: optionalColor(raw.headerBackground),
+    headerBorderColor: optionalColor(raw.headerBorderColor),
+  };
+}
+
+export function normalizeThemeComponents(value: unknown): ThemeComponents {
+  const raw = value && typeof value === "object" ? (value as Partial<ThemeComponents>) : {};
+  return { paneDivider: normalizePaneDividerDesign(raw.paneDivider) };
+}
+
+/**
+ * Human-readable diagnostics for an imported `components.paneDivider` block.
+ * Normalisation repairs the values; these messages tell a theme author what was
+ * repaired instead of silently ignoring their configuration.
+ */
+export function paneDividerConfigIssues(value: unknown): ThemeValidationIssue[] {
+  if (value === undefined || value === null) return [];
+  if (typeof value !== "object") {
+    return [
+      {
+        level: "warning",
+        message: "components.paneDivider must be an object; the default divider was used.",
+        field: "divider",
+      },
+    ];
+  }
+  const raw = value as Partial<PaneDividerDesign>;
+  const issues: ThemeValidationIssue[] = [];
+  const outOfRange = (key: keyof PaneDividerDesign, minimum: number, maximum: number) => {
+    const candidate = raw[key];
+    if (candidate === undefined) return;
+    if (typeof candidate !== "number" || !Number.isFinite(candidate) || candidate < minimum || candidate > maximum) {
+      issues.push({
+        level: "warning",
+        message: `Pane divider ${key} must be between ${minimum} and ${maximum}; the value was clamped.`,
+        field: "divider",
+      });
+    }
+  };
+  outOfRange("width", 1, 8);
+  outOfRange("hitAreaWidth", 12, 28);
+  outOfRange("cornerRadius", 0, 8);
+  for (const key of ["color", "hoverColor", "activeColor", "gripColor", "headerBackground", "headerBorderColor"] as const) {
+    const candidate = raw[key];
+    if (candidate !== undefined && candidate !== null && !isColor(candidate)) {
+      issues.push({
+        level: "warning",
+        message: `Pane divider ${key} must be a hex or rgb colour; the value was ignored.`,
+        field: "divider",
+      });
+    }
+  }
+  if (raw.gripVisibility !== undefined && !["hover", "always", "never"].includes(String(raw.gripVisibility))) {
+    issues.push({
+      level: "warning",
+      message: "Pane divider gripVisibility must be hover, always, or never; hover was used.",
+      field: "divider",
+    });
+  }
+  if (
+    raw.activeIndicator !== undefined &&
+    !["accent-border", "top-line", "header", "none"].includes(String(raw.activeIndicator))
+  ) {
+    issues.push({
+      level: "warning",
+      message: "Pane divider activeIndicator must be accent-border, top-line, header, or none; accent-border was used.",
+      field: "divider",
+    });
+  }
+  if (raw.showGrip !== undefined && typeof raw.showGrip !== "boolean") {
+    issues.push({
+      level: "warning",
+      message: "Pane divider showGrip must be true or false; true was used.",
+      field: "divider",
+    });
+  }
+  return issues;
+}
+
 /**
  * Advanced values are intentionally conservative: colours, lengths, shadows
  * and font stacks are allowed; braces, semicolons, url(), @ rules and
@@ -350,6 +539,7 @@ export function normalizeThemeDesign(value: unknown): ThemeDesign | null {
     style: normalizeStyle(raw.style),
     iconPackId: typeof raw.iconPackId === "string" && raw.iconPackId ? raw.iconPackId.slice(0, 80) : null,
     overrides: normalizeOverrides(raw.overrides),
+    components: normalizeThemeComponents(raw.components),
     presetId: typeof raw.presetId === "string" ? raw.presetId.slice(0, 80) : null,
     createdAt: validTimestamp(raw.createdAt, now),
     updatedAt: validTimestamp(raw.updatedAt, now),
@@ -488,7 +678,9 @@ export function buildIconPackPackage(iconPack: IconPack): IconPackPackage {
   };
 }
 
-export type ParseResult<T> = { ok: true; value: T } | { ok: false; error: string };
+export type ParseResult<T> =
+  | { ok: true; value: T; warnings?: ThemeValidationIssue[] }
+  | { ok: false; error: string };
 
 export function parseThemePackage(input: string | unknown): ParseResult<ThemePackage> {
   let value: unknown = input;
@@ -517,6 +709,7 @@ export function parseThemePackage(input: string | unknown): ParseResult<ThemePac
   if (!theme) {
     return { ok: false, error: "The theme package is missing a valid theme." };
   }
+  const warnings = paneDividerConfigIssues(raw.theme?.components?.paneDivider);
   return {
     ok: true,
     value: {
@@ -525,6 +718,7 @@ export function parseThemePackage(input: string | unknown): ParseResult<ThemePac
       exportedAt: validTimestamp(raw.exportedAt, new Date().toISOString()),
       theme,
     },
+    ...(warnings.length ? { warnings } : {}),
   };
 }
 
