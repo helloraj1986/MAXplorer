@@ -29,9 +29,122 @@ export type SettingsSection =
   | "appearance"
   | "display"
   | "layout"
+  | "preview"
   | "behavior"
   | "keyboard"
   | "advanced";
+
+/** Where the preview region sits relative to the browsing panes. */
+export type PreviewPosition = "left" | "right" | "bottom";
+
+/** Renderers can be disabled in Settings; the engine then falls back safely. */
+export type PreviewRendererId =
+  | "image"
+  | "pdf"
+  | "media"
+  | "text"
+  | "archive"
+  | "folder"
+  | "quicklook"
+  | "metadata";
+
+export interface PreviewPreferences {
+  visible: boolean;
+  position: PreviewPosition;
+  /** In dual-pane mode, let the preview take the inactive pane's space. */
+  focusMode: boolean;
+  /** Width of a left/right preview, in logical pixels. */
+  width: number;
+  /** Height of a bottom preview, in logical pixels. */
+  height: number;
+  autoPlayMedia: boolean;
+  /** Maximum bytes read for the first page of a text/code preview. */
+  textLimit: number;
+  /** Enabled renderers, preserving the user's chosen fallbacks. */
+  renderers: PreviewRendererId[];
+}
+
+export const DEFAULT_PREVIEW_PREFERENCES: PreviewPreferences = {
+  visible: false,
+  position: "right",
+  focusMode: false,
+  width: 340,
+  height: 300,
+  autoPlayMedia: false,
+  textLimit: 256 * 1024,
+  renderers: ["image", "pdf", "media", "text", "archive", "folder", "quicklook", "metadata"],
+};
+
+export interface PreviewMetadata {
+  path: string;
+  name: string;
+  extension: string | null;
+  contentType: string;
+  contentTypeTree: string[];
+  kind: string;
+  size: number | null;
+  isDir: boolean;
+  isSymlink: boolean;
+  isReadable: boolean;
+  isPackage: boolean;
+  isICloudPlaceholder: boolean;
+  isNetworkVolume: boolean;
+  modified: number | null;
+  created: number | null;
+  duration: number | null;
+  width: number | null;
+  height: number | null;
+  codecs: string[];
+  pageCount: number | null;
+  tags: string[];
+  quickLookSupported: boolean;
+}
+
+export interface PreviewThumbnail {
+  dataUrl: string | null;
+  width: number | null;
+  height: number | null;
+  mime: string | null;
+}
+
+export interface ArchiveEntry {
+  name: string;
+  size: number | null;
+  compressedSize: number | null;
+  isDir: boolean;
+  modified: number | null;
+  method: string;
+}
+
+export interface ArchiveListing {
+  format: string;
+  entries: ArchiveEntry[];
+  totalSize: number;
+  compressedSize: number;
+  truncated: boolean;
+  encrypted: boolean;
+}
+
+export interface FolderPreview {
+  path: string;
+  itemCount: number;
+  totalSize: number;
+  files: number;
+  folders: number;
+  truncated: boolean;
+  cancelled: boolean;
+  entries: FileEntry[];
+}
+
+export interface TextRangePreview {
+  text: string;
+  offset: number;
+  nextOffset: number;
+  truncated: boolean;
+  binary: boolean;
+  size: number;
+  decodedPlist: boolean;
+}
 
 /** How the visual Theme Creator should begin when opened from Appearance. */
 export type ThemeCreatorStart =
@@ -552,7 +665,10 @@ export interface PersistedState {
   showHidden: boolean;
   showExtensions: boolean;
   detailsPane: boolean;
+  /** Legacy mirror of `preview.visible`, kept for older builds. */
   previewPane: boolean;
+  /** Preview layout and renderer preferences. Optional so old snapshots load. */
+  preview?: PreviewPreferences;
   theme: ThemeMode;
   interfaceTheme: InterfaceTheme;
   display: DisplayPreferences;

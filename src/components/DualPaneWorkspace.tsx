@@ -79,7 +79,7 @@ function CollapsedPane({ paneId }: { paneId: PaneId }) {
  * collapsed without losing its tabs or view preferences. Dragging also stops
  * once the shrinking pane would get too narrow for its toolbar and columns.
  */
-export function DualPaneWorkspace() {
+export function DualPaneWorkspace({ focusPaneId = null }: { focusPaneId?: PaneId | null }) {
   const splitRatio = useExplorerStore((state) => state.splitRatio);
   const setSplitRatio = useExplorerStore((state) => state.setSplitRatio);
   const leftCollapsed = useExplorerStore((state) => state.panes.left.collapsed);
@@ -108,6 +108,17 @@ export function DualPaneWorkspace() {
 
   const changeRatio = (next: number) => setSplitRatio(clampRatioToBounds(next, bounds));
   const resetRatio = () => setSplitRatio(clampRatioToBounds(0.5, bounds));
+
+  // "Focus + Preview" and very narrow windows show the active pane only. The
+  // inactive pane keeps its tabs, history, and selection in the store and is
+  // restored as soon as the preview closes or the window grows.
+  if (focusPaneId) {
+    return (
+      <div className="workspace dual-pane focus-preview">
+        <PaneShell paneId={focusPaneId} />
+      </div>
+    );
+  }
 
   return (
     <div className="workspace dual-pane" ref={containerRef}>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
-import { keyboardRatio, ratioAtPointer } from "../lib/divider";
+import { keyboardRatio, ratioAtPointer, ratioAtPointerY } from "../lib/divider";
 
 interface PaneDividerProps {
   /** Current effective split ratio, used for the accessible value. */
@@ -14,6 +14,8 @@ interface PaneDividerProps {
   onReset?: () => void;
   disabled?: boolean;
   label?: string;
+  /** Vertical dividers split left/right; horizontal dividers split top/bottom. */
+  orientation?: "vertical" | "horizontal";
 }
 
 /**
@@ -34,7 +36,8 @@ export function PaneDivider({
   onRatioChange,
   onReset,
   disabled = false,
-  label = "Resize left and right panes",
+  label = "Resize panes",
+  orientation = "vertical",
 }: PaneDividerProps) {
   const [dragging, setDragging] = useState(false);
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -72,10 +75,14 @@ export function PaneDivider({
     }
 
     setDragging(true);
-    document.body.classList.add("resizing-panes");
+    document.body.classList.add(orientation === "horizontal" ? "resizing-panes-horizontal" : "resizing-panes");
 
     const move = (moveEvent: PointerEvent) => {
-      onRatioChange(ratioAtPointer(moveEvent.clientX, rect, bounds, hitAreaWidth));
+      onRatioChange(
+        orientation === "horizontal"
+          ? ratioAtPointerY(moveEvent.clientY, rect, bounds, hitAreaWidth)
+          : ratioAtPointer(moveEvent.clientX, rect, bounds, hitAreaWidth),
+      );
     };
 
     const finish = () => {
@@ -89,7 +96,7 @@ export function PaneDivider({
       } catch {
         // The element may have been removed mid-drag (pane collapse).
       }
-      document.body.classList.remove("resizing-panes");
+      document.body.classList.remove("resizing-panes", "resizing-panes-horizontal");
       setDragging(false);
       cleanupRef.current = null;
     };
@@ -131,18 +138,26 @@ export function PaneDivider({
   const percent = Math.round(ratio * 100);
   return (
     <div
-      className={`pane-divider ${dragging ? "is-dragging" : ""}`}
+      className={`pane-divider ${orientation === "horizontal" ? "horizontal" : ""} ${dragging ? "is-dragging" : ""}`}
       style={{ "--pane-divider-hit-area": `${hitAreaWidth}px` } as CSSProperties}
       role="separator"
-      aria-orientation="vertical"
+      aria-orientation={orientation}
       aria-label={label}
       aria-valuemin={Math.round(minRatio * 100)}
       aria-valuemax={Math.round(maxRatio * 100)}
       aria-valuenow={percent}
-      aria-valuetext={`${percent}% left pane, ${100 - percent}% right pane`}
+      aria-valuetext={
+        orientation === "horizontal"
+          ? `${percent}% pane area, ${100 - percent}% preview`
+          : `${percent}% left pane, ${100 - percent}% right pane`
+      }
       aria-disabled={disabled || undefined}
       tabIndex={disabled ? -1 : 0}
-      title="Drag to resize panes. Use arrow keys; double-click or press Enter to reset."
+      title={
+        orientation === "horizontal"
+          ? "Drag to resize the preview. Use arrow keys; double-click or press Enter to reset."
+          : "Drag to resize. Use arrow keys; double-click or press Enter to reset."
+      }
       onPointerDown={handlePointerDown}
       onKeyDown={handleKeyDown}
       onDoubleClick={() => {

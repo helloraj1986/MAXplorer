@@ -80,6 +80,12 @@ captured the screenshot above (Home view, real `/Users/runner` filesystem).
   Group submenus, and nested Send to. All displayed actions are functional.
 - **Details and preview**: metadata, permissions, owner IDs on macOS, folder size scan,
   image preview, text preview, and open actions. Image thumbnails use real file content.
+- **Native Preview Pane**: a resizable third region that follows the active pane and
+  supports right/left/bottom positions, Focus + Preview in dual-pane mode, native
+  Quick Look thumbnails and the Space Quick Look panel, PDFKit PDFs, AVKit media,
+  zoom/rotate images, theme-aware code with line numbers and find, ZIP listings with
+  extraction, lazy folder summaries, iCloud/permission states, persisted layout, and a
+  Settings → Preview section. See [docs/PREVIEW_PANE.md](docs/PREVIEW_PANE.md).
 - **Real app icons**: `.app` bundles in `/Applications` show their own icon, read from
   `Contents/Resources` (ICNS/PNG), cached, and rendered in every view and both themes.
   Bundles without a readable icon keep a built-in application glyph.

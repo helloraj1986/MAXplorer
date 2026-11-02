@@ -57,6 +57,7 @@ export function CommandBar() {
   const columnVisibility = useExplorerStore((state) => state.columnVisibility);
   const detailsPane = useExplorerStore((state) => state.detailsPane);
   const previewPane = useExplorerStore((state) => state.previewPane);
+  const preview = useExplorerStore((state) => state.preview);
   const dualPane = useExplorerStore((state) => state.dualPane);
   const syncNavigation = useExplorerStore((state) => state.syncNavigation);
   const sidebarVisible = useExplorerStore((state) => state.sidebarVisible);
@@ -91,6 +92,9 @@ export function CommandBar() {
   const resetColumnWidths = useExplorerStore((state) => state.resetColumnWidths);
   const setDetailsPane = useExplorerStore((state) => state.setDetailsPane);
   const setPreviewPane = useExplorerStore((state) => state.setPreviewPane);
+  const setPreviewPosition = useExplorerStore((state) => state.setPreviewPosition);
+  const setPreviewFocusMode = useExplorerStore((state) => state.setPreviewFocusMode);
+  const restoreDefaultLayout = useExplorerStore((state) => state.restoreDefaultLayout);
   const promptNewFolder = useExplorerStore((state) => state.promptNewFolder);
   const promptNewTextFile = useExplorerStore((state) => state.promptNewTextFile);
   const createShortcut = useExplorerStore((state) => state.createShortcut);
@@ -174,13 +178,30 @@ export function CommandBar() {
     })),
     { type: "separator" },
     {
+      label: "Preview pane",
+      icon: "eye",
+      checked: previewPane,
+      shortcut: customShortcut("Mod+Alt+P", "Alt+P"),
+      onClick: () => setPreviewPane(!previewPane),
+    },
+    {
+      label: "Preview position",
+      icon: "panel",
+      disabled: !previewPane,
+      submenu: [
+        { label: "Right of panes", checked: preview.position === "right", onClick: () => setPreviewPosition("right") },
+        { label: "Left of panes", checked: preview.position === "left", onClick: () => setPreviewPosition("left") },
+        { label: "Below panes", checked: preview.position === "bottom", onClick: () => setPreviewPosition("bottom") },
+      ],
+    },
+    { type: "separator" },
+    {
       label: "Show",
       submenu: [
         { label: "Hidden items", checked: showHidden, onClick: () => void setShowHidden(!showHidden, activePane) },
         { label: "File name extensions", checked: showExtensions, onClick: () => setShowExtensions(!showExtensions, activePane) },
         { type: "separator" },
         { label: "Details pane", checked: detailsPane, onClick: () => setDetailsPane(!detailsPane) },
-        { label: "Preview pane", checked: previewPane, onClick: () => setPreviewPane(!previewPane) },
       ],
     },
     {
@@ -204,6 +225,32 @@ export function CommandBar() {
       onClick: toggleDualPane,
     },
     { label: "Show navigation pane", icon: "sidebar", checked: sidebarVisible, onClick: toggleSidebar },
+    { type: "separator" },
+    {
+      label: "Preview pane",
+      icon: "eye",
+      checked: previewPane,
+      shortcut: customShortcut("Mod+Alt+P", "Alt+P"),
+      onClick: () => setPreviewPane(!previewPane),
+    },
+    {
+      label: "Preview position",
+      icon: "panel",
+      disabled: !previewPane,
+      submenu: [
+        { label: "Right of panes", checked: preview.position === "right", onClick: () => setPreviewPosition("right") },
+        { label: "Left of panes", checked: preview.position === "left", onClick: () => setPreviewPosition("left") },
+        { label: "Below panes", checked: preview.position === "bottom", onClick: () => setPreviewPosition("bottom") },
+      ],
+    },
+    {
+      label: "Focus + Preview",
+      icon: "columns",
+      checked: preview.focusMode,
+      disabled: !dualPane || !previewPane,
+      onClick: () => setPreviewFocusMode(!preview.focusMode),
+    },
+    { label: "Restore default layout", icon: "undo", onClick: restoreDefaultLayout },
     { type: "separator" },
     ...(dualPane
       ? [
@@ -465,6 +512,16 @@ export function CommandBar() {
         onClick={toggleSidebar}
       >
         <Icon name="sidebar" size={16} />
+      </button>
+      <button
+        type="button"
+        className={`cmd-btn cmd-workspace ${previewPane ? "active-toggle" : ""}`}
+        data-tooltip={previewPane ? "Hide preview pane" : "Show preview pane"}
+        aria-label={previewPane ? "Hide preview pane" : "Show preview pane"}
+        aria-pressed={previewPane}
+        onClick={() => setPreviewPane(!previewPane)}
+      >
+        <Icon name="eye" size={16} />
       </button>
       <button
         type="button"

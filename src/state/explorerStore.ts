@@ -96,6 +96,9 @@ import type {
   PaneState,
   PersistedState,
   PlatformInfo,
+  PreviewPreferences,
+  PreviewPosition,
+  PreviewRendererId,
   Properties,
   RecentItem,
   ShortcutMap,
@@ -116,6 +119,7 @@ import type {
   ViewMode,
 } from "../lib/types";
 import {
+  DEFAULT_PREVIEW_PREFERENCES,
   HOME_LOCATION,
   NETWORK_LOCATION,
   RECENTS_LOCATION,
@@ -160,7 +164,11 @@ interface ExplorerState {
   syncAnchors: SyncAnchors | null;
   shortcuts: ShortcutMap;
   detailsPane: boolean;
+  /** Legacy boolean mirror of `preview.visible`, kept for existing callers. */
   previewPane: boolean;
+  preview: PreviewPreferences;
+  /** True while the native Quick Look panel owns the screen. */
+  quickLookOpen: boolean;
   theme: ThemeMode;
   interfaceTheme: InterfaceTheme;
   display: DisplayPreferences;
@@ -273,6 +281,17 @@ interface ExplorerState {
   setShowExtensions: (show: boolean, paneId?: PaneId) => void;
   setDetailsPane: (show: boolean) => void;
   setPreviewPane: (show: boolean) => void;
+  setPreviewVisible: (show: boolean) => void;
+  openQuickLook: (paths: string[]) => Promise<void>;
+  closeQuickLook: () => Promise<void>;
+  setPreviewPosition: (position: PreviewPosition) => void;
+  setPreviewFocusMode: (enabled: boolean) => void;
+  setPreviewWidth: (width: number) => void;
+  setPreviewHeight: (height: number) => void;
+  setPreviewAutoPlay: (enabled: boolean) => void;
+  setPreviewTextLimit: (bytes: number) => void;
+  setPreviewRendererEnabled: (id: PreviewRendererId, enabled: boolean) => void;
+  restoreDefaultLayout: () => void;
   setTheme: (theme: ThemeMode) => void;
   setInterfaceTheme: (theme: InterfaceTheme) => void;
   setDensity: (density: UiDensity) => void;
@@ -618,6 +637,8 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   shortcuts: { ...DEFAULT_SHORTCUTS },
   detailsPane: false,
   previewPane: false,
+  preview: { ...DEFAULT_PREVIEW_PREFERENCES },
+  quickLookOpen: false,
   theme: initialPreferences.theme,
   interfaceTheme: initialPreferences.interfaceTheme,
   display: { ...DEFAULT_DISPLAY_PREFERENCES },
@@ -683,7 +704,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
       let splitRatio = persisted?.splitRatio ?? 0.5;
       let syncNavigation = persisted?.syncNavigation ?? false;
       let detailsPane = false;
-      let previewPane = false;
+      let preview: PreviewPreferences = { ...DEFAULT_PREVIEW_PREFERENCES };
       let theme: ThemeMode = "system";
       let interfaceTheme: InterfaceTheme = DEFAULT_INTERFACE_THEME;
       let display: DisplayPreferences = { ...DEFAULT_DISPLAY_PREFERENCES };
@@ -710,8 +731,13 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
 
       if (persisted) {
         detailsPane = persisted.detailsPane;
-        previewPane = persisted.previewPane;
-        if (detailsPane && previewPane) previewPane = false;
+        preview = persisted.preview ?? {
+          ...DEFAULT_PREVIEW_PREFERENCES,
+          visible: persisted.previewPane,
+        };
+        if (detailsPane && preview.visible) {
+          preview = { ...preview, visible: false };
+        }
         theme = persisted.theme;
         interfaceTheme = persisted.interfaceTheme;
         display = persisted.display;
@@ -792,7 +818,8 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
         syncAnchors,
         shortcuts,
         detailsPane,
-        previewPane,
+        previewPane: preview.visible,
+        preview,
         theme,
         interfaceTheme,
         display,
@@ -1410,10 +1437,97 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     set((state) => ({ panes: patchPane(state.panes, id, { showExtensions: show }) }));
   },
   setDetailsPane(show) {
-    set({ detailsPane: show, previewPane: show ? false : get().previewPane });
+    set((state) => ({
+      detailsPane: show,
+      previewPane: show ? false : state.previewPane,
+      preview: show ? { ...state.preview, visible: false } : state.preview,
+    }));
   },
   setPreviewPane(show) {
-    set({ previewPane: show, detailsPane: show ? false : get().detailsPane });
+    set((state) => ({
+      previewPane: show,
+      detailsPane: show ? false : state.detailsPane,
+      preview: { ...state.preview, visible: show },
+    }));
+    if (!show) void get().closeQuickLook();
+  },
+  setPreviewVisible(show) {
+    get().setPreviewPane(show);
+  },
+  async openQuickLook(paths) {
+    if (!paths.length) return;
+    try {
+      await api.previewQuickLookOpen(paths);
+      set({ quickLookOpen: true });
+    } catch (error) {
+      get().toastError(error);
+    }
+  },
+  async closeQuickLook() {
+    set({ quickLookOpen: false });
+    try {
+      await api.previewQuickLookClose();
+    } catch {
+      // The panel may already be gone; the flag is still cleared.
+    }
+  },
+  setPreviewPosition(position) {
+    set((state) => ({ preview: { ...state.preview, position } }));
+  },
+  setPreviewFocusMode(enabled) {
+    set((state) => ({ preview: { ...state.preview, focusMode: enabled } }));
+  },
+  setPreviewWidth(width) {
+    set((state) => ({
+      preview: { ...state.preview, width: Math.max(240, Math.min(560, width)) },
+    }));
+  },
+  setPreviewHeight(height) {
+    set((state) => ({
+      preview: { ...state.preview, height: Math.max(180, Math.min(620, height)) },
+    }));
+  },
+  setPreviewAutoPlay(enabled) {
+    set((state) => ({ preview: { ...state.preview, autoPlayMedia: enabled } }));
+  },
+  setPreviewTextLimit(bytes) {
+    set((state) => ({
+      preview: {
+        ...state.preview,
+        textLimit: Math.max(16 * 1024, Math.min(4 * 1024 * 1024, bytes)),
+      },
+    }));
+  },
+  setPreviewRendererEnabled(id, enabled) {
+    set((state) => {
+      const current = new Set(state.preview.renderers);
+      if (enabled) current.add(id);
+      else current.delete(id);
+      return {
+        preview: {
+          ...state.preview,
+          renderers: DEFAULT_PREVIEW_PREFERENCES.renderers.filter((item) =>
+            current.has(item),
+          ),
+        },
+      };
+    });
+  },
+  restoreDefaultLayout() {
+    set((state) => ({
+      detailsPane: false,
+      previewPane: false,
+      preview: {
+        ...DEFAULT_PREVIEW_PREFERENCES,
+        renderers: state.preview.renderers,
+        textLimit: state.preview.textLimit,
+        autoPlayMedia: state.preview.autoPlayMedia,
+      },
+      sidebarVisible: true,
+      sidebarWidth: 204,
+      splitRatio: 0.5,
+    }));
+    void get().closeQuickLook();
   },
   setTheme(theme) {
     set({ theme });
@@ -3171,7 +3285,8 @@ export function startPersistence(): void {
         showHidden: left.showHidden,
         showExtensions: left.showExtensions,
         detailsPane: state.detailsPane,
-        previewPane: state.previewPane,
+        previewPane: state.preview.visible,
+        preview: state.preview,
         theme: state.theme,
         interfaceTheme: state.interfaceTheme,
         display: state.display,

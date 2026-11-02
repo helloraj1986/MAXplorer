@@ -27,6 +27,8 @@ import type {
   DialogState,
   FolderOpenMode,
   SettingsSection,
+  PreviewPosition,
+  PreviewRendererId,
   StorageAudit,
   StorageCleanupResult,
   TagDefinition,
@@ -977,10 +979,11 @@ function OpenWithDialog({ dialog, close }: { dialog: Extract<DialogState, { kind
   );
 }
 
-const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string; icon: "palette" | "view" | "columns" | "settings" | "info" | "database" }> = [
+const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string; icon: "palette" | "view" | "columns" | "settings" | "info" | "database" | "eye" }> = [
   { id: "appearance", label: "Appearance", icon: "palette" },
   { id: "display", label: "Display", icon: "view" },
   { id: "layout", label: "Layout", icon: "columns" },
+  { id: "preview", label: "Preview", icon: "eye" },
   { id: "behavior", label: "Behavior", icon: "settings" },
   { id: "keyboard", label: "Keyboard", icon: "info" },
   { id: "advanced", label: "Advanced", icon: "database" },
@@ -1164,6 +1167,134 @@ function BehaviorSettings() {
   );
 }
 
+
+const PREVIEW_RENDERER_LABELS: Array<{ id: PreviewRendererId; label: string; detail: string }> = [
+  { id: "image", label: "Images", detail: "Zoom, rotate, fullscreen, animated GIF" },
+  { id: "pdf", label: "PDF", detail: "Native PDFKit pages, text selection, search" },
+  { id: "media", label: "Video and audio", detail: "Native playback controls and metadata" },
+  { id: "text", label: "Text and code", detail: "Line numbers, find, wrap, syntax tokens" },
+  { id: "archive", label: "Archives", detail: "ZIP contents without extracting to disk" },
+  { id: "folder", label: "Folders", detail: "Item count, size, and a mini listing" },
+  { id: "quicklook", label: "Quick Look fallback", detail: "Uses installed Quick Look generators" },
+];
+
+function PreviewSettings() {
+  const preview = useExplorerStore((state) => state.preview);
+  const dualPane = useExplorerStore((state) => state.dualPane);
+  const setPreviewVisible = useExplorerStore((state) => state.setPreviewVisible);
+  const setPreviewPosition = useExplorerStore((state) => state.setPreviewPosition);
+  const setPreviewFocusMode = useExplorerStore((state) => state.setPreviewFocusMode);
+  const setPreviewAutoPlay = useExplorerStore((state) => state.setPreviewAutoPlay);
+  const setPreviewTextLimit = useExplorerStore((state) => state.setPreviewTextLimit);
+  const setPreviewRendererEnabled = useExplorerStore((state) => state.setPreviewRendererEnabled);
+  const restoreDefaultLayout = useExplorerStore((state) => state.restoreDefaultLayout);
+  const enabled = new Set(preview.renderers);
+
+  return (
+    <div className="settings-sections">
+      <section className="settings-section">
+        <h3>Preview pane</h3>
+        <p className="settings-hint">
+          The preview follows the selection of the active pane. It is read-only and never
+          modifies or executes the selected item.
+        </p>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={preview.visible}
+            onChange={(event) => setPreviewVisible(event.target.checked)}
+          />
+          <span>Show the preview pane</span>
+        </label>
+        <Segmented<PreviewPosition>
+          label="Position"
+          value={preview.position}
+          options={[
+            { value: "right", label: "Right" },
+            { value: "left", label: "Left" },
+            { value: "bottom", label: "Bottom" },
+          ]}
+          onChange={setPreviewPosition}
+        />
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={preview.focusMode}
+            disabled={!dualPane}
+            onChange={(event) => setPreviewFocusMode(event.target.checked)}
+          />
+          <span>Focus + Preview (preview replaces the inactive pane)</span>
+        </label>
+        <p className="settings-hint">
+          In dual-pane mode the inactive pane keeps its tabs and state while the preview
+          takes its space. Turn the preview off to restore both panes.
+        </p>
+      </section>
+      <section className="settings-section">
+        <h3>Media and text</h3>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={preview.autoPlayMedia}
+            onChange={(event) => setPreviewAutoPlay(event.target.checked)}
+          />
+          <span>Automatically play video and audio previews</span>
+        </label>
+        <p className="settings-hint">
+          Playback always pauses when the preview closes, the selection changes, or the
+          window is hidden.
+        </p>
+        <label className="settings-field settings-select-field">
+          <span className="settings-field-label">Text preview size</span>
+          <select
+            className="settings-select"
+            value={String(preview.textLimit)}
+            onChange={(event) => setPreviewTextLimit(Number(event.target.value))}
+          >
+            <option value={String(64 * 1024)}>64 KB per load</option>
+            <option value={String(256 * 1024)}>256 KB per load</option>
+            <option value={String(1024 * 1024)}>1 MB per load</option>
+            <option value={String(4 * 1024 * 1024)}>4 MB per load</option>
+          </select>
+        </label>
+      </section>
+      <section className="settings-section">
+        <h3>Renderers</h3>
+        <p className="settings-hint">
+          Specialised renderers are tried first. Quick Look is the fallback for documents and
+          formats without a specialised view. The file information card always remains
+          available so the pane never goes blank.
+        </p>
+        <div className="preview-renderer-settings">
+          {PREVIEW_RENDERER_LABELS.map((item) => (
+            <label className="check-row" key={item.id}>
+              <input
+                type="checkbox"
+                checked={enabled.has(item.id)}
+                onChange={(event) => setPreviewRendererEnabled(item.id, event.target.checked)}
+              />
+              <span>
+                {item.label}
+                <small>{item.detail}</small>
+              </span>
+            </label>
+          ))}
+        </div>
+      </section>
+      <section className="settings-section">
+        <h3>Layout</h3>
+        <button type="button" className="dialog-button" onClick={restoreDefaultLayout}>
+          Restore default layout
+        </button>
+        <p className="settings-hint">
+          Resets the preview position and size, the navigation pane, and the pane split.
+          Files, tabs, and selections are untouched.
+        </p>
+      </section>
+    </div>
+  );
+}
+
 function KeyboardSettings() {
   const shortcuts = useExplorerStore((state) => state.shortcuts);
   const platform = useExplorerStore((state) => state.platform);
@@ -1199,7 +1330,9 @@ function KeyboardSettings() {
     ["Alt+Enter", "Properties"],
     ["Alt+Left / Alt+Right", "Back / Forward"],
     ["Alt+Up", "Up one level"],
-    ["Alt+P / Alt+Shift+P", "Preview / Details pane"],
+    [`${mod}+Alt+P / Alt+P`, "Toggle the preview pane"],
+    ["Alt+Shift+P", "Toggle the details pane"],
+    ["Space", "Quick Look for the selection"],
     [`${mod}+Shift+1...8`, "Switch view"],
     ["Home / End", "First / Last item"],
     ["Type a name", "Select matching item"],
@@ -1521,6 +1654,7 @@ function SettingsDialog({ initialSection = "appearance", close }: { initialSecti
           {section === "appearance" ? <AppearanceSettings /> : null}
           {section === "display" ? <DisplaySettings /> : null}
           {section === "layout" ? <LayoutSettings /> : null}
+          {section === "preview" ? <PreviewSettings /> : null}
           {section === "behavior" ? <BehaviorSettings /> : null}
           {section === "keyboard" ? <KeyboardSettings /> : null}
           {section === "advanced" ? <AdvancedSettings /> : null}

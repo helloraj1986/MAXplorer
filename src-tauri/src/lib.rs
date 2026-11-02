@@ -9,6 +9,7 @@ mod network_discovery;
 mod network_mount;
 mod operations;
 mod paths;
+mod preview;
 mod search;
 mod storage;
 mod storage_cache;
@@ -167,6 +168,7 @@ pub fn run() {
         })
         .manage(TransferState::default())
         .manage(CompareState::default())
+        .manage(preview::PreviewState::default())
         .invoke_handler(tauri::generate_handler![
             commands::get_platform_info,
             commands::get_sidebar_locations,
@@ -212,6 +214,19 @@ pub fn run() {
             commands::get_properties,
             commands::get_folder_stats,
             commands::read_text_preview,
+            commands::preview_metadata,
+            commands::preview_thumbnail,
+            commands::preview_quicklook_open,
+            commands::preview_quicklook_close,
+            commands::preview_read_text,
+            commands::preview_archive,
+            commands::preview_extract_archive,
+            commands::preview_folder_summary,
+            commands::cancel_preview_task,
+            commands::preview_clear_cache,
+            commands::preview_download_icloud,
+            commands::preview_watch,
+            commands::preview_unwatch,
             commands::list_applications,
             commands::read_app_icon,
             commands::open_path,

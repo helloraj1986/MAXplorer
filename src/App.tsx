@@ -6,10 +6,7 @@ import { CommandBar } from "./components/CommandBar";
 import { NavigationBar } from "./components/NavigationBar";
 import { TabBar } from "./components/PaneTabs";
 import { Sidebar } from "./components/Sidebar";
-import { FileArea } from "./components/FileArea";
-import { DualPaneWorkspace } from "./components/DualPaneWorkspace";
-import { DetailsPane } from "./components/DetailsPane";
-import { PreviewPane } from "./components/PreviewPane";
+import { PreviewWorkspace } from "./components/PreviewWorkspace";
 import { StatusBar } from "./components/StatusBar";
 import { TransferPanel } from "./components/TransferPanel";
 import { ComparisonPanel } from "./components/ComparisonPanel";
@@ -36,10 +33,8 @@ export default function App() {
   const initialize = useExplorerStore((state) => state.initialize);
   const initialized = useExplorerStore((state) => state.initialized);
   const fatalError = useExplorerStore((state) => state.fatalError);
-  const detailsPane = useExplorerStore((state) => state.detailsPane);
-  const previewPane = useExplorerStore((state) => state.previewPane);
-  const dualPane = useExplorerStore((state) => state.dualPane);
   const sidebarVisible = useExplorerStore((state) => state.sidebarVisible);
+  const dualPane = useExplorerStore((state) => state.dualPane);
   const activeTab = useExplorerStore(
     (state) => state.panes[state.activePane].tabs.find(
       (tab) => tab.id === state.panes[state.activePane].activeTabId,
@@ -77,7 +72,15 @@ export default function App() {
 
   useEffect(() => {
     if (!isTauri) return;
-    const refresh = () => void refreshLocations();
+    const refresh = () => {
+      void refreshLocations();
+      // Quick Look runs in its own native process. When focus returns to the
+      // webview the panel has usually been dismissed; clearing the flag keeps
+      // the next Space press predictable.
+      if (useExplorerStore.getState().quickLookOpen) {
+        useExplorerStore.setState({ quickLookOpen: false });
+      }
+    };
     window.addEventListener("focus", refresh);
     return () => window.removeEventListener("focus", refresh);
   }, [refreshLocations]);
@@ -200,16 +203,8 @@ export default function App() {
           <StorageWorkspace />
         ) : searchWorkspaceOpen ? (
           <SearchWorkspace />
-        ) : dualPane ? (
-          <DualPaneWorkspace />
         ) : (
-          <div className="workspace">
-            <div className="file-pane">
-              <FileArea />
-            </div>
-            {detailsPane ? <DetailsPane /> : null}
-            {previewPane ? <PreviewPane /> : null}
-          </div>
+          <PreviewWorkspace />
         )}
       </div>
       <ComparisonPanel />

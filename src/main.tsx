@@ -5,6 +5,7 @@ import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import { installGlobalDiagnostics } from "./lib/diagnostics";
 import "./styles/tokens.css";
 import "./styles/app.css";
+import "./styles/preview.css";
 import "./styles/finder.css";
 import "./styles/search.css";
 import "./styles/storage.css";
