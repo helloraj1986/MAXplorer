@@ -387,61 +387,18 @@
 
 /* ------------------------------------------------------------------ Sidebar */
 
-[data-ui-theme="finder"] .sidebar {
-  padding: 10px 8px 0 10px;
-  background: var(--finder-sidebar);
-  border-right: 1px solid var(--finder-separator);
-}
-
 [data-ui-theme="finder"] .sidebar-scroll {
   padding-bottom: 8px;
 }
 
+/* Surface, spacing, typography, hover, and selection come from the sidebar
+   tokens declared in tokens.css, so a custom theme can change them all. */
 [data-ui-theme="finder"] .sidebar-heading {
-  display: block;
-  padding: 10px 8px 4px;
-  color: var(--text-3);
-  font-size: 11px;
-  font-weight: 600;
   letter-spacing: 0.01em;
 }
 
-[data-ui-theme="finder"] .nav-section + .sidebar-heading {
-  margin-top: 6px;
-}
-
-[data-ui-theme="finder"] .nav-row {
-  height: 28px;
-  padding: 0 8px;
-  gap: 8px;
-  border-radius: 6px;
-  color: var(--text);
-  font-size: 12.5px;
-}
-
-[data-ui-theme="finder"] .nav-row:hover {
-  background: var(--hover);
-}
-
-[data-ui-theme="finder"] .nav-row.selected,
-[data-ui-theme="finder"] .nav-row.selected:hover {
-  background: var(--selected);
-  color: var(--finder-selection-text);
-}
-
-[data-ui-theme="finder"] .nav-row.selected .nav-label,
-[data-ui-theme="finder"] .nav-row.selected .sidebar-icon,
-[data-ui-theme="finder"] .nav-row.selected .nav-chevron {
-  color: var(--finder-selection-text);
-}
-
 [data-ui-theme="finder"] .nav-group {
-  color: var(--text-2);
   font-weight: 500;
-}
-
-[data-ui-theme="finder"] .nav-chevron {
-  color: var(--text-3);
 }
 
 [data-ui-theme="finder"] .nav-child-indent {
@@ -449,24 +406,18 @@
   flex-basis: 10px;
 }
 
-[data-ui-theme="finder"] .sidebar-icon {
-  width: 17px;
-  height: 17px;
-  flex-basis: 17px;
-}
-
 [data-ui-theme="finder"] .sidebar-folder {
-  width: 17px;
-  height: 17px;
-  flex-basis: 17px;
+  width: var(--sidebar-icon-size);
+  height: var(--sidebar-icon-size);
+  flex-basis: var(--sidebar-icon-size);
 }
 
 [data-ui-theme="finder"] .sidebar-folder-overlay {
-  background: var(--finder-sidebar);
+  background: var(--sidebar-background);
 }
 
 [data-ui-theme="finder"] .nav-row.selected .sidebar-folder-overlay {
-  background: var(--selected);
+  background: var(--sidebar-row-selected-background);
 }
 
 [data-ui-theme="finder"] .nav-pin {
@@ -474,12 +425,12 @@
 }
 
 [data-ui-theme="finder"] .sidebar-footer {
-  border-top-color: var(--finder-separator);
+  border-top-color: var(--sidebar-border-color);
 }
 
 [data-ui-theme="finder"] .sidebar-theme-button {
-  height: 28px;
-  border-radius: 6px;
+  height: var(--sidebar-row-height);
+  border-radius: var(--sidebar-row-radius);
   color: var(--text-2);
 }
 

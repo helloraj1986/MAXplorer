@@ -100,6 +100,9 @@ captured the screenshot above (Home view, real `/Users/runner` filesystem).
   (no emoji).
 - **macOS integration**: real home folders, `/Volumes` drives, `/Applications` app list,
   Finder reveal, Terminal, TCC usage descriptions, and macOS permission guidance.
+- **Network places**: saved SMB/network servers, NetFS mounting with the native macOS
+  sign-in sheet, Keychain credential reuse, Bonjour + WS-Discovery/NetBIOS discovery, and
+  mounted-share detection. See [docs/NETWORK_ACCESS.md](docs/NETWORK_ACCESS.md).
 - **Local diagnostics**: rotating crash log, Rust panic hook with backtrace, React error
   boundary, global unhandled-error capture, **Settings → Reveal diagnostic log**, and
   `npm run logs`. Nothing is uploaded. See [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md).
@@ -130,7 +133,8 @@ npm run tauri:dev
 
 On macOS, the first access to Desktop, Documents, or Downloads may show a macOS privacy
 prompt. Allow it to browse those folders. If access was denied, use the error state's
-**Open System Settings** button.
+**Open System Settings** button. Network discovery and SMB connections also need **Local
+Network** approval on macOS 15+; see [docs/NETWORK_ACCESS.md](docs/NETWORK_ACCESS.md).
 
 ### Build a macOS app and DMG
 
@@ -347,8 +351,11 @@ These are honest, intentional boundaries of this build:
 - **Custom themes are token-based.** They can change colours, shape, density, typography
   scale, sidebar/toolbar treatment, and an installed icon pack. They cannot replace
   individual React components or introduce arbitrary CSS.
-- **App sandbox** is not enabled. macOS uses TCC folder permissions; Distribution via the
-  Mac App Store would require sandbox entitlements and additional review work.
+- **App sandbox** is not enabled. macOS uses TCC folder and Local Network permissions;
+  Distribution via the Mac App Store would require sandbox entitlements and additional
+  review work. The ad-hoc development build has a cdhash-only code requirement, so TCC
+  grants are tied to that exact binary; re-grant after replacing the app or use a Developer
+  ID-signed build. See [docs/NETWORK_ACCESS.md](docs/NETWORK_ACCESS.md).
 - Deleting `/Applications`, `/System`, `/Library`, and similar protected roots is refused
   for safety. The Storage Analyzer additionally refuses protected system subtrees, volume
   roots, the home folder, and anything that canonical resolution places outside the scanned

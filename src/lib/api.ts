@@ -10,10 +10,13 @@ import type {
   FolderComparison,
   FolderStats,
   Location,
+  NetworkComputer,
   OperationResult,
   PlatformInfo,
   Properties,
   SearchResult,
+  StorageAudit,
+  StorageCleanupResult,
   TextPreview,
   TransferMode,
   TransferOutcome,
@@ -85,6 +88,32 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
 export const api = {
   getPlatformInfo: () => call<PlatformInfo>("get_platform_info"),
   getSidebarLocations: () => call<Location[]>("get_sidebar_locations"),
+  ejectVolume: (path: string) => call<void>("eject_volume", { path }),
+  connectNetworkLocation: (
+    address: string,
+    username?: string | null,
+    password?: string | null,
+  ) =>
+    call<string | null>("connect_network_location", {
+      address,
+      username: username ?? null,
+      password: password ?? null,
+    }),
+  discoverNetworkComputers: () =>
+    call<NetworkComputer[]>("discover_network_computers"),
+  listNetworkShares: (
+    address: string,
+    username?: string | null,
+    password?: string | null,
+  ) =>
+    call<string[]>("list_network_shares", {
+      address,
+      username: username ?? null,
+      password: password ?? null,
+    }),
+  getStorageAudit: () => call<StorageAudit>("get_storage_audit"),
+  cleanupLegacyStorage: (confirm: boolean) =>
+    call<StorageCleanupResult>("cleanup_legacy_storage", { confirm }),
   getInitialPath: () => call<string | null>("get_initial_path"),
   resolvePath: (path: string) => call<string>("resolve_path", { path }),
   pathExists: (path: string) => call<boolean>("path_exists", { path }),

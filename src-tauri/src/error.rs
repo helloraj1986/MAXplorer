@@ -44,6 +44,17 @@ impl AppError {
         self.path = Some(path.to_string());
         self
     }
+
+    /// A kernel-level permission failure on a mounted network volume. This is a
+    /// different macOS control from ordinary file permissions, so the UI should
+    /// point at Network Volumes/Local Network rather than only Full Disk Access.
+    pub fn network_permission(path: impl fmt::Display) -> Self {
+        Self::new(
+            "network_permission_denied",
+            "macOS blocked access to this network volume. In System Settings > Privacy & Security, enable MAXplorer under Network Volumes (and Local Network for server discovery), then reconnect the server from MAXplorer.",
+            Some(path.to_string()),
+        )
+    }
 }
 
 impl fmt::Display for AppError {

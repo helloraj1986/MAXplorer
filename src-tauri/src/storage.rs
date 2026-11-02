@@ -376,17 +376,48 @@ pub struct StorageDeleteProgress {
 pub struct StorageState {
     current: Mutex<Option<Arc<ScanIndex>>>,
     cancels: Mutex<HashMap<u64, Arc<AtomicBool>>>,
-    cache: Option<StorageCache>,
+    cache_path: PathBuf,
+    cache: Mutex<Option<StorageCache>>,
 }
 
 impl StorageState {
     pub fn new(cache_path: PathBuf) -> Self {
-        let cache = match StorageCache::new(cache_path) {
+        // Opening a multi-gigabyte cache synchronously used to delay the first
+        // window. Keep only the path here and open the cache on first use.
+        logging::info(
+            "storage.cache",
+            format!(
+                "storage cache deferred until first use at {}",
+                cache_path.display()
+            ),
+        );
+        Self {
+            current: Mutex::new(None),
+            cancels: Mutex::new(HashMap::new()),
+            cache_path,
+            cache: Mutex::new(None),
+        }
+    }
+
+    fn cache(&self) -> Option<StorageCache> {
+        let Ok(mut slot) = self.cache.lock() else {
+            return None;
+        };
+        if let Some(cache) = slot.as_ref() {
+            return Some(cache.clone());
+        }
+        let started = Instant::now();
+        match StorageCache::new(self.cache_path.clone()) {
             Ok(cache) => {
                 logging::info(
                     "storage.cache",
-                    format!("storage cache opened at {}", cache.path().display()),
+                    format!(
+                        "storage cache opened at {} in {} ms",
+                        cache.path().display(),
+                        started.elapsed().as_millis()
+                    ),
                 );
+                *slot = Some(cache.clone());
                 Some(cache)
             }
             Err(error) => {
@@ -396,11 +427,6 @@ impl StorageState {
                 );
                 None
             }
-        };
-        Self {
-            current: Mutex::new(None),
-            cancels: Mutex::new(HashMap::new()),
-            cache,
         }
     }
 
@@ -413,7 +439,7 @@ impl StorageState {
     }
 
     fn persist_async(&self, index: Arc<ScanIndex>) {
-        let Some(cache) = self.cache.clone() else {
+        let Some(cache) = self.cache() else {
             logging::warn("storage.cache", "no cache available; scan will not persist");
             return;
         };
@@ -426,7 +452,7 @@ impl StorageState {
     }
 
     fn cached(&self, root: Option<&str>) -> Option<CachedStorageScan> {
-        let Some(cache) = self.cache.as_ref() else {
+        let Some(cache) = self.cache() else {
             return None;
         };
         match cache.latest(root) {
@@ -455,7 +481,7 @@ impl StorageState {
         path: &str,
         limit: usize,
     ) -> Result<StorageChildren, AppError> {
-        let Some(cache) = self.cache.as_ref() else {
+        let Some(cache) = self.cache() else {
             return Err(AppError::new(
                 "no_scan",
                 "No cached scan is available.",
@@ -466,7 +492,7 @@ impl StorageState {
     }
 
     fn cached_query(&self, query: &StorageFileQuery) -> Result<StorageFilePage, AppError> {
-        let Some(cache) = self.cache.as_ref() else {
+        let Some(cache) = self.cache() else {
             return Err(AppError::new(
                 "no_scan",
                 "No cached scan is available.",
@@ -506,7 +532,7 @@ impl StorageState {
         if let Ok(mut current) = self.current.lock() {
             *current = None;
         }
-        if let Some(cache) = self.cache.as_ref() {
+        if let Some(cache) = self.cache() {
             if let Err(error) = cache.clear() {
                 logging::error("storage.cache", format!("could not clear cache: {error}"));
             }

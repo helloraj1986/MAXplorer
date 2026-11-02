@@ -67,6 +67,7 @@ function demoPane(location: string, idPrefix: string, selected?: string): PaneSt
     showHidden: false,
     showExtensions: true,
     collapsed: false,
+    tagFilterId: null,
   };
 }
 

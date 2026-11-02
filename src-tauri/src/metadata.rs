@@ -206,6 +206,25 @@ pub fn platform_info() -> PlatformInfo {
     }
 }
 
+fn push_location_unchecked(
+    locations: &mut Vec<Location>,
+    id: &str,
+    name: &str,
+    path: PathBuf,
+    kind: &str,
+    icon: &str,
+    is_volume: bool,
+) {
+    locations.push(Location {
+        id: id.to_string(),
+        name: name.to_string(),
+        path: path.to_string_lossy().to_string(),
+        kind: kind.to_string(),
+        icon: icon.to_string(),
+        is_volume,
+    });
+}
+
 fn push_location(
     locations: &mut Vec<Location>,
     id: &str,
@@ -216,15 +235,102 @@ fn push_location(
     is_volume: bool,
 ) {
     if path.exists() {
-        locations.push(Location {
-            id: id.to_string(),
-            name: name.to_string(),
-            path: path.to_string_lossy().to_string(),
-            kind: kind.to_string(),
-            icon: icon.to_string(),
-            is_volume,
-        });
+        push_location_unchecked(locations, id, name, path, kind, icon, is_volume);
     }
+}
+
+/// The filesystem type reported by the kernel for a path.
+///
+/// `stat -f %T` is not the filesystem type on macOS (it prints `/` for most
+/// paths), so ask `statfs(2)` for `f_fstypename` directly instead.
+#[cfg(target_os = "macos")]
+pub(crate) fn filesystem_type(path: &Path) -> Option<String> {
+    use std::ffi::{CStr, CString};
+    use std::os::unix::ffi::OsStrExt;
+
+    let raw = CString::new(path.as_os_str().as_bytes()).ok()?;
+    let mut stats: libc::statfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statfs(raw.as_ptr(), &mut stats) } != 0 {
+        return None;
+    }
+    let name = unsafe { CStr::from_ptr(stats.f_fstypename.as_ptr()) };
+    let name = name.to_string_lossy().trim().to_lowercase();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+fn network_filesystem_name(name: &str) -> bool {
+    matches!(
+        name,
+        "smbfs" | "cifs" | "afpfs" | "nfs" | "webdav" | "webdavs" | "ftp"
+    )
+}
+
+/// True when a mounted path belongs to a network filesystem.
+pub(crate) fn is_network_mount(path: &Path) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        return filesystem_type(path)
+            .map(|filesystem| network_filesystem_name(&filesystem))
+            .unwrap_or(false)
+            || path.starts_with("/Network");
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        false
+    }
+}
+
+/// Currently mounted network volumes, used to avoid re-mounting a server and
+/// to detect the new volume that appears after a connection completes.
+///
+/// The mount table is used instead of probing every `/Volumes` entry so a
+/// volume still appears when TCC currently denies the app read access to it.
+#[cfg(target_os = "macos")]
+pub(crate) fn network_mount_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Ok(output) = std::process::Command::new("mount").output() {
+        let text = String::from_utf8_lossy(&output.stdout);
+        for line in text.lines() {
+            let Some((_source, rest)) = line.split_once(" on ") else {
+                continue;
+            };
+            let Some((mount, tail)) = rest.rsplit_once(" (") else {
+                continue;
+            };
+            let filesystem = tail
+                .split(',')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_lowercase();
+            if network_filesystem_name(&filesystem) {
+                paths.push(PathBuf::from(mount));
+            }
+        }
+    }
+    if paths.is_empty() {
+        if let Ok(reader) = fs::read_dir("/Volumes") {
+            for item in reader.flatten() {
+                let path = item.path();
+                if is_network_mount(&path) {
+                    paths.push(path);
+                }
+            }
+        }
+    }
+    paths.sort();
+    paths.dedup();
+    paths
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn network_mount_paths() -> Vec<PathBuf> {
+    Vec::new()
 }
 
 pub fn sidebar_locations() -> Vec<Location> {
@@ -307,6 +413,37 @@ pub fn sidebar_locations() -> Vec<Location> {
 
     #[cfg(target_os = "macos")]
     {
+        // Finder-style places that are not part of the standard user folders.
+        // Each is optional: iCloud Drive only appears when the user has it.
+        push_location(
+            &mut locations,
+            "shared",
+            "Shared",
+            PathBuf::from("/Users/Shared"),
+            "folder",
+            "shared",
+            false,
+        );
+        if let Some(home) = dirs::home_dir() {
+            push_location(
+                &mut locations,
+                "icloud",
+                "iCloud Drive",
+                home.join("Library/Mobile Documents/com~apple~CloudDocs"),
+                "folder",
+                "icloud",
+                false,
+            );
+            push_location(
+                &mut locations,
+                "trash",
+                "Trash",
+                home.join(".Trash"),
+                "folder",
+                "trash",
+                false,
+            );
+        }
         let applications = PathBuf::from("/Applications");
         push_location(
             &mut locations,
@@ -348,16 +485,41 @@ pub fn sidebar_locations() -> Vec<Location> {
                     .file_name()
                     .map(|value| value.to_string_lossy().to_string())
                     .unwrap_or_else(|| "Volume".to_string());
+                let network = is_network_mount(&volume);
                 push_location(
                     &mut locations,
                     &format!("volume:{name}"),
                     &name,
                     volume,
-                    "drive",
-                    "drive",
+                    if network { "network" } else { "drive" },
+                    if network { "network" } else { "drive" },
                     true,
                 );
             }
+        }
+        // The mount table still knows about a mounted network volume even when
+        // macOS TCC temporarily denies the app access to its mount point. Show
+        // it so the user can click it and see the actionable permission error.
+        for mount in network_mount_paths() {
+            if locations
+                .iter()
+                .any(|location| Path::new(&location.path) == mount)
+            {
+                continue;
+            }
+            let name = mount
+                .file_name()
+                .map(|value| value.to_string_lossy().to_string())
+                .unwrap_or_else(|| "Network".to_string());
+            push_location_unchecked(
+                &mut locations,
+                &format!("volume:{name}"),
+                &name,
+                mount,
+                "network",
+                "network",
+                true,
+            );
         }
         if Path::new("/Network").exists() {
             push_location(
@@ -393,6 +555,17 @@ pub fn sidebar_locations() -> Vec<Location> {
 
     #[cfg(target_os = "linux")]
     {
+        if let Some(home) = dirs::home_dir() {
+            push_location(
+                &mut locations,
+                "trash",
+                "Trash",
+                home.join(".local/share/Trash/files"),
+                "folder",
+                "trash",
+                false,
+            );
+        }
         push_location(
             &mut locations,
             "root",

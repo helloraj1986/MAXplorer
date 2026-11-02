@@ -13,9 +13,16 @@ use crate::search::model::{
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 #[derive(Clone)]
 pub struct SearchService {
@@ -23,23 +30,43 @@ pub struct SearchService {
     activity: Arc<Mutex<IndexActivity>>,
     indexer: Arc<Mutex<Option<IndexerHandle>>>,
     cancels: Arc<Mutex<HashMap<u64, Arc<AtomicBool>>>>,
+    app_focused: Arc<AtomicBool>,
+    force_index_until: Arc<AtomicU64>,
 }
 
 impl SearchService {
-    pub fn new(db_path: PathBuf) -> Result<Self, AppError> {
+    pub fn new(
+        db_path: PathBuf,
+        app_focused: Arc<AtomicBool>,
+    ) -> Result<Self, AppError> {
         let engine = Arc::new(SearchEngine::open(db_path)?);
         let _ = engine.ensure_default_location(&crate::paths::home_dir());
         let activity = Arc::new(Mutex::new(IndexActivity {
             activity: "starting".into(),
             current_path: None,
         }));
-        let indexer = indexer::start(engine.clone(), activity.clone());
+        let force_index_until = Arc::new(AtomicU64::new(0));
+        let indexer = indexer::start(
+            engine.clone(),
+            activity.clone(),
+            app_focused.clone(),
+            force_index_until.clone(),
+        );
         Ok(Self {
             engine,
             activity,
             indexer: Arc::new(Mutex::new(Some(indexer))),
             cancels: Arc::new(Mutex::new(HashMap::new())),
+            app_focused,
+            force_index_until,
         })
+    }
+
+    /// Explicit index maintenance is allowed to run even while the window is
+    /// focused; normal background indexing resumes whenever the app loses focus.
+    pub fn force_indexing_for(&self, duration_ms: u64) {
+        self.force_index_until
+            .store(now_ms().saturating_add(duration_ms), Ordering::Relaxed);
     }
 
     pub fn stop_indexer(&self) {
@@ -53,7 +80,12 @@ impl SearchService {
     pub fn restart_indexer(&self) {
         self.stop_indexer();
         if let Ok(mut slot) = self.indexer.lock() {
-            *slot = Some(indexer::start(self.engine.clone(), self.activity.clone()));
+            *slot = Some(indexer::start(
+                self.engine.clone(),
+                self.activity.clone(),
+                self.app_focused.clone(),
+                self.force_index_until.clone(),
+            ));
         }
     }
 

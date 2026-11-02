@@ -93,6 +93,8 @@ import {
   SquareTerminal,
   Star,
   Table2,
+  Tag,
+  Tags,
   Trash2,
   TriangleAlert,
   Type,
@@ -223,6 +225,8 @@ export type AppIconName =
   | "folderLock"
   | "folderSymlink"
   | "package"
+  | "tag"
+  | "tags"
   | "wrench";
 
 const ICONS: Record<AppIconName, LucideIcon> = {
@@ -340,6 +344,8 @@ const ICONS: Record<AppIconName, LucideIcon> = {
   folderLock: FolderLock,
   folderSymlink: FolderSymlink,
   package: Archive,
+  tag: Tag,
+  tags: Tags,
   wrench: Wrench,
 };
 

@@ -3,10 +3,13 @@ use crate::compare::{self, CompareState};
 use crate::error::AppError;
 use crate::listing;
 use crate::metadata;
+use crate::network_discovery::{self, NetworkComputer};
+use crate::network_mount;
 use crate::operations;
 use crate::paths::{expand_user, home_dir, normalize_path, parent_path};
 use crate::search::model::{DuplicateRequest, DuplicateResponse, IndexError, IndexStatus, SearchRequest, SearchResponse, SearchSuggestion};
 use crate::search::{self, SearchService};
+use crate::storage_maintenance::{self, StorageAudit, StorageCleanupResult};
 use crate::transfer::{self, TransferControl, TransferState};
 use crate::types::{
     ApplicationInfo, ConflictPolicy, DirectoryListing, FolderComparison, FolderStats, Location,
@@ -17,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tauri::{Emitter, State};
+use tauri::{Emitter, Manager, State};
 
 async fn blocking<T, F>(work: F) -> Result<T, AppError>
 where
@@ -55,8 +58,34 @@ pub fn get_platform_info() -> PlatformInfo {
 }
 
 #[tauri::command]
-pub fn get_sidebar_locations() -> Vec<Location> {
-    metadata::sidebar_locations()
+pub async fn get_sidebar_locations() -> Result<Vec<Location>, AppError> {
+    blocking(|| Ok(metadata::sidebar_locations())).await
+}
+
+#[tauri::command]
+pub async fn get_storage_audit(app: tauri::AppHandle) -> Result<StorageAudit, AppError> {
+    let data_directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| AppError::new("storage", error.to_string(), None))?;
+    let identifier = app.config().identifier.clone();
+    blocking(move || Ok(storage_maintenance::audit(&data_directory, &identifier))).await
+}
+
+#[tauri::command]
+pub async fn cleanup_legacy_storage(
+    app: tauri::AppHandle,
+    confirm: bool,
+) -> Result<StorageCleanupResult, AppError> {
+    let data_directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| AppError::new("storage", error.to_string(), None))?;
+    let identifier = app.config().identifier.clone();
+    blocking(move || {
+        storage_maintenance::cleanup(&data_directory, &identifier, confirm)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -141,97 +170,166 @@ pub async fn find_duplicates(
 }
 
 #[tauri::command]
-pub fn search_suggestions(
+pub async fn search_suggestions(
     state: State<'_, SearchService>,
     prefix: String,
     limit: usize,
-) -> Vec<SearchSuggestion> {
-    state.suggestions(&prefix, limit.clamp(1, 20))
+) -> Result<Vec<SearchSuggestion>, AppError> {
+    let service = state.inner().clone();
+    let limit = limit.clamp(1, 20);
+    blocking(move || Ok(service.suggestions(&prefix, limit))).await
 }
 
 #[tauri::command]
-pub fn get_search_index_status(state: State<'_, SearchService>) -> IndexStatus {
-    state.status()
+pub async fn get_search_index_status(
+    state: State<'_, SearchService>,
+) -> Result<IndexStatus, AppError> {
+    let service = state.inner().clone();
+    blocking(move || Ok(service.status())).await
 }
 
 #[tauri::command]
-pub fn add_search_location(state: State<'_, SearchService>, path: String) -> Result<IndexStatus, AppError> {
+pub async fn add_search_location(
+    state: State<'_, SearchService>,
+    path: String,
+) -> Result<IndexStatus, AppError> {
     let normalized = normalize_path(&path)?;
-    state.engine.add_location(&normalized.to_string_lossy())?;
-    state.restart_indexer();
-    Ok(state.status())
+    let service = state.inner().clone();
+    blocking(move || {
+        service.engine.add_location(&normalized.to_string_lossy())?;
+        service.force_indexing_for(120_000);
+        service.restart_indexer();
+        Ok(service.status())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn remove_search_location(state: State<'_, SearchService>, path: String) -> Result<IndexStatus, AppError> {
-    state.stop_indexer();
-    state.engine.remove_location(&path)?;
-    state.restart_indexer();
-    Ok(state.status())
+pub async fn remove_search_location(
+    state: State<'_, SearchService>,
+    path: String,
+) -> Result<IndexStatus, AppError> {
+    let service = state.inner().clone();
+    blocking(move || {
+        service.stop_indexer();
+        service.engine.remove_location(&path)?;
+        service.restart_indexer();
+        Ok(service.status())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn set_search_index_paused(state: State<'_, SearchService>, paused: bool) -> Result<IndexStatus, AppError> {
-    state.engine.set_paused(paused)?;
-    if !paused {
-        // Events received while paused are intentionally discarded. Marking the
-        // locations partial makes the indexer reconcile them on resume instead
-        // of waiting for the next periodic pass.
-        for root in state.engine.enabled_roots() {
-            let _ = state.engine.mark_location(&root, "partial", None);
+pub async fn set_search_index_paused(
+    state: State<'_, SearchService>,
+    paused: bool,
+) -> Result<IndexStatus, AppError> {
+    let service = state.inner().clone();
+    blocking(move || {
+        service.engine.set_paused(paused)?;
+        if !paused {
+            // Events received while paused are intentionally discarded. Marking
+            // the locations partial makes the indexer reconcile them on resume
+            // instead of waiting for the next periodic pass.
+            for root in service.engine.enabled_roots() {
+                let _ = service.engine.mark_location(&root, "partial", None);
+            }
+            service.force_indexing_for(120_000);
         }
-    }
-    Ok(state.status())
+        Ok(service.status())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn set_search_content_enabled(
+pub async fn set_search_content_enabled(
     state: State<'_, SearchService>,
     enabled: bool,
 ) -> Result<IndexStatus, AppError> {
-    state.engine.set_content_enabled(enabled)?;
-    Ok(state.status())
+    let service = state.inner().clone();
+    blocking(move || {
+        service.engine.set_content_enabled(enabled)?;
+        if enabled {
+            service.force_indexing_for(120_000);
+        }
+        Ok(service.status())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn set_search_content_limit(
+pub async fn set_search_content_limit(
     state: State<'_, SearchService>,
     bytes: u64,
 ) -> Result<IndexStatus, AppError> {
-    state.engine.set_max_content_bytes(bytes)?;
-    Ok(state.status())
+    let service = state.inner().clone();
+    blocking(move || {
+        service.engine.set_max_content_bytes(bytes)?;
+        Ok(service.status())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn rebuild_search_index(state: State<'_, SearchService>) -> Result<IndexStatus, AppError> {
-    state.stop_indexer();
-    state.engine.rebuild()?;
-    state.restart_indexer();
-    Ok(state.status())
+pub async fn rebuild_search_index(
+    state: State<'_, SearchService>,
+) -> Result<IndexStatus, AppError> {
+    let service = state.inner().clone();
+    blocking(move || {
+        service.stop_indexer();
+        service.engine.rebuild()?;
+        service.force_indexing_for(120_000);
+        service.restart_indexer();
+        Ok(service.status())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn clear_search_index(state: State<'_, SearchService>) -> Result<IndexStatus, AppError> {
-    state.stop_indexer();
-    state.engine.clear_index()?;
-    state.restart_indexer();
-    Ok(state.status())
+pub async fn clear_search_index(
+    state: State<'_, SearchService>,
+) -> Result<IndexStatus, AppError> {
+    let service = state.inner().clone();
+    blocking(move || {
+        service.stop_indexer();
+        service.engine.clear_index()?;
+        service.force_indexing_for(120_000);
+        service.restart_indexer();
+        Ok(service.status())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn retry_failed_extractions(state: State<'_, SearchService>) -> Result<IndexStatus, AppError> {
-    state.engine.retry_failed()?;
-    Ok(state.status())
+pub async fn retry_failed_extractions(
+    state: State<'_, SearchService>,
+) -> Result<IndexStatus, AppError> {
+    let service = state.inner().clone();
+    blocking(move || {
+        service.engine.retry_failed()?;
+        service.force_indexing_for(120_000);
+        Ok(service.status())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn remove_search_path(state: State<'_, SearchService>, path: String) -> Result<(), AppError> {
-    state.engine.remove_path(&path)
+pub async fn remove_search_path(
+    state: State<'_, SearchService>,
+    path: String,
+) -> Result<(), AppError> {
+    let service = state.inner().clone();
+    blocking(move || service.engine.remove_path(&path)).await
 }
 
 #[tauri::command]
-pub fn get_index_errors(state: State<'_, SearchService>, limit: usize) -> Vec<IndexError> {
-    state.index_errors(limit.clamp(1, 200))
+pub async fn get_index_errors(
+    state: State<'_, SearchService>,
+    limit: usize,
+) -> Result<Vec<IndexError>, AppError> {
+    let service = state.inner().clone();
+    let limit = limit.clamp(1, 200);
+    blocking(move || Ok(service.index_errors(limit))).await
 }
 
 #[tauri::command]
@@ -428,6 +526,232 @@ fn spawn(command: &mut Command) -> Result<(), AppError> {
         .spawn()
         .map(|_| ())
         .map_err(|error| AppError::new("launch_failed", error.to_string(), None))
+}
+
+fn eject_path(path: &Path) -> Result<(), AppError> {
+    #[cfg(target_os = "macos")]
+    {
+        let output = Command::new("diskutil").arg("eject").arg(path).output()?;
+        if output.status.success() {
+            return Ok(());
+        }
+        // Network shares are not disks, so diskutil cannot eject them.
+        if metadata::is_network_mount(path) {
+            let unmount = Command::new("umount").arg(path).output()?;
+            if unmount.status.success() {
+                return Ok(());
+            }
+            let message = String::from_utf8_lossy(&unmount.stderr).trim().to_string();
+            return Err(AppError::new(
+                "eject_failed",
+                if message.is_empty() {
+                    "The server could not be disconnected.".to_string()
+                } else {
+                    message
+                },
+                Some(path.to_string_lossy().to_string()),
+            ));
+        }
+        let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(AppError::new(
+            "eject_failed",
+            if message.is_empty() {
+                "The volume could not be ejected.".to_string()
+            } else {
+                message
+            },
+            Some(path.to_string_lossy().to_string()),
+        ));
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let output = Command::new("umount").arg(path).output()?;
+        if output.status.success() {
+            return Ok(());
+        }
+        let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(AppError::new(
+            "eject_failed",
+            if message.is_empty() {
+                "The volume could not be unmounted.".to_string()
+            } else {
+                message
+            },
+            Some(path.to_string_lossy().to_string()),
+        ));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Err(AppError::new(
+            "not_supported",
+            "Eject is not available in this build.".to_string(),
+            Some(path.to_string_lossy().to_string()),
+        ))
+    }
+}
+
+#[tauri::command]
+pub async fn eject_volume(path: String) -> Result<(), AppError> {
+    let resolved = PathBuf::from(expand_user(&path));
+    if !resolved.exists() {
+        return Err(AppError::not_found(resolved.to_string_lossy()));
+    }
+    blocking(move || eject_path(&resolved)).await
+}
+
+fn validate_network_address(address: &str) -> Result<String, AppError> {
+    let trimmed = address.trim();
+    if trimmed.is_empty() || trimmed.len() > 2048 {
+        return Err(AppError::invalid("Enter a server address."));
+    }
+    if trimmed
+        .chars()
+        .any(|character| character.is_control() || character == '"' || character == '\\')
+    {
+        return Err(AppError::invalid("The server address contains invalid characters."));
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    let scheme = lower.split("://").next().unwrap_or("");
+    if !matches!(scheme, "smb" | "cifs" | "afp" | "nfs" | "ftp") {
+        return Err(AppError::invalid(
+            "Use an smb://, afp://, nfs://, or ftp:// server address.",
+        ));
+    }
+    if !lower.contains("://") || lower.split("://").nth(1).unwrap_or("").is_empty() {
+        return Err(AppError::invalid("Enter a server address."));
+    }
+    Ok(trimmed.to_string())
+}
+
+fn network_address_has_share(address: &str) -> bool {
+    address
+        .split("://")
+        .nth(1)
+        .map(|rest| rest.split('/').filter(|part| !part.is_empty()).count() > 1)
+        .unwrap_or(false)
+}
+
+fn network_address_share_name(address: &str) -> Option<String> {
+    address
+        .split("://")
+        .nth(1)?
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .last()
+        .map(|part| part.to_string())
+}
+
+fn validate_network_credential(
+    value: Option<String>,
+    label: &str,
+    trim: bool,
+) -> Result<Option<String>, AppError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let value = if trim { value.trim().to_string() } else { value };
+    if value.is_empty() {
+        return Ok(None);
+    }
+    if value.len() > 1024 || value.chars().any(char::is_control) {
+        return Err(AppError::invalid(format!("The {label} contains invalid characters.")));
+    }
+    Ok(Some(value))
+}
+
+fn connect_network_address(
+    address: &str,
+    username: Option<&str>,
+    password: Option<&str>,
+) -> Result<Option<String>, AppError> {
+    if !network_address_has_share(address) {
+        return Err(AppError::new(
+            "share_required",
+            "Choose a share name before connecting. Use Find Shares in the connection dialog, or enter an address such as smb://server/share.",
+            Some(address.to_string()),
+        ));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let before = metadata::network_mount_paths();
+        let mounted = network_mount::mount(address, username, password)?;
+        let after = metadata::network_mount_paths();
+        if let Some(path) = mounted {
+            return Ok(Some(path));
+        }
+        if let Some(path) = after.iter().find(|path| !before.contains(path)) {
+            return Ok(Some(path.to_string_lossy().to_string()));
+        }
+        if let Some(share) = network_address_share_name(address) {
+            if let Some(path) = after.iter().find(|path| {
+                path.file_name()
+                    .map(|name| name.eq_ignore_ascii_case(&share))
+                    .unwrap_or(false)
+            }) {
+                return Ok(Some(path.to_string_lossy().to_string()));
+            }
+        }
+        return Ok(None);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let _ = (username, password);
+        return spawn(
+            Command::new("cmd")
+                .arg("/C")
+                .arg("start")
+                .arg("")
+                .arg(address),
+        )
+        .map(|_| None);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = (username, password);
+        return spawn(Command::new("xdg-open").arg(address)).map(|_| None);
+    }
+}
+
+#[tauri::command]
+pub async fn connect_network_location(
+    address: String,
+    username: Option<String>,
+    password: Option<String>,
+) -> Result<Option<String>, AppError> {
+    let address = validate_network_address(&address)?;
+    let username = validate_network_credential(username, "username", true)?;
+    let password = validate_network_credential(password, "password", false)?;
+    crate::logging::info(
+        "network.connect",
+        format!(
+            "request address={address} username={} password={}",
+            if username.is_some() { "provided" } else { "none" },
+            if password.is_some() { "provided" } else { "none" }
+        ),
+    );
+    blocking(move || {
+        connect_network_address(&address, username.as_deref(), password.as_deref())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn discover_network_computers() -> Result<Vec<NetworkComputer>, AppError> {
+    blocking(|| Ok(network_discovery::discover_computers())).await
+}
+
+#[tauri::command]
+pub async fn list_network_shares(
+    address: String,
+    username: Option<String>,
+    password: Option<String>,
+) -> Result<Vec<String>, AppError> {
+    let username = validate_network_credential(username, "username", true)?;
+    let password = validate_network_credential(password, "password", false)?;
+    blocking(move || {
+        network_discovery::list_shares(&address, username.as_deref(), password.as_deref())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -639,6 +963,12 @@ pub fn open_system_settings(section: String) -> Result<(), AppError> {
             }
             "full_disk" => {
                 "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+            }
+            "network_volumes" => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_NetworkVolume"
+            }
+            "local_network" => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork"
             }
             _ => "x-apple.systempreferences:com.apple.preference.security",
         };

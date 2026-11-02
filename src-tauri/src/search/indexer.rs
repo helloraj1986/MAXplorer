@@ -6,7 +6,7 @@ use crate::types::Entry;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -14,9 +14,15 @@ use std::time::{Duration, Instant};
 use walkdir::WalkDir;
 
 const BATCH_SIZE: usize = 200;
-const RECONCILE_INTERVAL: Duration = Duration::from_secs(30 * 60);
+const RECONCILE_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 const DEBOUNCE: Duration = Duration::from_millis(450);
 const WATCH_TICK: Duration = Duration::from_millis(250);
+/// Leave the launch path alone before starting the expensive first scan.
+const STARTUP_GRACE: Duration = Duration::from_secs(20);
+/// Give the window time to appear before installing recursive watchers.
+const WATCH_START_DELAY: Duration = Duration::from_secs(8);
+/// Content extraction is the most I/O-heavy background task.
+const CONTENT_START_DELAY: Duration = Duration::from_secs(25);
 
 #[derive(Debug, Clone, Default)]
 pub struct IndexActivity {
@@ -50,16 +56,54 @@ impl Drop for IndexerHandle {
     }
 }
 
-pub fn start(engine: Arc<SearchEngine>, activity: Arc<Mutex<IndexActivity>>) -> IndexerHandle {
+fn mark_background_thread() {
+    #[cfg(target_os = "macos")]
+    {
+        // Darwin background priority: indexing yields CPU, disk, and I/O to
+        // foreground applications even when MAXplorer is in the background.
+        unsafe {
+            let _ = libc::setpriority(
+                libc::PRIO_DARWIN_THREAD,
+                0,
+                libc::PRIO_DARWIN_BG,
+            );
+        }
+    }
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+pub fn start(
+    engine: Arc<SearchEngine>,
+    activity: Arc<Mutex<IndexActivity>>,
+    app_focused: Arc<AtomicBool>,
+    force_index_until: Arc<AtomicU64>,
+) -> IndexerHandle {
+    crate::logging::info(
+        "search.indexer",
+        format!(
+            "starting indexer threads; first scan begins after {}s and pauses while the window is focused",
+            STARTUP_GRACE.as_secs()
+        ),
+    );
     let stop = Arc::new(AtomicBool::new(false));
     let mut joins = Vec::new();
     {
         let engine = engine.clone();
         let activity = activity.clone();
         let stop = stop.clone();
+        let app_focused = app_focused.clone();
+        let force_index_until = force_index_until.clone();
         if let Ok(join) = thread::Builder::new()
             .name("maxplorer-indexer".into())
-            .spawn(move || indexer_loop(engine, activity, stop))
+            .spawn(move || {
+                indexer_loop(engine, activity, stop, app_focused, force_index_until)
+            })
         {
             joins.push(join);
         }
@@ -68,9 +112,13 @@ pub fn start(engine: Arc<SearchEngine>, activity: Arc<Mutex<IndexActivity>>) -> 
         let engine = engine.clone();
         let activity = activity.clone();
         let stop = stop.clone();
+        let app_focused = app_focused.clone();
+        let force_index_until = force_index_until.clone();
         if let Ok(join) = thread::Builder::new()
             .name("maxplorer-content-indexer".into())
-            .spawn(move || content_loop(engine, activity, stop))
+            .spawn(move || {
+                content_loop(engine, activity, stop, app_focused, force_index_until)
+            })
         {
             joins.push(join);
         }
@@ -78,10 +126,19 @@ pub fn start(engine: Arc<SearchEngine>, activity: Arc<Mutex<IndexActivity>>) -> 
     IndexerHandle { stop, joins: Mutex::new(joins) }
 }
 
-fn indexer_loop(engine: Arc<SearchEngine>, activity: Arc<Mutex<IndexActivity>>, stop: Arc<AtomicBool>) {
+fn indexer_loop(
+    engine: Arc<SearchEngine>,
+    activity: Arc<Mutex<IndexActivity>>,
+    stop: Arc<AtomicBool>,
+    app_focused: Arc<AtomicBool>,
+    force_index_until: Arc<AtomicU64>,
+) {
+    mark_background_thread();
     let (sender, receiver) = channel();
+    let started_at = Instant::now();
     let mut _watcher_guard: Option<RecommendedWatcher> = None;
-    let mut tracked_roots: Vec<String> = Vec::new();    let mut pending: HashMap<PathBuf, Instant> = HashMap::new();
+    let mut tracked_roots: Vec<String> = Vec::new();
+    let mut pending: HashMap<PathBuf, Instant> = HashMap::new();
     let mut last_reconcile = Instant::now();
     let mut last_config_check = Instant::now();
     let mut last_scan_check = Instant::now();
@@ -92,8 +149,13 @@ fn indexer_loop(engine: Arc<SearchEngine>, activity: Arc<Mutex<IndexActivity>>, 
         }
         let paused = engine.paused();
         let roots = engine.enabled_roots();
+        let user_is_using_app =
+            app_focused.load(Ordering::Relaxed) && now_ms() >= force_index_until.load(Ordering::Relaxed);
 
-        if last_config_check.elapsed() > Duration::from_secs(1) {
+        if !user_is_using_app
+            && started_at.elapsed() > WATCH_START_DELAY
+            && last_config_check.elapsed() > Duration::from_secs(1)
+        {
             last_config_check = Instant::now();
             if roots != tracked_roots {
                 _watcher_guard = None;
@@ -119,20 +181,51 @@ fn indexer_loop(engine: Arc<SearchEngine>, activity: Arc<Mutex<IndexActivity>>, 
 
         if paused {
             set_activity(&activity, "paused", None);
-            drain_events(&receiver, &mut pending, &mut last_reconcile, false);
+            drain_events(
+                &receiver,
+                &mut pending,
+                &mut last_reconcile,
+                false,
+                &roots,
+                &engine.db_path,
+            );
+            thread::sleep(WATCH_TICK);
+            continue;
+        }
+
+        if user_is_using_app {
+            // Keep collecting changes from the watcher, but do not scan or write
+            // the index while the user is interacting with the window. Work
+            // resumes automatically when the app loses focus.
+            set_activity(&activity, "waiting", None);
+            drain_events(
+                &receiver,
+                &mut pending,
+                &mut last_reconcile,
+                true,
+                &roots,
+                &engine.db_path,
+            );
             thread::sleep(WATCH_TICK);
             continue;
         }
 
         // Initial indexing and repairs requested from the indexing dashboard.
-        if last_scan_check.elapsed() > Duration::from_secs(2) {
+        if started_at.elapsed() > STARTUP_GRACE && last_scan_check.elapsed() > Duration::from_secs(2) {
             last_scan_check = Instant::now();
             let to_scan = engine.locations_to_scan();
             for root in to_scan {
                 if stop.load(Ordering::Relaxed) {
                     break;
                 }
-                scan_root(&engine, &activity, &root, &stop);
+                scan_root(
+                    &engine,
+                    &activity,
+                    &root,
+                    &stop,
+                    &app_focused,
+                    &force_index_until,
+                );
             }
         }
         if last_reconcile.elapsed() > RECONCILE_INTERVAL || engine.take_rebuild_request() {
@@ -141,11 +234,25 @@ fn indexer_loop(engine: Arc<SearchEngine>, activity: Arc<Mutex<IndexActivity>>, 
                 if stop.load(Ordering::Relaxed) {
                     break;
                 }
-                scan_root(&engine, &activity, &root, &stop);
+                scan_root(
+                    &engine,
+                    &activity,
+                    &root,
+                    &stop,
+                    &app_focused,
+                    &force_index_until,
+                );
             }
         }
 
-        drain_events(&receiver, &mut pending, &mut last_reconcile, true);
+        drain_events(
+            &receiver,
+            &mut pending,
+            &mut last_reconcile,
+            true,
+            &roots,
+            &engine.db_path,
+        );
         let due: Vec<PathBuf> = pending
             .iter()
             .filter(|(_, seen)| seen.elapsed() >= DEBOUNCE)
@@ -156,7 +263,15 @@ fn indexer_loop(engine: Arc<SearchEngine>, activity: Arc<Mutex<IndexActivity>>, 
             if stop.load(Ordering::Relaxed) || engine.paused() {
                 break;
             }
-            apply_event(&engine, &activity, &path, &stop);
+            apply_event(
+                &engine,
+                &activity,
+                &path,
+                &stop,
+                &roots,
+                &app_focused,
+                &force_index_until,
+            );
         }
 
         if activity.lock().map(|value| value.activity.is_empty()).unwrap_or(false) {
@@ -167,11 +282,34 @@ fn indexer_loop(engine: Arc<SearchEngine>, activity: Arc<Mutex<IndexActivity>>, 
     set_activity(&activity, "stopped", None);
 }
 
+/// Reject events that come from ignored folders or from the index's own
+/// SQLite files. Without this, writing the index generates watch events for
+/// the index itself, which triggers another write and creates a feedback loop.
+fn path_is_ignored(path: &Path, roots: &[String], db_path: &Path) -> bool {
+    if let Some(directory) = db_path.parent() {
+        if path.starts_with(directory) {
+            return true;
+        }
+    }
+    let path_string = path.to_string_lossy();
+    let relative = roots
+        .iter()
+        .find(|root| crate::search::engine::path_under_root(&path_string, root))
+        .and_then(|root| path.strip_prefix(root).ok())
+        .unwrap_or(path);
+    relative.components().any(|component| {
+        let name = component.as_os_str().to_string_lossy();
+        should_skip_directory(&name, 1)
+    })
+}
+
 fn drain_events(
     receiver: &Receiver<notify::Event>,
     pending: &mut HashMap<PathBuf, Instant>,
     last_reconcile: &mut Instant,
     active: bool,
+    roots: &[String],
+    db_path: &Path,
 ) {
     while let Ok(event) = receiver.try_recv() {
         use notify::EventKind;
@@ -184,6 +322,9 @@ fn drain_events(
             continue;
         }
         for path in event.paths {
+            if path_is_ignored(&path, roots, db_path) {
+                continue;
+            }
             // Directory-level events are covered by the reconciliation scan.
             pending.entry(path).or_insert_with(Instant::now);
         }
@@ -194,7 +335,18 @@ fn drain_events(
     }
 }
 
-fn apply_event(engine: &SearchEngine, activity: &Arc<Mutex<IndexActivity>>, path: &Path, stop: &AtomicBool) {
+fn apply_event(
+    engine: &SearchEngine,
+    activity: &Arc<Mutex<IndexActivity>>,
+    path: &Path,
+    stop: &AtomicBool,
+    roots: &[String],
+    app_focused: &AtomicBool,
+    force_index_until: &AtomicU64,
+) {
+    if path_is_ignored(path, roots, &engine.db_path) {
+        return;
+    }
     if !path.exists() {
         let _ = engine.remove_path(&path.to_string_lossy());
         return;
@@ -202,7 +354,6 @@ fn apply_event(engine: &SearchEngine, activity: &Arc<Mutex<IndexActivity>>, path
     let Ok(metadata) = std::fs::symlink_metadata(path) else {
         return;
     };
-    let roots = engine.enabled_roots();
     let root = roots
         .iter()
         .find(|root| crate::search::engine::path_under_root(&path.to_string_lossy(), root))
@@ -213,7 +364,15 @@ fn apply_event(engine: &SearchEngine, activity: &Arc<Mutex<IndexActivity>>, path
         })
         .unwrap_or_else(|| path.to_string_lossy().to_string());
     if metadata.is_dir() {
-        scan_subtree(engine, activity, &root, stop, 10_000);
+        scan_subtree(
+            engine,
+            activity,
+            &root,
+            stop,
+            10_000,
+            app_focused,
+            force_index_until,
+        );
     } else {
         set_activity(activity, "indexing", Some(path.to_string_lossy().to_string()));
         let _ = engine.index_single_path(&root, path, 0);
@@ -221,7 +380,14 @@ fn apply_event(engine: &SearchEngine, activity: &Arc<Mutex<IndexActivity>>, path
     }
 }
 
-fn scan_root(engine: &SearchEngine, activity: &Arc<Mutex<IndexActivity>>, root: &str, stop: &AtomicBool) {
+fn scan_root(
+    engine: &SearchEngine,
+    activity: &Arc<Mutex<IndexActivity>>,
+    root: &str,
+    stop: &AtomicBool,
+    app_focused: &AtomicBool,
+    force_index_until: &AtomicU64,
+) {
     let root_path = Path::new(root);
     if !root_path.is_dir() {
         let _ = engine.mark_location(root, "unavailable", Some("This location is currently unavailable."));
@@ -231,9 +397,33 @@ fn scan_root(engine: &SearchEngine, activity: &Arc<Mutex<IndexActivity>>, root: 
         Ok(generation) => generation,
         Err(_) => return,
     };
+    let started = Instant::now();
+    crate::logging::info("search.indexer", format!("index scan started for {root}"));
     set_activity(activity, "indexing", Some(root.to_string()));
-    let (complete, error) = scan_entries(engine, activity, root, generation, stop, usize::MAX);
+    let (complete, error) = scan_entries(
+        engine,
+        activity,
+        root,
+        generation,
+        stop,
+        usize::MAX,
+        Some(app_focused),
+        Some(force_index_until),
+    );
     let _ = engine.finish_scan(root, generation, complete, error.clone());
+    crate::logging::info(
+        "search.indexer",
+        format!(
+            "index scan {} for {} in {} ms{}",
+            if complete { "completed" } else { "paused" },
+            root,
+            started.elapsed().as_millis(),
+            error
+                .as_deref()
+                .map(|message| format!(" ({message})"))
+                .unwrap_or_default()
+        ),
+    );
     if complete {
         set_activity(activity, "watching", None);
     }
@@ -245,8 +435,19 @@ fn scan_subtree(
     root: &str,
     stop: &AtomicBool,
     max_entries: usize,
+    app_focused: &AtomicBool,
+    force_index_until: &AtomicU64,
 ) {
-    let _ = scan_entries(engine, activity, root, 0, stop, max_entries);
+    let _ = scan_entries(
+        engine,
+        activity,
+        root,
+        0,
+        stop,
+        max_entries,
+        Some(app_focused),
+        Some(force_index_until),
+    );
     set_activity(activity, "watching", None);
 }
 
@@ -257,6 +458,8 @@ fn scan_entries(
     generation: i64,
     stop: &AtomicBool,
     max_entries: usize,
+    app_focused: Option<&AtomicBool>,
+    force_index_until: Option<&AtomicU64>,
 ) -> (bool, Option<String>) {
     let root = normalized_root(root);
     let root_path = PathBuf::from(&root);
@@ -282,7 +485,19 @@ fn scan_entries(
         });
 
     for item in walker {
-        if stop.load(Ordering::Relaxed) || engine.paused() || scanned >= max_entries {
+        let interrupted_by_focus = app_focused
+            .map(|focused| {
+                focused.load(Ordering::Relaxed)
+                    && force_index_until
+                        .map(|until| now_ms() >= until.load(Ordering::Relaxed))
+                        .unwrap_or(true)
+            })
+            .unwrap_or(false);
+        if stop.load(Ordering::Relaxed)
+            || engine.paused()
+            || scanned >= max_entries
+            || interrupted_by_focus
+        {
             complete = false;
             break;
         }
@@ -333,10 +548,33 @@ fn scan_entries(
     (complete, error)
 }
 
-fn content_loop(engine: Arc<SearchEngine>, activity: Arc<Mutex<IndexActivity>>, stop: Arc<AtomicBool>) {
+fn content_loop(
+    engine: Arc<SearchEngine>,
+    activity: Arc<Mutex<IndexActivity>>,
+    stop: Arc<AtomicBool>,
+    app_focused: Arc<AtomicBool>,
+    force_index_until: Arc<AtomicU64>,
+) {
+    mark_background_thread();
+    let started_at = Instant::now();
+    let mut announced = false;
     loop {
         if stop.load(Ordering::Relaxed) {
             break;
+        }
+        if started_at.elapsed() < CONTENT_START_DELAY {
+            thread::sleep(Duration::from_millis(750));
+            continue;
+        }
+        if !announced {
+            announced = true;
+            crate::logging::info("search.indexer", "content extraction started");
+        }
+        let user_is_using_app =
+            app_focused.load(Ordering::Relaxed) && now_ms() >= force_index_until.load(Ordering::Relaxed);
+        if user_is_using_app {
+            thread::sleep(Duration::from_millis(900));
+            continue;
         }
         if engine.paused() || !engine.content_enabled() {
             thread::sleep(Duration::from_millis(900));
@@ -428,7 +666,8 @@ pub fn index_folder_sync(engine: &SearchEngine, root: &str) -> Result<usize, Str
     let generation = engine.begin_scan(root).map_err(|error| error.to_string())?;
     let activity = Arc::new(Mutex::new(IndexActivity::default()));
     let stop = AtomicBool::new(false);
-    let (complete, error) = scan_entries(engine, &activity, root, generation, &stop, usize::MAX);
+    let (complete, error) =
+        scan_entries(engine, &activity, root, generation, &stop, usize::MAX, None, None);
     engine
         .finish_scan(root, generation, complete, error)
         .map_err(|error| error.to_string())?;
@@ -547,6 +786,33 @@ mod tests {
             .unwrap();
         assert_eq!(phrase_total, 1);
         assert_eq!(phrase_hits[0].entry.name, "readme.md");
+    }
+
+    #[test]
+    fn ignores_index_database_and_skipped_directories() {
+        let roots = vec!["/Users/test".to_string()];
+        let db_path = Path::new("/Users/test/Library/Application Support/app/search/index.sqlite3");
+        assert!(path_is_ignored(
+            Path::new("/Users/test/Library/Application Support/app/search/index.sqlite3"),
+            &roots,
+            db_path,
+        ));
+        assert!(path_is_ignored(
+            Path::new("/Users/test/Library/Caches/example.bin"),
+            &roots,
+            db_path,
+        ));
+        assert!(path_is_ignored(
+            Path::new("/Users/test/Projects/build/output.o"),
+            &roots,
+            db_path,
+        ));
+        assert!(!path_is_ignored(
+            Path::new("/Users/test/Projects/src/main.rs"),
+            &roots,
+            db_path,
+        ));
+        assert!(!path_is_ignored(Path::new("/Users/test"), &roots, db_path));
     }
 
     fn base_search_request(root: &Path) -> SearchRequest {

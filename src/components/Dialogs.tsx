@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Icon } from "./Icon";
 import { FileTypeIcon } from "./icons/FileTypeIcon";
@@ -9,10 +9,27 @@ import { useExplorerStore } from "../state/explorerStore";
 import { api, normalizeError } from "../lib/api";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { formatDate, formatSize, typeName } from "../lib/format";
+import {
+  DEFAULT_TAG_COLOR,
+  TAG_COLOR_PRESETS,
+  normalizeTagColor,
+  normalizeTagName,
+  tagPathKey,
+} from "../lib/tags";
+import {
+  networkAddressHasShare,
+  networkAddressUsername,
+  networkDisplayName,
+  normalizeNetworkAddress,
+  withNetworkUsername,
+} from "../lib/network";
 import type {
   DialogState,
   FolderOpenMode,
   SettingsSection,
+  StorageAudit,
+  StorageCleanupResult,
+  TagDefinition,
   UiDensity,
   UiIconSize,
   UiTextSize,
@@ -277,6 +294,479 @@ function ConflictDialog({ dialog, close }: { dialog: Extract<DialogState, { kind
   );
 }
 
+function tagChipLabel(tag: TagDefinition): string {
+  return tag.name;
+}
+
+function PropertiesTags({ path }: { path: string }) {
+  const tags = useExplorerStore((state) => state.tags);
+  const assignments = useExplorerStore((state) => state.tagAssignments);
+  const toggleTag = useExplorerStore((state) => state.toggleTag);
+  const openTagEditor = useExplorerStore((state) => state.openTagEditor);
+  const assigned = useMemo(() => {
+    const key = tagPathKey(path);
+    return new Set(
+      assignments.find((assignment) => tagPathKey(assignment.path) === key)?.tagIds ?? [],
+    );
+  }, [assignments, path]);
+
+  if (!tags.length) {
+    return (
+      <div className="properties-tags">
+        <div className="properties-tags-heading">
+          <span>Tags</span>
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => openTagEditor(undefined, [path])}
+          >
+            <Icon name="plus" size={12} />
+            New Tag
+          </button>
+        </div>
+        <p className="dialog-detail">
+          No tags yet. Tags are {`MAXplorer`} metadata and never modify the file.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="properties-tags">
+      <div className="properties-tags-heading">
+        <span>Tags</span>
+        <button
+          type="button"
+          className="link-button"
+          onClick={() => openTagEditor(undefined, [path])}
+        >
+          <Icon name="plus" size={12} />
+          New Tag
+        </button>
+      </div>
+      <div className="properties-tag-list">
+        {tags.map((tag) => {
+          const active = assigned.has(tag.id);
+          return (
+            <button
+              type="button"
+              key={tag.id}
+              className={`tag-chip ${active ? "active" : ""}`}
+              aria-pressed={active}
+              title={active ? `Remove ${tagChipLabel(tag)}` : `Add ${tagChipLabel(tag)}`}
+              onClick={() => toggleTag([path], tag.id)}
+            >
+              <span
+                className="tag-dot"
+                style={{ backgroundColor: tag.color }}
+                aria-hidden="true"
+              />
+              <span>{tagChipLabel(tag)}</span>
+              <Icon name={active ? "check" : "plus"} size={11} />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function TagEditorDialog({
+  dialog,
+  close,
+}: {
+  dialog: Extract<DialogState, { kind: "tagEditor" }>;
+  close: () => void;
+}) {
+  const tags = useExplorerStore((state) => state.tags);
+  const createTag = useExplorerStore((state) => state.createTag);
+  const updateTag = useExplorerStore((state) => state.updateTag);
+  const assignTag = useExplorerStore((state) => state.assignTag);
+  const existing = dialog.tagId ? tags.find((tag) => tag.id === dialog.tagId) : undefined;
+  const assignPaths = dialog.assignPaths ?? [];
+  const [name, setName] = useState(existing?.name ?? "");
+  const [color, setColor] = useState(existing?.color ?? DEFAULT_TAG_COLOR);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setName(existing?.name ?? "");
+    setColor(existing?.color ?? DEFAULT_TAG_COLOR);
+    setError(null);
+  }, [existing?.color, existing?.id, existing?.name]);
+
+  const submit = () => {
+    const clean = normalizeTagName(name);
+    if (!clean) {
+      setError("Enter a tag name.");
+      return;
+    }
+    const nextColor = normalizeTagColor(color);
+    if (existing) {
+      updateTag(existing.id, { name: clean, color: nextColor });
+      if (assignPaths.length) assignTag(assignPaths, existing.id);
+    } else {
+      const id = createTag(clean, nextColor);
+      if (!id) {
+        setError("A tag with that name already exists.");
+        return;
+      }
+      if (assignPaths.length) assignTag(assignPaths, id);
+    }
+    close();
+  };
+
+  const requestDelete = () => {
+    if (!existing) return;
+    close();
+    useExplorerStore.getState().openDialog({
+      kind: "confirm",
+      title: `Delete the tag "${existing.name}"?`,
+      message:
+        "The tag is removed from every item that uses it. Files and folders are not deleted.",
+      confirmLabel: "Delete Tag",
+      destructive: true,
+      onConfirm: () => useExplorerStore.getState().deleteTag(existing.id),
+    });
+  };
+
+  return (
+    <Modal
+      title={existing ? "Rename Tag" : "New Tag"}
+      width={460}
+      icon={<Icon name="tag" size={20} />}
+      onClose={close}
+      footer={
+        <>
+          {existing ? (
+            <button type="button" className="dialog-button danger" onClick={requestDelete}>
+              Delete
+            </button>
+          ) : null}
+          <button type="button" className="dialog-button" onClick={close}>
+            Cancel
+          </button>
+          <button type="button" className="dialog-button primary" onClick={submit}>
+            {existing ? "Save" : "Create Tag"}
+          </button>
+        </>
+      }
+    >
+      <label className="dialog-field">
+        <span>Name</span>
+        <input
+          value={name}
+          maxLength={40}
+          spellCheck={false}
+          onChange={(event) => {
+            setName(event.target.value);
+            setError(null);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              submit();
+            }
+          }}
+        />
+      </label>
+      <div className="dialog-field">
+        <span>Color</span>
+        <div className="tag-color-grid" role="group" aria-label="Tag color">
+          {TAG_COLOR_PRESETS.map((preset) => (
+            <button
+              type="button"
+              key={preset}
+              className={`tag-color-swatch ${normalizeTagColor(color) === preset ? "active" : ""}`}
+              style={{ backgroundColor: preset }}
+              aria-label={`Use color ${preset}`}
+              aria-pressed={normalizeTagColor(color) === preset}
+              onClick={() => setColor(preset)}
+            />
+          ))}
+        </div>
+        <div className="tag-color-custom">
+          <input
+            type="color"
+            value={normalizeTagColor(color)}
+            aria-label="Choose a custom tag color"
+            onChange={(event) => setColor(event.target.value)}
+          />
+          <input
+            value={color}
+            spellCheck={false}
+            aria-label="Tag color hex value"
+            onChange={(event) => setColor(event.target.value)}
+            onBlur={() => setColor(normalizeTagColor(color))}
+          />
+        </div>
+      </div>
+      {assignPaths.length ? (
+        <p className="dialog-detail">
+          Will be applied to {assignPaths.length}{" "}
+          {assignPaths.length === 1 ? "selected item" : "selected items"}.
+        </p>
+      ) : null}
+      {error ? <p className="dialog-error">{error}</p> : null}
+    </Modal>
+  );
+}
+
+function NetworkConnectionDialog({
+  dialog,
+  close,
+}: {
+  dialog: Extract<DialogState, { kind: "networkConnection" }>;
+  close: () => void;
+}) {
+  const connections = useExplorerStore((state) => state.networkConnections);
+  const saveNetworkConnection = useExplorerStore((state) => state.saveNetworkConnection);
+  const existing = dialog.connectionId
+    ? connections.find((connection) => connection.id === dialog.connectionId)
+    : undefined;
+  const [name, setName] = useState(
+    existing?.name ?? dialog.initialName ?? "",
+  );
+  const [address, setAddress] = useState(
+    existing?.address ?? dialog.initialAddress ?? "",
+  );
+  const [username, setUsername] = useState(
+    existing ? networkAddressUsername(existing.address) : "",
+  );
+  const [password, setPassword] = useState("");
+  const [shares, setShares] = useState<string[]>([]);
+  const [sharesLoading, setSharesLoading] = useState(false);
+  const [sharesSearched, setSharesSearched] = useState(false);
+  const [sharesError, setSharesError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setName(existing?.name ?? dialog.initialName ?? "");
+    setAddress(existing?.address ?? dialog.initialAddress ?? "");
+    setUsername(existing ? networkAddressUsername(existing.address) : "");
+    setPassword("");
+    setShares([]);
+    setSharesSearched(false);
+    setSharesError(null);
+    setError(null);
+  }, [
+    dialog.initialAddress,
+    dialog.initialName,
+    existing?.address,
+    existing?.id,
+    existing?.name,
+  ]);
+
+  const normalized = normalizeNetworkAddress(address);
+  const canConnect = Boolean(normalized && networkAddressHasShare(normalized));
+
+  const findShares = async () => {
+    if (!normalized) {
+      setError("Enter a server address such as smb://server.");
+      return;
+    }
+    setSharesLoading(true);
+    setSharesSearched(false);
+    setSharesError(null);
+    setError(null);
+    try {
+      setShares(await api.listNetworkShares(normalized, username, password));
+      setSharesSearched(true);
+    } catch (cause) {
+      setSharesError(normalizeError(cause).message);
+    } finally {
+      setSharesLoading(false);
+    }
+  };
+
+  const chooseShare = (share: string) => {
+    const base = (normalized ?? address).replace(/\/+$/, "");
+    setAddress(`${base}/${encodeURIComponent(share)}`);
+    setShares([]);
+    setSharesSearched(false);
+    setSharesError(null);
+  };
+
+  const submit = (connect: boolean) => {
+    if (!normalized) {
+      setError("Enter a server address such as smb://server/share.");
+      return;
+    }
+    // Persist the username as part of the address, but never the password.
+    const id = saveNetworkConnection({
+      id: existing?.id,
+      name,
+      address: withNetworkUsername(normalized, username),
+      username,
+      password,
+    });
+    close();
+    if (connect) {
+      void useExplorerStore.getState().connectNetworkConnection(id);
+    }
+  };
+
+  return (
+    <Modal
+      title={existing ? "Edit Server" : "Connect to Server"}
+      width={500}
+      icon={<Icon name="network" size={20} />}
+      onClose={close}
+      footer={
+        <>
+          <button type="button" className="dialog-button" onClick={close}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className={canConnect ? "dialog-button" : "dialog-button primary"}
+            onClick={() => submit(false)}
+          >
+            {existing ? "Save" : "Save Server"}
+          </button>
+          {canConnect ? (
+            <button
+              type="button"
+              className="dialog-button primary"
+              onClick={() => submit(true)}
+            >
+              <Icon name="network" size={13} />
+              Connect
+            </button>
+          ) : null}
+        </>
+      }
+    >
+      <p className="dialog-detail network-dialog-intro">
+        Save a server address for quick access, or connect now. macOS handles
+        authentication, so passwords are never stored in MAXplorer.
+      </p>
+      <label className="dialog-field">
+        <span>Server address</span>
+        <input
+          value={address}
+          spellCheck={false}
+          placeholder="smb://server/share"
+          onChange={(event) => {
+            setAddress(event.target.value);
+            setError(null);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              submit(canConnect);
+            }
+          }}
+        />
+      </label>
+      {normalized ? (
+        <p className="dialog-detail">
+          Connects as <code>{normalized}</code>
+          {name.trim() ? "" : ` and appears as "${networkDisplayName(normalized)}".`}
+        </p>
+      ) : null}
+      <div className="network-credentials">
+        <label className="dialog-field">
+          <span>Username (optional)</span>
+          <input
+            value={username}
+            spellCheck={false}
+            autoComplete="username"
+            placeholder="DOMAIN\\user or user"
+            onChange={(event) => {
+              setUsername(event.target.value);
+              setError(null);
+            }}
+          />
+        </label>
+        <label className="dialog-field">
+          <span>Password (optional)</span>
+          <input
+            type="password"
+            value={password}
+            autoComplete="current-password"
+            placeholder="Leave blank to use Keychain"
+            onChange={(event) => {
+              setPassword(event.target.value);
+              setError(null);
+            }}
+          />
+        </label>
+      </div>
+      <p className="dialog-detail">
+        These credentials are used to list shares and for the next connection, and stay
+        in memory only. Leave the password blank to use your Keychain or let macOS show
+        its normal sign-in sheet. MAXplorer never saves passwords.
+      </p>
+      <div className="network-share-actions">
+        <button
+          type="button"
+          className="dialog-button"
+          disabled={!normalized || sharesLoading}
+          onClick={() => void findShares()}
+        >
+          {sharesLoading ? (
+            <>
+              <Icon name="spinner" size={13} className="spin" />
+              Finding shares...
+            </>
+          ) : (
+            <>
+              <Icon name="search" size={13} />
+              Find shares
+            </>
+          )}
+        </button>
+        <span className="dialog-detail">
+          Uses the credentials above, then macOS Keychain, then guest access.
+        </span>
+      </div>
+      {shares.length ? (
+        <div className="network-share-list" role="list" aria-label="Available shares">
+          {shares.map((share) => (
+            <button
+              type="button"
+              className="network-share-row"
+              role="listitem"
+              key={share}
+              onClick={() => chooseShare(share)}
+            >
+              <Icon name="folder" size={14} />
+              <span>{share}</span>
+            </button>
+          ))}
+        </div>
+      ) : sharesError ? (
+        <p className="dialog-error">{sharesError}</p>
+      ) : sharesSearched ? (
+        <p className="dialog-detail">
+          No shares were returned. Enter a username and password above to list them,
+          or enter the share name manually, for example <code>smb://PC/Share</code>.
+        </p>
+      ) : null}
+      <label className="dialog-field">
+        <span>Name (optional)</span>
+        <input
+          value={name}
+          maxLength={60}
+          spellCheck={false}
+          placeholder={normalized ? networkDisplayName(normalized) : "Studio server"}
+          onChange={(event) => {
+            setName(event.target.value);
+            setError(null);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              submit(canConnect);
+            }
+          }}
+        />
+      </label>
+      {error ? <p className="dialog-error">{error}</p> : null}
+    </Modal>
+  );
+}
+
 function PropertiesDialog({ dialog, close }: { dialog: Extract<DialogState, { kind: "properties" }>; close: () => void }) {
   const properties = dialog.properties;
   const stats = dialog.stats;
@@ -404,6 +894,7 @@ function PropertiesDialog({ dialog, close }: { dialog: Extract<DialogState, { ki
               {properties.isReadOnly ? ", Read-only" : ""}
             </span>
           </div>
+          <PropertiesTags path={properties.path} />
           {stats?.truncated ? (
             <p className="dialog-detail">Folder size was computed from a partial scan.</p>
           ) : null}
@@ -782,6 +1273,21 @@ function AdvancedSettings() {
         </button>
       </section>
       <section className="settings-section">
+        <h3>Application storage</h3>
+        <button
+          type="button"
+          className="dialog-button"
+          onClick={() => openDialog({ kind: "storageAudit" })}
+        >
+          <Icon name="database" size={14} />
+          Audit indexes, caches, and legacy data...
+        </button>
+        <p className="settings-hint">
+          Verify the single authoritative search index and storage cache, then archive
+          old build profiles and remove regenerable caches without touching current data.
+        </p>
+      </section>
+      <section className="settings-section">
         <h3>Reset</h3>
         <button
           type="button"
@@ -803,6 +1309,181 @@ function AdvancedSettings() {
         </p>
       </section>
     </div>
+  );
+}
+
+function StorageAuditDialog({ close }: { close: () => void }) {
+  const [audit, setAudit] = useState<StorageAudit | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<StorageCleanupResult | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      setAudit(await api.getStorageAudit());
+    } catch (cause) {
+      setError(normalizeError(cause).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const clean = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const outcome = await api.cleanupLegacyStorage(true);
+      setResult(outcome);
+      setConfirming(false);
+      await load();
+    } catch (cause) {
+      setError(normalizeError(cause).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      title="Application storage"
+      width={760}
+      icon={<Icon name="database" size={20} />}
+      onClose={close}
+      footer={
+        <>
+          <button type="button" className="dialog-button" onClick={close}>
+            Close
+          </button>
+          <button
+            type="button"
+            className="dialog-button primary"
+            disabled={!audit || audit.legacyCount === 0 || busy}
+            onClick={() => setConfirming(true)}
+          >
+            <Icon name="wrench" size={14} />
+            Clean up legacy data
+          </button>
+        </>
+      }
+    >
+      {loading ? (
+        <div className="properties-loading">
+          <Icon name="spinner" size={18} className="spin" />
+          Auditing application storage...
+        </div>
+      ) : error && !audit ? (
+        <p className="dialog-error">{error}</p>
+      ) : audit ? (
+        <div className="storage-audit">
+          <div className="storage-audit-summary">
+            <div>
+              <span>Authoritative data</span>
+              <strong>{formatSize(audit.activeBytes)}</strong>
+            </div>
+            <div>
+              <span>Legacy data found</span>
+              <strong>{formatSize(audit.legacyBytes)}</strong>
+            </div>
+            <div>
+              <span>Reclaimable caches</span>
+              <strong>{formatSize(audit.reclaimableBytes)}</strong>
+            </div>
+          </div>
+          <p className="dialog-path" title={audit.dataRoot}>
+            {audit.dataRoot}
+          </p>
+          <div className="storage-audit-list">
+            {audit.entries.map((entry) => (
+              <div className="storage-audit-row" key={entry.id}>
+                <span className={`storage-audit-badge ${entry.status}`}>
+                  {entry.status}
+                </span>
+                <span className="storage-audit-copy">
+                  <span className="storage-audit-label">{entry.label}</span>
+                  <span className="storage-audit-path" title={entry.path}>
+                    {entry.path}
+                  </span>
+                  <span className="storage-audit-detail">{entry.detail}</span>
+                </span>
+                <span className="storage-audit-size">{formatSize(entry.bytes)}</span>
+              </div>
+            ))}
+          </div>
+          {audit.recommendations.length ? (
+            <ul className="storage-audit-recommendations">
+              {audit.recommendations.map((recommendation) => (
+                <li key={recommendation}>{recommendation}</li>
+              ))}
+            </ul>
+          ) : null}
+          {confirming ? (
+            <div className="storage-audit-confirm">
+              <Icon name="warning" size={18} />
+              <div>
+                <strong>Clean up legacy storage?</strong>
+                <p>
+                  Old WebKit profiles are archived inside the current application data
+                  folder so their localStorage data is preserved. Only regenerable
+                  old caches are removed. The canonical search index, storage cache,
+                  logs, and current WebKit profile are never touched.
+                </p>
+                <div className="storage-audit-confirm-actions">
+                  <button
+                    type="button"
+                    className="dialog-button"
+                    disabled={busy}
+                    onClick={() => setConfirming(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="dialog-button danger"
+                    disabled={busy}
+                    onClick={() => void clean()}
+                  >
+                    {busy ? "Cleaning..." : "Archive & Clean"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+          {result ? (
+            <div className="storage-audit-result">
+              <strong>Cleanup complete</strong>
+              <p>
+                Archived {result.archived.length}, removed {result.removedCaches.length}{" "}
+                cache folder(s), migrated {result.migrated.length}, reclaimed{" "}
+                {formatSize(result.reclaimedBytes)}.
+              </p>
+              {result.skipped.length ? (
+                <ul>
+                  {result.skipped.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {result.failures.length ? (
+                <ul className="storage-audit-failures">
+                  {result.failures.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
+          {error ? <p className="dialog-error">{error}</p> : null}
+        </div>
+      ) : null}
+    </Modal>
   );
 }
 
@@ -898,6 +1579,12 @@ export function Dialogs() {
       return <SettingsDialog initialSection={dialog.section} close={close} />;
     case "themeCreator":
       return <ThemeCreator start={dialog.start} close={close} />;
+    case "tagEditor":
+      return <TagEditorDialog dialog={dialog} close={close} />;
+    case "networkConnection":
+      return <NetworkConnectionDialog dialog={dialog} close={close} />;
+    case "storageAudit":
+      return <StorageAuditDialog close={close} />;
     case "indexing":
       return (
         <Modal

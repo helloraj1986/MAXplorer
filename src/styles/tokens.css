@@ -61,6 +61,38 @@
   --radius: 4px;
   --radius-menu: 8px;
 
+  /* Sidebar design tokens ------------------------------------------------
+     The navigation pane is fully themeable: themes can change its surface,
+     spacing, typography, icon scale, hover, and selection without hardcoding
+     colours in component styles. */
+  --sidebar-background: var(--surface);
+  --sidebar-border-color: var(--border);
+  --sidebar-padding: 2px 4px 0 10px;
+  --sidebar-heading-color: var(--text-3);
+  --sidebar-heading-font-size: 11px;
+  --sidebar-heading-font-weight: 600;
+  --sidebar-heading-padding: 10px 8px 4px;
+  --sidebar-row-height: 30px;
+  --sidebar-row-padding: 0 6px 0 4px;
+  --sidebar-row-gap: 8px;
+  --sidebar-row-radius: var(--radius);
+  --sidebar-row-color: var(--text);
+  --sidebar-row-font-size: 12px;
+  --sidebar-row-hover-background: var(--hover);
+  --sidebar-row-selected-background: var(--selected);
+  --sidebar-row-selected-color: var(--text);
+  --sidebar-icon-size: 18px;
+  --sidebar-icon-color: var(--text-2);
+  --sidebar-icon-selected-color: var(--text);
+  --sidebar-section-gap: 8px;
+  --sidebar-disclosure-color: var(--text-3);
+  --sidebar-count-color: var(--text-3);
+  --sidebar-tag-dot-size: 10px;
+  --sidebar-icon-blue: #5ab0ff;
+  --sidebar-icon-green: #6ccb5f;
+  --sidebar-icon-purple: #b48cf2;
+  --sidebar-icon-pink: #f472b6;
+
   /* Icon system ---------------------------------------------------------
      Functional icons use Lucide SVGs at a constant optical stroke. File
      artwork uses the palette below so every visual reacts to the active
@@ -185,6 +217,10 @@
   --focus-ring: #1a1a1a;
   --accent-soft: rgba(0, 103, 192, 0.14);
   --accent-tint: rgba(0, 103, 192, 0.08);
+  --sidebar-icon-blue: #0067c0;
+  --sidebar-icon-green: #107c10;
+  --sidebar-icon-purple: #6b3fa0;
+  --sidebar-icon-pink: #b3326b;
   --warning-soft: rgba(157, 93, 0, 0.08);
   --overlay: rgba(255, 255, 255, 0.55);
   --shadow-1: 0 2px 8px rgba(0, 0, 0, 0.12);
@@ -285,6 +321,27 @@
   --shadow-2: 0 24px 60px rgba(0, 0, 0, 0.6);
   --radius: 6px;
   --radius-menu: 10px;
+  --sidebar-background: var(--finder-sidebar);
+  --sidebar-border-color: var(--finder-separator);
+  --sidebar-padding: 10px 8px 0 10px;
+  --sidebar-heading-color: var(--text-3);
+  --sidebar-heading-font-size: 11px;
+  --sidebar-heading-padding: 10px 8px 4px;
+  --sidebar-row-height: 28px;
+  --sidebar-row-padding: 0 8px;
+  --sidebar-row-gap: 8px;
+  --sidebar-row-radius: 6px;
+  --sidebar-row-font-size: 12.5px;
+  --sidebar-row-selected-background: var(--selected);
+  --sidebar-row-selected-color: var(--finder-selection-text);
+  --sidebar-icon-size: 17px;
+  --sidebar-icon-selected-color: var(--finder-selection-text);
+  --sidebar-section-gap: 6px;
+  --sidebar-disclosure-color: var(--text-3);
+  --sidebar-icon-blue: var(--accent);
+  --sidebar-icon-green: var(--success);
+  --sidebar-icon-purple: var(--accent);
+  --sidebar-icon-pink: var(--danger);
   --finder-sidebar: #29292b;
   --finder-toolbar: #2b2b2d;
   --finder-separator: rgba(255, 255, 255, 0.09);

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Icon } from "../Icon";
 import { FileTypeIcon } from "../icons/FileTypeIcon";
+import { TagIndicators } from "../TagIndicators";
 import { useSearchStore } from "../../state/searchStore";
 import { useExplorerStore } from "../../state/explorerStore";
 import { useVirtualRows } from "../../hooks/useVirtualRows";
@@ -234,6 +235,7 @@ export function SearchResults({ hits }: { hits: SearchHit[] }) {
                       </span>
                       <span className="search-grid-name">
                         <Highlight text={hit.entry.name} terms={searchTerms} />
+                        <TagIndicators path={hit.entry.path} />
                       </span>
                       <span className="search-grid-meta">
                         {typeName(hit.entry)} {hit.entry.size != null ? `- ${formatSize(hit.entry.size)}` : ""}
@@ -313,6 +315,7 @@ export function SearchResults({ hits }: { hits: SearchHit[] }) {
                   <span className="search-result-name-text">
                     <span className="search-result-name">
                       <Highlight text={hit.entry.name} terms={searchTerms} />
+                      <TagIndicators path={hit.entry.path} />
                     </span>
                     <span className="search-result-snippet" title={hit.snippet ?? parentPath(hit.entry.path) ?? ""}>
                       {hit.snippet ? (

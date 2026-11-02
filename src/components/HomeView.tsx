@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Icon } from "./Icon";
 import { FileTypeIcon } from "./icons/FileTypeIcon";
 import { FolderIcon } from "./icons/FolderIcon";
+import { TagIndicators } from "./TagIndicators";
 import type { AppIconName } from "./icons/AppIcon";
 import { useExplorerStore } from "../state/explorerStore";
 import { basename, formatDate } from "../lib/format";
@@ -193,7 +194,10 @@ export function HomeView({ paneId = "left" }: { paneId?: PaneId }) {
                     <FileTypeIcon entry={recentAsEntry(recent)} size={22} />
                   )}
                 </span>
-                <span className="recent-name">{recent.name}</span>
+                <span className="recent-name">
+                  {recent.name}
+                  <TagIndicators path={recent.path} max={4} />
+                </span>
                 <span className="recent-path">{recent.path}</span>
                 <span className="recent-date">{formatDate(recent.modified)}</span>
               </div>

@@ -11,13 +11,17 @@ import { useExplorerStore } from "./explorerStore";
  * leaves OS drops to the Tauri event in `App`.
  */
 
-export type DragKind = "files" | "tab";
+export type DragKind = "files" | "tab" | "tag" | "favorite";
 
 export interface DragPayload {
   kind: DragKind;
   paths: string[];
   tabId?: string;
   tabIndex?: number;
+  tagId?: string;
+  tagIndex?: number;
+  favoritePath?: string;
+  favoriteIndex?: number;
   sourcePane: PaneId;
   label: string;
   count: number;
@@ -33,7 +37,9 @@ interface Rect {
 export type DragTarget =
   | { kind: "folder"; path: string; paneId: PaneId | null; rect: Rect; label: string }
   | { kind: "pane"; path: string; paneId: PaneId; rect: Rect; label: string }
-  | { kind: "tab"; tabIndex: number; paneId: PaneId; rect: Rect; label: string };
+  | { kind: "tab"; tabIndex: number; paneId: PaneId; rect: Rect; label: string }
+  | { kind: "tag"; tagId: string; rect: Rect; label: string }
+  | { kind: "favorite"; path: string; rect: Rect; label: string };
 
 export interface DragState {
   payload: DragPayload;
@@ -88,6 +94,39 @@ function resolveTarget(x: number, y: number, payload: DragPayload): DragTarget |
       paneId,
       rect: rectOf(tab),
       label: tab.dataset.dropTabLabel ?? "",
+    };
+  }
+
+  if (payload.kind === "tag") {
+    const tag = element.closest<HTMLElement>("[data-drop-tag]");
+    if (!tag?.dataset.dropTag) return null;
+    return {
+      kind: "tag",
+      tagId: tag.dataset.dropTag,
+      rect: rectOf(tag),
+      label: tag.dataset.dropLabel ?? "",
+    };
+  }
+
+  if (payload.kind === "favorite") {
+    const favorite = element.closest<HTMLElement>("[data-drop-favorite]");
+    if (!favorite?.dataset.dropFavorite) return null;
+    return {
+      kind: "favorite",
+      path: favorite.dataset.dropFavorite,
+      rect: rectOf(favorite),
+      label: favorite.dataset.dropLabel ?? basename(favorite.dataset.dropFavorite),
+    };
+  }
+
+  // A file dropped on a sidebar tag is tagged rather than moved.
+  const tag = element.closest<HTMLElement>("[data-drop-tag]");
+  if (tag?.dataset.dropTag) {
+    return {
+      kind: "tag",
+      tagId: tag.dataset.dropTag,
+      rect: rectOf(tag),
+      label: tag.dataset.dropLabel ?? "",
     };
   }
 
@@ -155,6 +194,18 @@ function onPointerUp(event: PointerEvent) {
   const store = useExplorerStore.getState();
   if (payload.kind === "tab" && target.kind === "tab") {
     store.reorderTab(payload.tabIndex ?? 0, target.tabIndex, target.paneId);
+    return;
+  }
+  if (payload.kind === "tag" && target.kind === "tag") {
+    if (payload.tagId) store.reorderTags(payload.tagId, target.tagId);
+    return;
+  }
+  if (payload.kind === "favorite" && target.kind === "favorite") {
+    if (payload.favoritePath) store.reorderPinned(payload.favoritePath, target.path);
+    return;
+  }
+  if (payload.kind === "files" && target.kind === "tag") {
+    store.assignTag(payload.paths, target.tagId);
     return;
   }
   if (payload.kind === "files" && (target.kind === "folder" || target.kind === "pane")) {
@@ -245,6 +296,48 @@ export function beginTabDrag(
     tabIndex: tab.index,
     sourcePane: paneId,
     label: tab.label,
+    count: 1,
+  });
+}
+
+/** Starts reordering a tag in the sidebar. */
+export function beginTagDrag(
+  event: React.PointerEvent,
+  tagId: string,
+  label: string,
+  index: number,
+) {
+  if (event.button !== 0) return;
+  const target = event.target as HTMLElement | null;
+  if (target?.closest("button")) return;
+  arm(event, {
+    kind: "tag",
+    paths: [],
+    tagId,
+    tagIndex: index,
+    sourcePane: useExplorerStore.getState().activePane,
+    label,
+    count: 1,
+  });
+}
+
+/** Starts reordering a favorite in the sidebar. */
+export function beginFavoriteDrag(
+  event: React.PointerEvent,
+  path: string,
+  label: string,
+  index: number,
+) {
+  if (event.button !== 0) return;
+  const target = event.target as HTMLElement | null;
+  if (target?.closest("button")) return;
+  arm(event, {
+    kind: "favorite",
+    paths: [path],
+    favoritePath: path,
+    favoriteIndex: index,
+    sourcePane: useExplorerStore.getState().activePane,
+    label,
     count: 1,
   });
 }

@@ -5,11 +5,14 @@ mod error;
 mod listing;
 mod logging;
 mod metadata;
+mod network_discovery;
+mod network_mount;
 mod operations;
 mod paths;
 mod search;
 mod storage;
 mod storage_cache;
+mod storage_maintenance;
 mod transfer;
 mod types;
 
@@ -18,6 +21,8 @@ mod tests;
 
 use compare::CompareState;
 use search::SearchService;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use storage::StorageState;
 use transfer::TransferState;
 #[cfg(target_os = "macos")]
@@ -69,22 +74,55 @@ fn build_app_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     logging::install_panic_hook();
-    let builder = tauri::Builder::default();
+    let app_focused = Arc::new(AtomicBool::new(true));
+    let focus_for_events = app_focused.clone();
+    let builder = tauri::Builder::default().on_window_event(move |_window, event| {
+        if let tauri::WindowEvent::Focused(focused) = event {
+            focus_for_events.store(*focused, Ordering::Relaxed);
+        }
+    });
 
     #[cfg(target_os = "macos")]
     let builder = builder.menu(build_app_menu);
 
     builder
-        .setup(|app| {
+        .setup(move |app| {
+            let search_focus = app_focused.clone();
             let data_directory = app
                 .path()
                 .app_data_dir()
                 .unwrap_or_else(|_| std::env::temp_dir().join("maxplorer"));
+            let setup_started = std::time::Instant::now();
             let _ = std::fs::create_dir_all(&data_directory);
             logging::init(&data_directory);
             logging::info("app", "Tauri setup started");
+            let identifier = app.config().identifier.clone();
+            logging::info(
+                "app",
+                format!(
+                    "canonical data root: {} ({identifier})",
+                    data_directory.display()
+                ),
+            );
+            let migrated = storage_maintenance::migrate_legacy_app_data(
+                &data_directory,
+                &identifier,
+            );
+            if !migrated.is_empty() {
+                logging::info(
+                    "storage.migrate",
+                    format!("reused {} legacy storage path(s)", migrated.len()),
+                );
+            }
+            if storage_maintenance::has_legacy_storage(&identifier) {
+                logging::info(
+                    "storage.audit",
+                    "legacy storage detected; open Settings > Advanced > Application storage to review and clean it",
+                );
+            }
+            let search_started = std::time::Instant::now();
             let database = data_directory.join("search").join("index.sqlite3");
-            let service = match SearchService::new(database.clone()) {
+            let service = match SearchService::new(database.clone(), search_focus.clone()) {
                 Ok(service) => service,
                 Err(error) => {
                     logging::error(
@@ -92,13 +130,34 @@ pub fn run() {
                         format!("Search index could not be opened: {error}"),
                     );
                     let fallback = std::env::temp_dir().join("maxplorer-search").join("index.sqlite3");
-                    SearchService::new(fallback)?
+                    SearchService::new(fallback, search_focus.clone())?
                 }
             };
+            logging::info(
+                "app",
+                format!(
+                    "search service ready in {} ms",
+                    search_started.elapsed().as_millis()
+                ),
+            );
             app.manage(service);
+            let storage_started = std::time::Instant::now();
             let storage_cache = data_directory.join("storage").join("cache.sqlite3");
             app.manage(StorageState::new(storage_cache));
-            logging::info("app", "Tauri setup completed");
+            logging::info(
+                "app",
+                format!(
+                    "storage state ready in {} ms",
+                    storage_started.elapsed().as_millis()
+                ),
+            );
+            logging::info(
+                "app",
+                format!(
+                    "Tauri setup completed in {} ms",
+                    setup_started.elapsed().as_millis()
+                ),
+            );
             Ok(())
         })
         .on_menu_event(|app, event| {
@@ -111,6 +170,12 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_platform_info,
             commands::get_sidebar_locations,
+            commands::eject_volume,
+            commands::connect_network_location,
+            commands::discover_network_computers,
+            commands::list_network_shares,
+            commands::get_storage_audit,
+            commands::cleanup_legacy_storage,
             commands::get_initial_path,
             commands::resolve_path,
             commands::path_exists,

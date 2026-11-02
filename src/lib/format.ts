@@ -1,4 +1,5 @@
 import type { FileEntry } from "./types";
+import { NETWORK_LOCATION, RECENTS_LOCATION } from "./types";
 
 const IMAGE_EXTENSIONS = new Set([
   "png",
@@ -344,6 +345,8 @@ export interface Breadcrumb {
 
 export function breadcrumbs(path: string, rootLabel: string, homeLocation: string): Breadcrumb[] {
   if (path === homeLocation) return [{ label: "Home", path: homeLocation }];
+  if (path === RECENTS_LOCATION) return [{ label: "Recents", path: RECENTS_LOCATION }];
+  if (path === NETWORK_LOCATION) return [{ label: "Network", path: NETWORK_LOCATION }];
   if (path === "/") return [{ label: rootLabel, path: "/" }];
   const windowsRoot = /^([A-Za-z]:)[\\/]/.exec(path);
   if (windowsRoot) {
