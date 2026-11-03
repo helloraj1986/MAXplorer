@@ -11,10 +11,10 @@ import { useExplorerStore } from "../state/explorerStore";
 import type { PaneId } from "../lib/types";
 
 const MIN_PREVIEW_WIDTH = 240;
-const MAX_PREVIEW_WIDTH = 960;
+const MAX_PREVIEW_WIDTH = 2400;
 const MIN_PANE_AREA = 300;
 const MIN_PREVIEW_HEIGHT = 160;
-const MAX_PREVIEW_HEIGHT = 620;
+const MAX_PREVIEW_HEIGHT = 1400;
 const AUTO_COLLAPSE_WIDTH = 720;
 
 function singlePane(focusPaneId: PaneId | null) {
@@ -75,7 +75,7 @@ export function PreviewWorkspace() {
 
   const maxPreviewWidth = Math.max(
     MIN_PREVIEW_WIDTH,
-    Math.min(MAX_PREVIEW_WIDTH, usableWidth - MIN_PANE_AREA),
+    Math.min(MAX_PREVIEW_WIDTH, usableWidth * 0.6, usableWidth - MIN_PANE_AREA),
   );
   const activeWidthRatio =
     (dualPane ? preview.ratio : preview.singleRatio) ??
@@ -87,7 +87,7 @@ export function PreviewWorkspace() {
 
   const maxPreviewHeight = Math.max(
     MIN_PREVIEW_HEIGHT,
-    Math.min(MAX_PREVIEW_HEIGHT, usableHeight - MIN_PANE_AREA),
+    Math.min(MAX_PREVIEW_HEIGHT, usableHeight * 0.6, usableHeight - MIN_PANE_AREA),
   );
   const activeHeightRatio =
     (dualPane ? preview.heightRatio : preview.singleHeightRatio) ?? 0.3;

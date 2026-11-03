@@ -1485,7 +1485,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
         ...(state.dualPane ? { ratio: clamped } : { singleRatio: clamped }),
         width:
           width != null
-            ? Math.max(240, Math.min(960, Math.round(width)))
+            ? Math.max(240, Math.min(2400, Math.round(width)))
             : state.preview.width,
       },
     }));

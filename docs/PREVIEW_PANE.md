@@ -67,7 +67,8 @@ versioned localStorage snapshot parsed tolerantly in `src/lib/persistence.ts`.
   and single-pane ratios. Switching from dual to single pane therefore expands
   the preview automatically instead of leaving it at the dual-pane width;
   dragging the splitter updates the ratio for the current mode. The preview can
-  grow up to 960 px or 60% of the workspace.
+  grow up to 60% of the workspace (with a 2400 px safety cap), so full-screen
+  windows are not limited to the old 560/960 px widths.
 - Narrow-window behaviour: below 720 px of workspace width the preview stops
   reserving layout width and offers a floating **Preview** restore chip; below
   the same threshold the inactive pane is folded away too. The browsing area

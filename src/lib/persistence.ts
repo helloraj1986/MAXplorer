@@ -226,7 +226,7 @@ function parsePreviewPreferences(
       ? (raw.position as PreviewPosition)
       : DEFAULT_PREVIEW_PREFERENCES.position,
     focusMode: raw.focusMode === true,
-    width: clampNumber(raw.width, 240, 960, DEFAULT_PREVIEW_PREFERENCES.width),
+    width: clampNumber(raw.width, 240, 2400, DEFAULT_PREVIEW_PREFERENCES.width),
     height: clampNumber(raw.height, 180, 620, DEFAULT_PREVIEW_PREFERENCES.height),
     ratio: clampNumber(
       raw.ratio,
@@ -234,7 +234,7 @@ function parsePreviewPreferences(
       0.6,
       Math.max(
         0.24,
-        Math.min(0.5, clampNumber(raw.width, 240, 960, DEFAULT_PREVIEW_PREFERENCES.width) / 1280),
+        Math.min(0.5, clampNumber(raw.width, 240, 2400, DEFAULT_PREVIEW_PREFERENCES.width) / 1280),
       ),
     ),
     singleRatio: clampNumber(
@@ -249,7 +249,7 @@ function parsePreviewPreferences(
           0.6,
           Math.max(
             0.24,
-            Math.min(0.5, clampNumber(raw.width, 240, 960, DEFAULT_PREVIEW_PREFERENCES.width) / 1280),
+            Math.min(0.5, clampNumber(raw.width, 240, 2400, DEFAULT_PREVIEW_PREFERENCES.width) / 1280),
           ),
         ) + 0.08,
       ),

@@ -495,7 +495,7 @@ describe("persisted preview preferences", () => {
       ),
     );
     expect(parsed?.preview?.position).toBe("right");
-    expect(parsed?.preview?.width).toBe(960);
+    expect(parsed?.preview?.width).toBe(2400);
     expect(parsed?.preview?.height).toBe(180);
     expect(parsed?.preview?.ratio).toBe(0.5);
     expect(parsed?.preview?.singleRatio).toBe(0.58);
