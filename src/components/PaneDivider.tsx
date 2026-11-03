@@ -16,6 +16,7 @@ interface PaneDividerProps {
   label?: string;
   /** Vertical dividers split left/right; horizontal dividers split top/bottom. */
   orientation?: "vertical" | "horizontal";
+  className?: string;
 }
 
 /**
@@ -38,6 +39,7 @@ export function PaneDivider({
   disabled = false,
   label = "Resize panes",
   orientation = "vertical",
+  className,
 }: PaneDividerProps) {
   const [dragging, setDragging] = useState(false);
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -138,7 +140,7 @@ export function PaneDivider({
   const percent = Math.round(ratio * 100);
   return (
     <div
-      className={`pane-divider ${orientation === "horizontal" ? "horizontal" : ""} ${dragging ? "is-dragging" : ""}`}
+      className={`pane-divider ${orientation === "horizontal" ? "horizontal" : ""} ${className ?? ""} ${dragging ? "is-dragging" : ""}`}
       style={{ "--pane-divider-hit-area": `${hitAreaWidth}px` } as CSSProperties}
       role="separator"
       aria-orientation={orientation}

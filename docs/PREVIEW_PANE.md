@@ -60,7 +60,14 @@ versioned localStorage snapshot parsed tolerantly in `src/lib/persistence.ts`.
   the store; hiding the preview restores both panes.
 - Independent show/hide for sidebar and preview.
 - The existing `PaneDivider` component for all splits (pointer, keyboard,
-  double-click reset, accessible separator semantics).
+  double-click reset, accessible separator semantics). The preview splitter has
+  a wider 22 px target aligned with the preview edge, so grabbing the pane
+  boundary works naturally.
+- Preview width is stored as a share of the workspace, with separate dual-pane
+  and single-pane ratios. Switching from dual to single pane therefore expands
+  the preview automatically instead of leaving it at the dual-pane width;
+  dragging the splitter updates the ratio for the current mode. The preview can
+  grow up to 960 px or 60% of the workspace.
 - Narrow-window behaviour: below 720 px of workspace width the preview stops
   reserving layout width and offers a floating **Preview** restore chip; below
   the same threshold the inactive pane is folded away too. The browsing area

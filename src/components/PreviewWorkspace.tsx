@@ -7,11 +7,11 @@ import { PaneDivider } from "./PaneDivider";
 import { PreviewPane } from "./PreviewPane";
 import { useElementSize } from "../hooks/useElementSize";
 import { useExplorerStore } from "../state/explorerStore";
-import { DEFAULT_DIVIDER_HIT_AREA } from "../lib/divider";
+
 import type { PaneId } from "../lib/types";
 
 const MIN_PREVIEW_WIDTH = 240;
-const MAX_PREVIEW_WIDTH = 560;
+const MAX_PREVIEW_WIDTH = 960;
 const MIN_PANE_AREA = 300;
 const MIN_PREVIEW_HEIGHT = 160;
 const MAX_PREVIEW_HEIGHT = 620;
@@ -44,8 +44,8 @@ export function PreviewWorkspace() {
   const detailsPane = useExplorerStore((state) => state.detailsPane);
   const preview = useExplorerStore((state) => state.preview);
   const activePane = useExplorerStore((state) => state.activePane);
-  const setPreviewWidth = useExplorerStore((state) => state.setPreviewWidth);
-  const setPreviewHeight = useExplorerStore((state) => state.setPreviewHeight);
+  const setPreviewRatio = useExplorerStore((state) => state.setPreviewRatio);
+  const setPreviewHeightRatio = useExplorerStore((state) => state.setPreviewHeightRatio);
   const { ref, width, height } = useElementSize<HTMLDivElement>();
   const [overlayPreview, setOverlayPreview] = useState(false);
 
@@ -67,7 +67,9 @@ export function PreviewWorkspace() {
       ? activePane
       : null;
 
-  const dividerWidth = DEFAULT_DIVIDER_HIT_AREA;
+  // A slightly wider target than the dual-pane divider: users naturally grab
+  // the preview edge, which sits a few pixels beyond the visible line.
+  const dividerWidth = 22;
   const usableWidth = Math.max(1, width - dividerWidth);
   const usableHeight = Math.max(1, height - dividerWidth);
 
@@ -75,18 +77,23 @@ export function PreviewWorkspace() {
     MIN_PREVIEW_WIDTH,
     Math.min(MAX_PREVIEW_WIDTH, usableWidth - MIN_PANE_AREA),
   );
+  const activeWidthRatio =
+    (dualPane ? preview.ratio : preview.singleRatio) ??
+    Math.max(0.18, Math.min(0.6, preview.width / 1024));
   const previewWidth = Math.max(
     MIN_PREVIEW_WIDTH,
-    Math.min(maxPreviewWidth, preview.width),
+    Math.min(maxPreviewWidth, Math.round(usableWidth * activeWidthRatio)),
   );
 
   const maxPreviewHeight = Math.max(
     MIN_PREVIEW_HEIGHT,
     Math.min(MAX_PREVIEW_HEIGHT, usableHeight - MIN_PANE_AREA),
   );
+  const activeHeightRatio =
+    (dualPane ? preview.heightRatio : preview.singleHeightRatio) ?? 0.3;
   const previewHeight = Math.max(
     MIN_PREVIEW_HEIGHT,
-    Math.min(maxPreviewHeight, preview.height),
+    Math.min(maxPreviewHeight, Math.round(usableHeight * activeHeightRatio)),
   );
 
   const horizontalBounds = useMemo(() => {
@@ -132,9 +139,13 @@ export function PreviewWorkspace() {
             maxRatio={horizontalBounds.max}
             hitAreaWidth={dividerWidth}
             containerRef={ref}
-            onRatioChange={(ratio) => setPreviewWidth(ratio * usableWidth)}
-            onReset={() => setPreviewWidth(340)}
+            onRatioChange={(ratio) => setPreviewRatio(ratio, ratio * usableWidth)}
+            onReset={() => {
+              const reset = dualPane ? 0.28 : 0.4;
+              setPreviewRatio(reset, reset * usableWidth);
+            }}
             disabled={width === 0}
+            className="preview-splitter"
           />
           <div className="workspace-panes">
             {panes}
@@ -157,9 +168,13 @@ export function PreviewWorkspace() {
             maxRatio={rightBounds.max}
             hitAreaWidth={dividerWidth}
             containerRef={ref}
-            onRatioChange={(ratio) => setPreviewWidth((1 - ratio) * usableWidth)}
-            onReset={() => setPreviewWidth(340)}
+            onRatioChange={(ratio) => setPreviewRatio(1 - ratio, (1 - ratio) * usableWidth)}
+            onReset={() => {
+              const reset = dualPane ? 0.28 : 0.4;
+              setPreviewRatio(reset, reset * usableWidth);
+            }}
             disabled={width === 0}
+            className="preview-splitter"
           />
           <div className="preview-slot" style={{ width: previewWidth }}>
             {previewElement}
@@ -181,9 +196,15 @@ export function PreviewWorkspace() {
             maxRatio={bottomBounds.max}
             hitAreaWidth={dividerWidth}
             containerRef={ref}
-            onRatioChange={(ratio) => setPreviewHeight((1 - ratio) * usableHeight)}
-            onReset={() => setPreviewHeight(300)}
+            onRatioChange={(ratio) =>
+              setPreviewHeightRatio(1 - ratio, (1 - ratio) * usableHeight)
+            }
+            onReset={() => {
+              const reset = dualPane ? 0.3 : 0.36;
+              setPreviewHeightRatio(reset, reset * usableHeight);
+            }}
             disabled={height === 0}
+            className="preview-splitter"
           />
           <div className="preview-slot bottom" style={{ height: previewHeight }}>
             {previewElement}

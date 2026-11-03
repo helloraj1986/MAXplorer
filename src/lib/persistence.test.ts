@@ -442,6 +442,10 @@ describe("persisted preview preferences", () => {
             focusMode: true,
             width: 420,
             height: 280,
+            ratio: 420 / 1280,
+            singleRatio: 420 / 1280 + 0.08,
+            heightRatio: 280 / 900,
+            singleHeightRatio: 280 / 900 + 0.06,
             autoPlayMedia: true,
             textLimit: 65_536,
             renderers: ["pdf", "text", "quicklook"],
@@ -456,6 +460,10 @@ describe("persisted preview preferences", () => {
       focusMode: true,
       width: 420,
       height: 280,
+      ratio: 420 / 1280,
+      singleRatio: 420 / 1280 + 0.08,
+      heightRatio: 280 / 900,
+      singleHeightRatio: 280 / 900 + 0.06,
       autoPlayMedia: true,
       textLimit: 65_536,
       renderers: ["pdf", "text", "quicklook", "metadata"],
@@ -487,8 +495,12 @@ describe("persisted preview preferences", () => {
       ),
     );
     expect(parsed?.preview?.position).toBe("right");
-    expect(parsed?.preview?.width).toBe(560);
+    expect(parsed?.preview?.width).toBe(960);
     expect(parsed?.preview?.height).toBe(180);
+    expect(parsed?.preview?.ratio).toBe(0.5);
+    expect(parsed?.preview?.singleRatio).toBe(0.58);
+    expect(parsed?.preview?.heightRatio).toBe(0.24);
+    expect(parsed?.preview?.singleHeightRatio).toBe(0.36);
     expect(parsed?.preview?.renderers).toEqual(["pdf", "metadata"]);
   });
 });

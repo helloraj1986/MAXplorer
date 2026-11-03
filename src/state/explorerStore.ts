@@ -286,8 +286,8 @@ interface ExplorerState {
   closeQuickLook: () => Promise<void>;
   setPreviewPosition: (position: PreviewPosition) => void;
   setPreviewFocusMode: (enabled: boolean) => void;
-  setPreviewWidth: (width: number) => void;
-  setPreviewHeight: (height: number) => void;
+  setPreviewRatio: (ratio: number, width?: number) => void;
+  setPreviewHeightRatio: (ratio: number, height?: number) => void;
   setPreviewAutoPlay: (enabled: boolean) => void;
   setPreviewTextLimit: (bytes: number) => void;
   setPreviewRendererEnabled: (id: PreviewRendererId, enabled: boolean) => void;
@@ -1477,14 +1477,30 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
   setPreviewFocusMode(enabled) {
     set((state) => ({ preview: { ...state.preview, focusMode: enabled } }));
   },
-  setPreviewWidth(width) {
+  setPreviewRatio(ratio, width) {
+    const clamped = Math.max(0.18, Math.min(0.6, ratio));
     set((state) => ({
-      preview: { ...state.preview, width: Math.max(240, Math.min(560, width)) },
+      preview: {
+        ...state.preview,
+        ...(state.dualPane ? { ratio: clamped } : { singleRatio: clamped }),
+        width:
+          width != null
+            ? Math.max(240, Math.min(960, Math.round(width)))
+            : state.preview.width,
+      },
     }));
   },
-  setPreviewHeight(height) {
+  setPreviewHeightRatio(ratio, height) {
+    const clamped = Math.max(0.18, Math.min(0.6, ratio));
     set((state) => ({
-      preview: { ...state.preview, height: Math.max(180, Math.min(620, height)) },
+      preview: {
+        ...state.preview,
+        ...(state.dualPane ? { heightRatio: clamped } : { singleHeightRatio: clamped }),
+        height:
+          height != null
+            ? Math.max(180, Math.min(620, Math.round(height)))
+            : state.preview.height,
+      },
     }));
   },
   setPreviewAutoPlay(enabled) {

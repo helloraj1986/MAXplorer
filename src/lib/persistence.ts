@@ -226,8 +226,54 @@ function parsePreviewPreferences(
       ? (raw.position as PreviewPosition)
       : DEFAULT_PREVIEW_PREFERENCES.position,
     focusMode: raw.focusMode === true,
-    width: clampNumber(raw.width, 240, 560, DEFAULT_PREVIEW_PREFERENCES.width),
+    width: clampNumber(raw.width, 240, 960, DEFAULT_PREVIEW_PREFERENCES.width),
     height: clampNumber(raw.height, 180, 620, DEFAULT_PREVIEW_PREFERENCES.height),
+    ratio: clampNumber(
+      raw.ratio,
+      0.18,
+      0.6,
+      Math.max(
+        0.24,
+        Math.min(0.5, clampNumber(raw.width, 240, 960, DEFAULT_PREVIEW_PREFERENCES.width) / 1280),
+      ),
+    ),
+    singleRatio: clampNumber(
+      raw.singleRatio,
+      0.18,
+      0.6,
+      Math.max(
+        0.4,
+        clampNumber(
+          raw.ratio,
+          0.18,
+          0.6,
+          Math.max(
+            0.24,
+            Math.min(0.5, clampNumber(raw.width, 240, 960, DEFAULT_PREVIEW_PREFERENCES.width) / 1280),
+          ),
+        ) + 0.08,
+      ),
+    ),
+    heightRatio: clampNumber(
+      raw.heightRatio,
+      0.18,
+      0.6,
+      Math.max(0.24, Math.min(0.5, clampNumber(raw.height, 180, 620, DEFAULT_PREVIEW_PREFERENCES.height) / 900)),
+    ),
+    singleHeightRatio: clampNumber(
+      raw.singleHeightRatio,
+      0.18,
+      0.6,
+      Math.max(
+        0.36,
+        clampNumber(
+          raw.heightRatio,
+          0.18,
+          0.6,
+          Math.max(0.24, Math.min(0.5, clampNumber(raw.height, 180, 620, DEFAULT_PREVIEW_PREFERENCES.height) / 900)),
+        ) + 0.06,
+      ),
+    ),
     autoPlayMedia: raw.autoPlayMedia === true,
     textLimit: clampNumber(
       raw.textLimit,

@@ -53,10 +53,18 @@ export interface PreviewPreferences {
   position: PreviewPosition;
   /** In dual-pane mode, let the preview take the inactive pane's space. */
   focusMode: boolean;
-  /** Width of a left/right preview, in logical pixels. */
+  /** Legacy width of a left/right preview, in logical pixels. */
   width: number;
-  /** Height of a bottom preview, in logical pixels. */
+  /** Legacy height of a bottom preview, in logical pixels. */
   height: number;
+  /** Share of the workspace used by a left/right preview in dual-pane mode. */
+  ratio: number;
+  /** Share of the workspace used by a left/right preview in single-pane mode. */
+  singleRatio: number;
+  /** Share of the workspace used by a bottom preview in dual-pane mode. */
+  heightRatio: number;
+  /** Share of the workspace used by a bottom preview in single-pane mode. */
+  singleHeightRatio: number;
   autoPlayMedia: boolean;
   /** Maximum bytes read for the first page of a text/code preview. */
   textLimit: number;
@@ -70,6 +78,10 @@ export const DEFAULT_PREVIEW_PREFERENCES: PreviewPreferences = {
   focusMode: false,
   width: 340,
   height: 300,
+  ratio: 0.28,
+  singleRatio: 0.4,
+  heightRatio: 0.3,
+  singleHeightRatio: 0.36,
   autoPlayMedia: false,
   textLimit: 256 * 1024,
   renderers: ["image", "pdf", "media", "text", "archive", "folder", "quicklook", "metadata"],
