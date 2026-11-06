@@ -1485,6 +1485,11 @@ pub(crate) fn children_for(
     limit: usize,
 ) -> Result<StorageChildren, AppError> {
     if let Some(persisted) = index.persisted.as_ref() {
+        // Once the file records are released the cache is the only source, so an
+        // incomplete in-memory fallback would silently drop files.
+        if index.files.is_empty() {
+            return persisted.cache.children(persisted.scan_id, path, limit);
+        }
         match persisted.cache.children(persisted.scan_id, path, limit) {
             Ok(children) => return Ok(children),
             Err(error) => logging::warn(
@@ -1496,17 +1501,23 @@ pub(crate) fn children_for(
     children_core(index, path, limit)
 }
 
-pub(crate) fn query_files_for(index: &ScanIndex, query: &StorageFileQuery) -> StorageFilePage {
+pub(crate) fn query_files_for(
+    index: &ScanIndex,
+    query: &StorageFileQuery,
+) -> Result<StorageFilePage, AppError> {
     if let Some(persisted) = index.persisted.as_ref() {
+        if index.files.is_empty() {
+            return persisted.cache.query_files(query);
+        }
         match persisted.cache.query_files(query) {
-            Ok(page) => return page,
+            Ok(page) => return Ok(page),
             Err(error) => logging::warn(
                 "storage.cache",
                 format!("sqlite file query failed; using the in-memory index: {error}"),
             ),
         }
     }
-    query_files_core(index, query)
+    Ok(query_files_core(index, query))
 }
 
 /// Where a scan is allowed to stop. `max_entries` is a count guard the caller can
@@ -2165,11 +2176,21 @@ pub(crate) fn scan_storage_index_with_budget(
                 cancelled: cancel.load(Ordering::Relaxed),
             });
         }
-        handles
-            .into_iter()
-            .filter_map(|handle| handle.join().ok())
-            .collect::<Vec<_>>()
-    });
+        let mut outputs = Vec::with_capacity(handles.len());
+        for handle in handles {
+            match handle.join() {
+                Ok(output) => outputs.push(output),
+                Err(_) => {
+                    return Err(AppError::new(
+                        "internal",
+                        "A scan worker stopped unexpectedly. Rescan to rebuild the index.",
+                        Some(root_display.clone()),
+                    ))
+                }
+            }
+        }
+        Ok(outputs)
+    })?;
 
     let cancelled = cancel.load(Ordering::Relaxed);
     let limit_hit = stoppage.hit();
@@ -3887,7 +3908,7 @@ pub fn query_storage_files(
 ) -> Result<StorageFilePage, AppError> {
     if let Some(index) = state.current() {
         if index.scan.scan_id == query.scan_id {
-            return Ok(query_files_for(&index, &query));
+            return query_files_for(&index, &query);
         }
     }
     state.cached_query(&query)

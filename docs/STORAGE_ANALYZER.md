@@ -212,7 +212,13 @@ macOS path:
 ~/Library/Application Support/com.replica.win11explorer/storage/cache.sqlite3
 ```
 
-The cache stores the scan summary JSON plus one row per file and directory. A rolling set of
+The cache stores the scan summary JSON plus one row per file and directory. Schema v2 keeps
+composite indexes (`files(scan_id, parent, size)`, `files(scan_id, category, size)`,
+`files(scan_id, file_type, size)`, `directories(scan_id, parent, size)`) so a folder listing
+filters and sorts without scanning the table, and the indexes are dropped and rebuilt around a
+bulk load instead of being maintained per row: 1.2M files plus 271k directories store in 13.6 s.
+Measured on a 1.2M-file scan, drill-down is 0.5 ms per folder (versus 15 ms scanning the
+in-memory index) and a folder page is 0.3 ms (versus 11.7 ms). A rolling set of
 the eight most recent scans is retained; scans for the same root replace older rows, and a
 stale background write can never overwrite a newer result. On launch or volume switch, the
 analyzer restores the most recent cached scan belonging to that volume, including folder

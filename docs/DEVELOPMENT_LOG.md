@@ -556,6 +556,16 @@ Four linked pieces of work on `perf/storage-analyzer-scale`, each verified on it
    size, file_type, category). Directory aggregates and the scan summary stay in RAM (about 2%
    of entries). Delete verification uses `has_path` against the same rows, so the safety net
    is unchanged. Cached-scan restore already used this path.
+   - Query plans were the real risk here: `EXPLAIN QUERY PLAN` showed folder listings using
+     `directories_size` (a 435 ms scan and sort of every directory) and the recursive filter
+     using `substr(path, ...)`, which fell back to an unrelated index (1.85 s). Composite
+     `(scan_id, parent, size)` indexes and a range predicate on `path` fixed both, and the
+     cache schema went to v2 with the indexes dropped for the bulk load and rebuilt once at
+     the end (1.2M files + 271k dirs in 13.6 s instead of maintaining five indexes per row).
+   - Measured on a 1.2M-file persisted scan: folder drill-down **0.5 ms** (in-memory path
+     15 ms) and a folder page **0.3 ms** (in-memory 11.7 ms). A recursive "directory contains"
+     query over the whole scan is now 0.9 s because it counts and sums every match; the
+     default views do not issue it.
 
 Verification: `cargo test` **89 passed** (new: parallel walk visits every directory in a wide
 tree, hard-link totals across workers, SQL parity for children and paged queries, delete

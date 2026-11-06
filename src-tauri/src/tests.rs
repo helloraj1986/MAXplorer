@@ -416,7 +416,7 @@ mod tests {
             offset,
         };
         let memory_page = query_files_core(&index, &make(None, 0));
-        let sql_page = query_files_for(&slim, &make(None, 0));
+        let sql_page = query_files_for(&slim, &make(None, 0)).unwrap();
         assert_eq!(sql_page.total, memory_page.total);
         assert_eq!(sql_page.total_bytes, memory_page.total_bytes);
         assert_eq!(
@@ -424,7 +424,7 @@ mod tests {
             memory_page.files.iter().map(|file| file.path.clone()).collect::<Vec<_>>()
         );
         assert!(sql_page.has_more, "three files, page of two");
-        let filtered = query_files_for(&slim, &make(Some(1_000), 0));
+        let filtered = query_files_for(&slim, &make(Some(1_000), 0)).unwrap();
         assert_eq!(filtered.total, 1);
         assert_eq!(filtered.files[0].name, "clip.mp4");
         assert!(cache.has_path(61, &filtered.files[0].path).unwrap());
