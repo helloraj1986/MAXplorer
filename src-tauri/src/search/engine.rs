@@ -1529,12 +1529,21 @@ impl SearchEngine {
                         clauses.join(" AND "),
                         CANDIDATE_LIMIT
                     );
-                    values.push(rusqlite::types::Value::Text(fts_query));
-                    let mut statement = conn.prepare(&sql).map_err(db_error)?;
-                    let rows = statement
-                        .query_map(params_from_iter(values.iter()), CandidateRow::from_row)
-                        .map_err(db_error)?;
-                    return Ok(rows.filter_map(|row| row.ok()).collect());
+                    let mut bound = values.clone();
+                    bound.push(rusqlite::types::Value::Text(fts_query));
+                    let trigram_rows: Vec<CandidateRow> = {
+                        let mut statement = conn.prepare(&sql).map_err(db_error)?;
+                        let rows = statement
+                            .query_map(params_from_iter(bound.iter()), CandidateRow::from_row)
+                            .map_err(db_error)?;
+                        rows.filter_map(|row| row.ok()).collect()
+                    };
+                    if !trigram_rows.is_empty() {
+                        return Ok(trigram_rows);
+                    }
+                    // An empty trigram result is never trusted on its own. A stale
+                    // or partially built index would otherwise hide every match
+                    // silently, so the scan below is the safety net.
                 }
             }
             let mut term_clauses = Vec::new();
@@ -2865,5 +2874,30 @@ mod tests {
         let status = engine.status("idle", None);
         assert_eq!(status.locations.len(), 1);
         assert_eq!(status.locations[0].indexed_files, 2);
+    }
+
+    #[test]
+    fn an_empty_trigram_index_falls_back_instead_of_hiding_matches() {
+        let (directory, engine) = engine();
+        let root = directory.path();
+        write_files(&engine, root, &["resume.pdf", "notes.txt"]);
+        engine.refresh_counts(true).unwrap();
+        assert!(engine.populate_name_index().unwrap());
+
+        // Simulate a stale or partially built name index.
+        {
+            let conn = engine.write_conn().unwrap();
+            conn.execute("DELETE FROM files_name_fts", []).unwrap();
+        }
+
+        let request = SearchRequest {
+            query_id: 1,
+            terms: vec!["resume".into()],
+            ..base_request(root)
+        };
+        let (hits, total, _) =
+            engine.search(&request, &Arc::new(AtomicBool::new(false)), 50).unwrap();
+        assert_eq!(total, 1, "the scan fallback must still find the file");
+        assert_eq!(hits[0].entry.name, "resume.pdf");
     }
 }
