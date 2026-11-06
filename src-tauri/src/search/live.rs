@@ -10,6 +10,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+/// Directories that never belong in a file-search index: package caches, build
+/// output, tool state and OS metadata. Kept in one place so the indexer, the
+/// live walker, the FSEvents filter and the Spotlight post-filter cannot drift
+/// apart and re-introduce the same junk under a different name.
 pub const SKIP_DIRECTORIES: &[&str] = &[
     "node_modules",
     ".git",
@@ -39,13 +43,53 @@ pub const SKIP_DIRECTORIES: &[&str] = &[
     "System Volume Information",
 ];
 
+/// Bundle-style directories are single documents to the user, not folders to
+/// enumerate. Walking them produced tens of thousands of unreadable rows.
+pub const SKIP_SUFFIXES: &[&str] = &[
+    ".app",
+    ".framework",
+    ".bundle",
+    ".photoslibrary",
+    ".xcarchive",
+    ".dSYM",
+];
+
 pub fn should_skip_directory(name: &str, depth: usize) -> bool {
     if depth == 0 {
         return false;
     }
+    // Every dot-directory is tool or user state: ~/.local, ~/.lmstudio, ~/.nvm,
+    // ~/.gradle, ~/.nuget, ~/.vscode, ~/.hermes, ~/.ollama, ~/.codex, ~/.ssh.
+    // Indexing them costs minutes of I/O and millions of rows that a file
+    // manager never needs to surface. An explicitly configured index location
+    // is still allowed because the root itself is depth 0.
+    if name.starts_with('.') {
+        return true;
+    }
     SKIP_DIRECTORIES.iter().any(|skip| skip.eq_ignore_ascii_case(name))
-        || name.ends_with(".app")
-        || name.ends_with(".framework")
+        || SKIP_SUFFIXES
+            .iter()
+            .any(|suffix| name.to_ascii_lowercase().ends_with(suffix))
+}
+
+/// Applies the same policy to a full path, relative to the indexed root. The
+/// root itself is never excluded — a user may deliberately index a dot-directory
+/// — and a file such as `.env` is not a directory.
+pub fn path_is_excluded(path: &Path, root: &Path) -> bool {
+    let relative = path.strip_prefix(root).unwrap_or(path);
+    let components: Vec<_> = relative.components().collect();
+    let last = components.len().saturating_sub(1);
+    components.iter().enumerate().any(|(index, component)| {
+        let name = component.as_os_str().to_string_lossy();
+        if index == last {
+            SKIP_DIRECTORIES.iter().any(|skip| skip.eq_ignore_ascii_case(&name))
+                || SKIP_SUFFIXES
+                    .iter()
+                    .any(|suffix| name.to_ascii_lowercase().ends_with(suffix))
+        } else {
+            should_skip_directory(&name, 1)
+        }
+    })
 }
 
 pub struct LiveScan {
@@ -245,7 +289,6 @@ pub fn spotlight_search(request: &SearchRequest) -> (Vec<SearchHit>, Vec<String>
 
 #[cfg(target_os = "macos")]
 fn spotlight_search_macos(request: &SearchRequest) -> (Vec<SearchHit>, Vec<String>) {
-    use std::process::Command;
     let mut notes = Vec::new();
     let mut clauses = Vec::new();
     let terms = request.all_terms();
@@ -272,34 +315,42 @@ fn spotlight_search_macos(request: &SearchRequest) -> (Vec<SearchHit>, Vec<Strin
         return (Vec::new(), notes);
     }
     let query = clauses.join(" && ");
-    let mut command = Command::new("mdfind");
-    command.arg("-0");
-    let accessible_roots: Vec<&String> = request
+    // Spotlight is a best-effort provider. It must never be able to hold a
+    // search open: `mdfind` blocks indefinitely while mdworker rebuilds its
+    // store, so every invocation gets a hard deadline and a scoped `-onlyin`.
+    let accessible_roots: Vec<String> = request
         .roots
         .iter()
         .filter(|root| Path::new(root).is_dir())
+        .take(3)
+        .cloned()
         .collect();
-    // mdfind accepts one -onlyin scope. For multi-root scopes we query broadly
-    // and enforce the real roots with the same filter gate used by every other
-    // provider.
-    if accessible_roots.len() == 1 {
-        command.arg("-onlyin").arg(accessible_roots[0]);
-    }
-    command.arg(query);
-    let output = match command.output() {
-        Ok(output) => output,
-        Err(error) => {
-            notes.push(format!("Spotlight search could not run: {error}"));
-            return (Vec::new(), notes);
-        }
-    };
-    if !output.status.success() {
-        notes.push("Spotlight returned an error; index and filesystem results are still shown.".into());
+    if accessible_roots.is_empty() {
+        notes.push("Spotlight was skipped because the scope has no accessible folders.".into());
         return (Vec::new(), notes);
+    }
+    let mut stdout = Vec::new();
+    for root in &accessible_roots {
+        match run_mdfind(root, &query, Duration::from_millis(1500)) {
+            Ok(mut bytes) => stdout.append(&mut bytes),
+            Err(MdfindError::Timeout) => {
+                notes.push(
+                    "Spotlight did not answer within 1.5 s and was stopped; index and filesystem results are unaffected."
+                        .into(),
+                );
+            }
+            Err(MdfindError::Unavailable(message)) => {
+                notes.push(format!("Spotlight search could not run: {message}"));
+                return (Vec::new(), notes);
+            }
+            Err(MdfindError::Failed) => {
+                notes.push("Spotlight returned an error; index and filesystem results are still shown.".into());
+            }
+        }
     }
     let mut hits = Vec::new();
     let mut inaccessible = 0u64;
-    let text = String::from_utf8_lossy(&output.stdout);
+    let text = String::from_utf8_lossy(&stdout);
     let content_evidence = request.mode == crate::search::model::SearchMode::Content
         || !request.content_terms.is_empty();
     for path in text.split('\0').filter(|value| !value.is_empty()).take(500) {
@@ -342,6 +393,75 @@ fn spotlight_search_macos(request: &SearchRequest) -> (Vec<SearchHit>, Vec<Strin
         notes.push("Spotlight results were limited to 500 items.".into());
     }
     (hits, notes)
+}
+
+#[cfg(target_os = "macos")]
+enum MdfindError {
+    Timeout,
+    Unavailable(String),
+    Failed,
+}
+
+/// Runs `mdfind -onlyin <root> -0 <query>` with a hard deadline.
+///
+/// The child's stdout is drained on a separate thread so a large result set can
+/// never deadlock against the pipe buffer, and a timeout kills the process
+/// instead of leaving a blocking read behind.
+#[cfg(target_os = "macos")]
+fn run_mdfind(root: &str, query: &str, timeout: Duration) -> Result<Vec<u8>, MdfindError> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new("mdfind")
+        .arg("-onlyin")
+        .arg(root)
+        .arg("-0")
+        .arg(query)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| MdfindError::Unavailable(error.to_string()))?;
+
+    let reader = child.stdout.take().map(|mut stdout| {
+        std::thread::spawn(move || {
+            let mut buffer = Vec::new();
+            let _ = stdout.read_to_end(&mut buffer);
+            buffer
+        })
+    });
+
+    let deadline = Instant::now() + timeout;
+    let mut timed_out = false;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    timed_out = true;
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(MdfindError::Unavailable(error.to_string()));
+            }
+        }
+    }
+
+    let stdout = reader.and_then(|handle| handle.join().ok()).unwrap_or_default();
+    if timed_out {
+        return Err(MdfindError::Timeout);
+    }
+    match child.try_wait() {
+        Ok(Some(status)) if status.success() => Ok(stdout),
+        Ok(Some(_)) => Err(MdfindError::Failed),
+        _ => Ok(stdout),
+    }
 }
 
 #[cfg(test)]

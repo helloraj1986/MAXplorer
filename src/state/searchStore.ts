@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { api, isTauri, normalizeError } from "../lib/api";
-import { basename } from "../lib/format";
+import { basename, formatCount } from "../lib/format";
 import { useExplorerStore } from "./explorerStore";
 import {
   buildSearchRequest,
@@ -128,15 +128,31 @@ interface SearchState {
   removeIndexLocation: (path: string) => Promise<void>;
   rebuildIndex: () => Promise<void>;
   clearIndex: () => Promise<void>;
+  pruneIndex: () => Promise<void>;
+  optimizeIndex: () => Promise<void>;
   retryExtractions: () => Promise<void>;
   runDuplicateSearch: () => Promise<void>;
 }
 
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
+let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingQueryId = 0;
 let activeRequestId = 0;
 let listenersStarted = false;
 const MAX_RESULTS = 800;
+/**
+ * A search may never leave the interface spinning. If the backend has not
+ * reported completion by this deadline the store stops waiting, keeps whatever
+ * results arrived, and tells the user what happened.
+ */
+const SEARCH_WATCHDOG_MS = 12_000;
+
+function clearWatchdog() {
+  if (watchdogTimer) {
+    clearTimeout(watchdogTimer);
+    watchdogTimer = null;
+  }
+}
 
 function contextLocations(): Array<{ id: string; name: string; path: string }> {
   const explorer = useExplorerStore.getState();
@@ -290,6 +306,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
           set({ results: mergeHits(state.results, progress.hits) });
         }
         if (progress.done && progress.stats) {
+          clearWatchdog();
           set({ stats: progress.stats, loading: false, phase: "complete" });
         } else {
           set({ phase: progress.phase });
@@ -360,6 +377,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       clearTimeout(searchTimer);
       searchTimer = null;
     }
+    clearWatchdog();
     if (activeRequestId) {
       const request = activeRequestId;
       activeRequestId = 0;
@@ -398,14 +416,10 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       (state.indexStatus?.indexedFiles ?? 0) > 0 &&
       state.indexStatus?.activity !== "starting" &&
       state.indexStatus?.activity !== "indexing";
-    const locationsReady =
-      (state.indexStatus?.locations.length ?? 0) > 0 &&
-      (state.indexStatus?.locations ?? []).every((location) =>
-        ["up_to_date", "unavailable"].includes(location.status),
-      );
-    const includeLive =
-      state.settings.includeLive &&
-      (state.scope !== "indexed" || !indexReady || !locationsReady);
+    // The live walk is a fallback, not a companion. It used to run on every
+    // query because a permanently "partial" location never looked ready, which
+    // doubled the cost of each keystroke.
+    const includeLive = state.settings.includeLive && (state.scope !== "indexed" || !indexReady);
     const request = buildSearchRequest({
       queryId,
       interpretation,
@@ -428,6 +442,18 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       selectedPath: null,
       anchorPath: null,
     });
+    clearWatchdog();
+    watchdogTimer = setTimeout(() => {
+      watchdogTimer = null;
+      const current = get();
+      if (current.queryId !== queryId || !current.loading) return;
+      set({ loading: false, phase: "partial" });
+      useExplorerStore.getState().toast({
+        title: "Search is taking longer than expected",
+        detail: "Partial results are shown. Refine the query or check the indexing dashboard.",
+        tone: "info",
+      });
+    }, SEARCH_WATCHDOG_MS);
     if (!isTauri) {
       set({
         loading: false,
@@ -439,6 +465,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     try {
       const response = await api.universalSearch(request);
       if (get().queryId !== queryId) return;
+      clearWatchdog();
       set((current) => {
         const paths = new Set(response.hits.map((hit) => hit.entry.path));
         const selectedPath =
@@ -454,6 +481,7 @@ export const useSearchStore = create<SearchState>((set, get) => ({
       });
     } catch (error) {
       if (get().queryId !== queryId) return;
+      clearWatchdog();
       const normalized = normalizeError(error);
       set({
         loading: false,
@@ -778,6 +806,33 @@ export const useSearchStore = create<SearchState>((set, get) => ({
     if (!isTauri) return;
     try {
       set({ indexStatus: await api.retryFailedExtractions() });
+    } catch (error) {
+      useExplorerStore.getState().toastError(error);
+    }
+  },
+  async pruneIndex() {
+    if (!isTauri) return;
+    try {
+      const indexStatus = await api.pruneSearchIndex();
+      set({ indexStatus });
+      useExplorerStore.getState().toast({
+        title: "Index cleaned",
+        detail: `${formatCount(indexStatus.indexedFiles)} files remain indexed.`,
+        tone: "success",
+      });
+    } catch (error) {
+      useExplorerStore.getState().toastError(error);
+    }
+  },
+  async optimizeIndex() {
+    if (!isTauri) return;
+    try {
+      set({ indexStatus: await api.optimizeSearchIndex() });
+      useExplorerStore.getState().toast({
+        title: "Index compacted",
+        detail: "The database was rewritten at its minimum size.",
+        tone: "success",
+      });
     } catch (error) {
       useExplorerStore.getState().toastError(error);
     }

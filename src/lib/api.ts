@@ -155,6 +155,9 @@ export const api = {
   setSearchContentLimit: (bytes: number) =>
     call<IndexStatus>("set_search_content_limit", { bytes }),
   rebuildSearchIndex: () => call<IndexStatus>("rebuild_search_index"),
+  pruneSearchIndex: () => call<IndexStatus>("prune_search_index"),
+  optimizeSearchIndex: () => call<IndexStatus>("optimize_search_index"),
+  rebuildSearchNameIndex: () => call<IndexStatus>("rebuild_search_name_index"),
   clearSearchIndex: () => call<IndexStatus>("clear_search_index"),
   retryFailedExtractions: () => call<IndexStatus>("retry_failed_extractions"),
   removeSearchPath: (path: string) => call<void>("remove_search_path", { path }),

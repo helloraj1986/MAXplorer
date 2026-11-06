@@ -449,3 +449,53 @@
   untouched and still targets the pane rows. Theme-defined dimensions are clamped to safe
   ranges and cannot disable the minimum pointer target.
 
+
+## Phase 21 - Search engine audit, repair and cost control (2026-11-06)
+
+- Symptom: typing `resume` in Universal Search showed a spinner that never resolved.
+- Audit (`docs/SEARCH_AUDIT.md`) traced it to index hygiene, not to the loading state.
+  The live index held **6,350,597 rows in 20.1 GB**, of which **6,003,687 rows (94.5 %)**
+  came from a single tool cache tree (`~/.local/share/opencode`); `~/.lmstudio`,
+  `~/.vscode`, `~/.gradle`, `~/.nvm`, `~/.nuget` and `~/.hermes/cache` made up most of the
+  rest.
+- Measured on that database: `SELECT COUNT(*) FROM files WHERE is_dir = 0` took **47.3 s**,
+  and the `name_lower LIKE '%resume%' OR path_lower LIKE '%resume%'` candidate query took
+  **49.9 s**. `SearchService::execute_search` ran five such aggregates through `status()`
+  on **every** query, then the full scan, with the cancel flag only checked between
+  providers. Every keystroke therefore queued minutes of work behind the previous one, and
+  the store cleared `loading` only on a response that never arrived.
+- `search/live.rs` now owns a single exclusion policy (all dot-directories, package and
+  build output, OS metadata, bundle packages) used by the indexer walker, the live
+  fallback, the FSEvents filter and the prune path. `path_is_excluded` is evaluated
+  relative to the indexed root, so an explicitly added location is never excluded and a
+  file such as `.env` is not treated as a directory.
+- Schema v2 adds `files_name_fts` (FTS5 `trigram` over name and path) and
+  `location_counts`. Substring queries of three or more characters now use the trigram
+  index; shorter and case-sensitive queries keep the `LIKE`/`instr` path.
+- Counters (`counts.*`, `location_counts`) are materialised by the indexer;
+  `status()` reads six primary-key rows instead of scanning the table.
+- Query cost control: one in-flight query per service (a new query cancels every older
+  one), a SQLite progress handler for statement-level cancellation, a 5 s query budget,
+  a 12 000-row candidate cap, and a per-root `mdfind` call with `-onlyin` and a 1.5 s
+  deadline that kills the child on timeout.
+- Indexer: 400 000-entry cap per pass, counter and name-index refresh on a 5-minute tick.
+- New maintenance commands `prune_search_index`, `optimize_search_index` and
+  `rebuild_search_name_index`, surfaced in the indexing dashboard as **Clean excluded
+  folders** and **Compact database**. Prune drops the FTS triggers and secondary indexes
+  for the duration of the deletion and rebuilds them from the survivors; optimize rebuilds
+  both FTS tables and then vacuums.
+- Frontend: `runSearchNow` arms a 12 s watchdog that clears the spinner, keeps partial
+  results and explains the delay. The live filesystem fallback now runs only when the
+  scope is not the index or the index is empty, instead of on every query because a
+  location was permanently `partial`.
+- Verification on the real 20 GB index (`examples/search_maintenance`):
+  `status()` **47.3 s → 4.8 ms**; search for `resume` **35.6 s → 380 ms** warm
+  (1733 matches, name + content); mid-word `esum` **26 ms** (185 matches); prune removed
+  6.19 M rows in ~4 min total and left 156,732 rows (140,197 files, 50,137 with text);
+  trigram rebuild 6.8 s; counters 0.32 s; reopen 1.2 ms.
+- Tests: `cargo test` **77 passed** (new: trigram substring and mid-word matching,
+  path-only matches through the join, exclusion-aware prune, materialised counters,
+  location coverage without table scans); `npm test` **336 passed / 9 failed**, where all
+  nine failures are the pre-existing `storageStore.test.ts` and `ThemeCreator.test.tsx`
+  suites that read `window.localStorage` under the `node` test environment; neither file
+  is touched by this work. `npm run typecheck` clean.

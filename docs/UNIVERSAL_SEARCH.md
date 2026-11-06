@@ -32,25 +32,59 @@ The frontend never invents results. Every constraint is converted to a structure
 
 SQLite is stored under the Tauri application support directory at
 `search/index.sqlite3`. It uses WAL mode, short transactions, indexed metadata columns,
-and an FTS5 table kept in sync by triggers. The schema is versioned in `meta`; opening an
+and FTS5 tables kept in sync by triggers. The schema is versioned in `meta`; opening an
 existing database preserves its records.
 
 Indexed metadata: canonical path, name, lower-case name/path, parent, extension, kind,
 size, created/modified/accessed timestamps, hidden/symlink flags, content state, content
 error, optional content hash, and a scan generation for reconciliation.
 
+Three structures support queries:
+
+- `files` — the metadata table, with indexes on name, path, parent, root, size, kind,
+  extension, modified and created.
+- `files_fts` — FTS5 (`unicode61`) over name and extracted content, used for content and
+  whole-token matching.
+- `files_name_fts` — FTS5 (`trigram`) over name and path. This is what makes
+  `%resume%`-style substring search cheap: a leading-wildcard `LIKE` cannot use a B-tree
+  index and degrades to a full table scan, while the trigram index answers the same
+  query in milliseconds. Terms shorter than three characters and case-sensitive queries
+  fall back to `LIKE`/`instr`.
+
+Counters (`counts.files`, `counts.content`, …) and per-location totals
+(`location_counts`) are materialised by the indexer. `get_search_index_status` reads
+those rows instead of running `COUNT(*)` aggregates, so status and search initiation no
+longer scale with the size of the index.
+
+### Index scope and exclusion policy
+
+`search/live.rs` owns one policy used by the indexer walker, the live fallback, the
+FSEvents filter and the prune path:
+
+- every dot-directory (`~/.local`, `~/.lmstudio`, `~/.nvm`, `~/.gradle`, `~/.nuget`,
+  `~/.vscode`, `~/.hermes`, `~/.cache`, …);
+- package and build output (`node_modules`, `target`, `dist`, `build`, `out`, `.next`,
+  `Pods`, `__pycache__`, `.venv`, `venv`);
+- OS metadata (`Library`, `Caches`, `DerivedData`, `.Trash`);
+- bundles (`.app`, `.framework`, `.bundle`, `.photoslibrary`, `.xcarchive`, `.dSYM`).
+
+An explicitly configured index location is always allowed, because the root itself is
+never subject to the policy. A single pass is capped at 400 000 entries so one
+pathological tree cannot own the index.
+
 ### Indexing
 
 - Initial scan on first launch; incremental filesystem events via `notify` (FSEvents on
-  macOS); periodic reconciliation every 30 minutes.
+  macOS); periodic reconciliation every 6 hours.
 - Deletions are detected by generation-based reconciliation and remove-event handling.
 - Symlinked directories are listed but never traversed; heavy/system directories and app
   bundles are skipped by default.
 - Content extraction runs on a separate worker, bounded to six documents per cycle. It
   supports plain text, Markdown, JSON, XML, HTML, CSV, source code, configuration files,
   PDF (embedded text only), DOCX, XLSX, and PPTX.
-- Pause/resume, rebuild, clear, retry failed extraction, maximum file size, and error
-  diagnostics are exposed in the indexing dashboard.
+- Pause/resume, rebuild, clear, retry failed extraction, maximum file size, error
+  diagnostics, **clean excluded folders** and **compact database** are exposed in the
+  indexing dashboard.
 
 ### Revealing a result in MAXplorer
 
@@ -67,13 +101,27 @@ on screen.
 
 ### Query execution
 
-1. Indexed filename/path/metadata candidates.
+1. Indexed filename/path/metadata candidates (trigram index for substrings of three or
+   more characters, `LIKE`/`instr` otherwise).
 2. Indexed content candidates via FTS5 (LIKE fallback if FTS5 is unavailable).
 3. Bounded live filesystem scan when the scope is a folder/external/custom location or
    the index is not ready.
 4. macOS Spotlight provider (`mdfind`) with post-filtering and permission-safe stat.
 5. Results are deduplicated by normalized path, ranked deterministically, and streamed to
    the UI through `search-progress` events using a query id.
+
+Cost control is part of the contract, not an optimisation:
+
+- **One query in flight.** A new query cancels every older one before it starts, so
+  keystrokes cannot queue minutes of work behind each other.
+- **Statement-level cancellation.** Each search connection installs a SQLite progress
+  handler that aborts the scan when the query is superseded. Previously the cancel flag
+  was only read between providers, which did nothing during a long scan.
+- **A 5 s query budget.** Providers that have not started when the budget is exhausted are
+  skipped and the response says so; partial results are always returned.
+- **A bounded Spotlight call.** `mdfind` runs per root with `-onlyin` and a 1.5 s
+  deadline; a timeout kills the child and reports a note instead of blocking the search.
+- **Bounded candidate set.** At most 12 000 rows are materialised for ranking.
 
 Ranking gives exact name, prefix, name-token, path, content, and metadata matches strong
 weights, with a deliberately small recency boost. Match explanations only report evidence
@@ -121,8 +169,40 @@ unavailable/disabled rather than represented by mock results.
 - Frontend: query interpreter, date/size interpretation, chips, scope roots, history/
   saved-search parsing and retention, overlay/workspace/filter/indexing UI behaviour, and
   Reveal in MAXplorer pane/tab targeting, history preservation, and stale-result handling.
-- Backend: FTS/search/ranking, content extraction, filters, Unicode, case sensitivity,
-  empty folders, cancellation, duplicates, persistence/migration, initial and incremental
-  indexing, deletion reconciliation, and content-job extraction.
-- A debug-build benchmark over 5,000 indexed files measured indexed name queries at a
-  median of 5 ms and p95 of 6 ms on the development machine.
+- Backend: FTS/search/ranking, trigram substring and mid-word matching, path-only matches
+  through the FTS join, content extraction, filters, Unicode, case sensitivity, empty
+  folders, cancellation, duplicates, persistence/migration, initial and incremental
+  indexing, deletion reconciliation, content-job extraction, exclusion-aware pruning and
+  materialised counters.
+- `src-tauri/examples/search_maintenance.rs` runs the real engine against a real index and
+  prints timings, so the numbers below can be reproduced instead of taken on trust.
+
+## Measured performance
+
+Development machine, macOS, Apple silicon, index on the internal SSD. The "before" column
+is the same database with the exclusion policy absent and the trigram index not yet built.
+
+| Metric | Before | After |
+| --- | --- | --- |
+| Index rows | 6,350,597 | 156,732 |
+| Index size | 20.1 GB | see note below |
+| `status()` (per query) | 47.3 s per aggregate × 5 | 4.8 ms |
+| Search `resume` (name + content) | 35.6 s | 380 ms warm, 861 ms cold |
+| Search `esum` (mid-word substring) | 50 s | 26 ms |
+| Matches for `resume` | 2,795 (mostly cache paths) | 1,733 (real documents) |
+| Prune of 6.19 M rows | — | ~4 min |
+| Trigram index build (156 k rows) | — | 6.8 s |
+| Reopen existing index | 5.2 s (schema migration) | 1.2 ms |
+| Cancellation | ignored during SQL | aborts inside SQLite |
+
+Reproduce with:
+
+```bash
+cargo run --release --manifest-path src-tauri/Cargo.toml \
+  --example search_maintenance -- \
+  "$HOME/Library/Application Support/com.replica.win11explorer/search/index.sqlite3" resume
+```
+
+Add `optimize` as a fourth argument to rebuild both FTS tables and vacuum afterwards.
+The file size only drops after a vacuum: the prune frees pages inside the existing file,
+and live reads never touch those pages, so query latency improves immediately.

@@ -10,7 +10,7 @@ mod network_mount;
 mod operations;
 mod paths;
 mod preview;
-mod search;
+pub mod search;
 mod storage;
 mod storage_cache;
 mod storage_maintenance;
@@ -195,6 +195,9 @@ pub fn run() {
             commands::rebuild_search_index,
             commands::clear_search_index,
             commands::retry_failed_extractions,
+            commands::prune_search_index,
+            commands::optimize_search_index,
+            commands::rebuild_search_name_index,
             commands::remove_search_path,
             commands::get_index_errors,
             commands::cancel_search,

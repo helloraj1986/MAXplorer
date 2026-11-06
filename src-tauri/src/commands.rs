@@ -316,6 +316,42 @@ pub async fn retry_failed_extractions(
 }
 
 #[tauri::command]
+pub async fn prune_search_index(
+    state: State<'_, SearchService>,
+) -> Result<IndexStatus, AppError> {
+    let service = state.inner().clone();
+    blocking(move || {
+        service.prune_index()?;
+        Ok(service.status())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn optimize_search_index(
+    state: State<'_, SearchService>,
+) -> Result<IndexStatus, AppError> {
+    let service = state.inner().clone();
+    blocking(move || {
+        service.optimize_index()?;
+        Ok(service.status())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn rebuild_search_name_index(
+    state: State<'_, SearchService>,
+) -> Result<IndexStatus, AppError> {
+    let service = state.inner().clone();
+    blocking(move || {
+        service.rebuild_name_index()?;
+        Ok(service.status())
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn remove_search_path(
     state: State<'_, SearchService>,
     path: String,
