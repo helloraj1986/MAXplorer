@@ -1052,80 +1052,134 @@ fn file_type_label(id: &str) -> &'static str {
     }
 }
 
-fn has_component(path_lower: &str, component: &str) -> bool {
-    path_lower.contains(&format!("/{component}/")) || path_lower.ends_with(&format!("/{component}"))
+/// Case-insensitive ASCII substring search that never allocates. Every needle in
+/// this module is lowercase ASCII, so comparing ASCII letters is equivalent to
+/// the `to_lowercase()` copies this replaces.
+fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
+    let hay = haystack.as_bytes();
+    let needle = needle.as_bytes();
+    if needle.is_empty() {
+        return true;
+    }
+    if needle.len() > hay.len() {
+        return false;
+    }
+    hay.windows(needle.len())
+        .any(|window| window.eq_ignore_ascii_case(needle))
+}
+
+fn starts_with_ignore_ascii_case(haystack: &str, prefix: &str) -> bool {
+    let hay = haystack.as_bytes();
+    let prefix = prefix.as_bytes();
+    if prefix.len() > hay.len() {
+        return false;
+    }
+    hay[..prefix.len()].eq_ignore_ascii_case(prefix)
+}
+
+fn ends_with_ignore_ascii_case(haystack: &str, suffix: &str) -> bool {
+    let hay = haystack.as_bytes();
+    let suffix = suffix.as_bytes();
+    if suffix.len() > hay.len() {
+        return false;
+    }
+    hay[hay.len() - suffix.len()..].eq_ignore_ascii_case(suffix)
+}
+
+/// True when `path` contains `component` as a whole path segment, matching either
+/// `/component/` or a trailing `/component`.
+fn has_component(path: &str, component: &str) -> bool {
+    let mut rest = path;
+    loop {
+        match rest.find('/') {
+            Some(index) => {
+                rest = &rest[index + 1..];
+                if rest.len() >= component.len()
+                    && rest.as_bytes()[..component.len()]
+                        .eq_ignore_ascii_case(component.as_bytes())
+                {
+                    let after = &rest[component.len()..];
+                    if after.is_empty() || after.starts_with('/') {
+                        return true;
+                    }
+                }
+            }
+            None => return false,
+        }
+    }
 }
 
 /// Assign exactly one storage category per file. Location categories win over
 /// extension categories so application resources, caches, and developer
 /// artifacts are never double-counted as media or documents.
 pub(crate) fn category_for(path: &Path, extension: Option<&str>) -> &'static str {
-    let lower = path.to_string_lossy().to_lowercase();
+    // `to_string_lossy` borrows for valid UTF-8, so nothing is allocated here.
+    let path = path.to_string_lossy();
     let ext = extension.unwrap_or("");
-    if has_component(&lower, ".trash") || has_component(&lower, ".trashes") {
+    if has_component(&path, ".trash") || has_component(&path, ".trashes") {
         return "trash";
     }
-    if lower.contains("/library/caches/")
-        || lower.contains("/library/logs/")
-        || lower.contains("/var/folders/")
-        || lower.contains("/private/var/folders/")
-        || lower.contains("/private/tmp/")
-        || lower.contains("/var/tmp/")
-        || lower.starts_with("/tmp/")
+    if contains_ignore_ascii_case(&path, "/library/caches/")
+        || contains_ignore_ascii_case(&path, "/library/logs/")
+        || contains_ignore_ascii_case(&path, "/var/folders/")
+        || contains_ignore_ascii_case(&path, "/private/var/folders/")
+        || contains_ignore_ascii_case(&path, "/private/tmp/")
+        || contains_ignore_ascii_case(&path, "/var/tmp/")
+        || starts_with_ignore_ascii_case(&path, "/tmp/")
     {
         return "caches";
     }
-    if lower.contains("/library/developer/")
-        || lower.contains("/deriveddata/")
-        || lower.contains("/.cargo/")
-        || lower.contains("/.rustup/")
-        || lower.contains("/.npm/")
-        || lower.contains("/.pnpm-store/")
-        || lower.contains("/.yarn/")
-        || lower.contains("/.gradle/")
-        || lower.contains("/.m2/")
-        || lower.contains("/node_modules/")
-        || lower.contains("/android/sdk/")
-        || lower.contains("/.docker/")
-        || lower.contains("/.vscode/extensions/")
-        || lower.contains("/pods/")
-        || lower.contains("/target/debug/")
-        || lower.contains("/target/release/")
-        || lower.contains("/.build/")
-        || lower.contains("/.next/")
-        || lower.contains("/.nuxt/")
+    if contains_ignore_ascii_case(&path, "/library/developer/")
+        || contains_ignore_ascii_case(&path, "/deriveddata/")
+        || contains_ignore_ascii_case(&path, "/.cargo/")
+        || contains_ignore_ascii_case(&path, "/.rustup/")
+        || contains_ignore_ascii_case(&path, "/.npm/")
+        || contains_ignore_ascii_case(&path, "/.pnpm-store/")
+        || contains_ignore_ascii_case(&path, "/.yarn/")
+        || contains_ignore_ascii_case(&path, "/.gradle/")
+        || contains_ignore_ascii_case(&path, "/.m2/")
+        || contains_ignore_ascii_case(&path, "/node_modules/")
+        || contains_ignore_ascii_case(&path, "/android/sdk/")
+        || contains_ignore_ascii_case(&path, "/.docker/")
+        || contains_ignore_ascii_case(&path, "/.vscode/extensions/")
+        || contains_ignore_ascii_case(&path, "/pods/")
+        || contains_ignore_ascii_case(&path, "/target/debug/")
+        || contains_ignore_ascii_case(&path, "/target/release/")
+        || contains_ignore_ascii_case(&path, "/.build/")
+        || contains_ignore_ascii_case(&path, "/.next/")
+        || contains_ignore_ascii_case(&path, "/.nuxt/")
     {
         return "developer";
     }
     if matches!(ext, "vmdk" | "vdi" | "qcow2" | "vhd" | "vhdx")
-        || lower.contains("/virtual machines.localized/")
-        || has_component(&lower, ".utm")
-        || has_component(&lower, ".pvm")
+        || contains_ignore_ascii_case(&path, "/virtual machines.localized/")
+        || has_component(&path, ".utm")
+        || has_component(&path, ".pvm")
     {
         return "virtualMachines";
     }
-    if lower.contains("/applications/") || lower.contains(".app/") || lower.contains(".framework/")
+    if contains_ignore_ascii_case(&path, "/applications/") || contains_ignore_ascii_case(&path, ".app/") || contains_ignore_ascii_case(&path, ".framework/")
     {
         return "applications";
     }
-    if lower.contains("/library/mail/")
-        || lower.contains("/library/messages/")
-        || lower.contains("/library/containers/com.apple.mail/")
-        || lower.contains("/library/containers/com.apple.messages/")
+    if contains_ignore_ascii_case(&path, "/library/mail/")
+        || contains_ignore_ascii_case(&path, "/library/messages/")
+        || contains_ignore_ascii_case(&path, "/library/containers/com.apple.mail/")
+        || contains_ignore_ascii_case(&path, "/library/containers/com.apple.messages/")
     {
         return "mail";
     }
-    if lower.starts_with("/system/")
-        || lower.starts_with("/usr/")
-        || lower.starts_with("/bin/")
-        || lower.starts_with("/sbin/")
-        || lower.starts_with("/private/var/db/")
-        || lower.starts_with("/private/var/vm/")
-        || lower.starts_with("/library/")
+    if starts_with_ignore_ascii_case(&path, "/system/")
+        || starts_with_ignore_ascii_case(&path, "/usr/")
+        || starts_with_ignore_ascii_case(&path, "/bin/")
+        || starts_with_ignore_ascii_case(&path, "/sbin/")
+        || starts_with_ignore_ascii_case(&path, "/private/var/db/")
+        || starts_with_ignore_ascii_case(&path, "/private/var/vm/")
+        || starts_with_ignore_ascii_case(&path, "/library/")
     {
         return "system";
     }
-    if has_component(&lower, "downloads") {
+    if has_component(&path, "downloads") {
         return "downloads";
     }
     match ext {
@@ -1147,7 +1201,7 @@ pub(crate) fn category_for(path: &Path, extension: Option<&str>) -> &'static str
 }
 
 pub(crate) fn file_type_for(path: &Path, extension: Option<&str>, category: &str) -> &'static str {
-    let lower = path.to_string_lossy().to_lowercase();
+    let path = path.to_string_lossy();
     let ext = extension.unwrap_or("");
     if category == "virtualMachines" || matches!(ext, "vmdk" | "vdi" | "qcow2" | "vhd" | "vhdx") {
         return "virtualMachines";
@@ -1155,7 +1209,7 @@ pub(crate) fn file_type_for(path: &Path, extension: Option<&str>, category: &str
     if matches!(ext, "dmg" | "iso" | "img" | "sparseimage" | "sparsebundle") {
         return "diskImages";
     }
-    if category == "applications" || lower.contains(".app/") {
+    if category == "applications" || contains_ignore_ascii_case(&path, ".app/") {
         return "applications";
     }
     if matches!(
@@ -1745,7 +1799,7 @@ pub(crate) fn scan_storage_index_with_budget(
                 }
             }
             let is_hidden = name.starts_with('.') || metadata_hidden(&metadata);
-            let cloud_placeholder = name.to_lowercase().ends_with(".icloud");
+            let cloud_placeholder = ends_with_ignore_ascii_case(&name, ".icloud");
             let file = StorageFile {
                 path: path_text.clone(),
                 name: name.clone(),
@@ -2100,7 +2154,10 @@ fn format_bytes(value: u64) -> String {
     }
 }
 
-fn path_within(path: &str, root: &str) -> bool {
+/// Path containment without allocating: `format!` used to build a `root/` needle
+/// here, and this runs once per file in every recursive query and per guarded
+/// prefix in `system_protected_path`.
+pub(crate) fn path_within(path: &str, root: &str) -> bool {
     if path == root {
         return true;
     }
@@ -2108,7 +2165,12 @@ fn path_within(path: &str, root: &str) -> bool {
     if normalized.is_empty() {
         return path.starts_with('/');
     }
-    path.starts_with(&format!("{normalized}/")) || path.starts_with(&format!("{normalized}\\"))
+    let hay = path.as_bytes();
+    let prefix = normalized.as_bytes();
+    if hay.len() <= prefix.len() || !hay[..prefix.len()].eq(prefix) {
+        return false;
+    }
+    matches!(hay[prefix.len()], b'/' | b'\\')
 }
 
 fn path_is_inside(path: &str, parent: &str) -> bool {
@@ -2417,10 +2479,9 @@ pub(crate) fn build_cleanup(
         if file.category == "system" || system_protected_path(&file.path) {
             continue;
         }
-        let lower = file.path.to_lowercase();
         let extension = file.extension.as_deref().unwrap_or("");
         let mut candidate: Option<CleanupCandidate> = None;
-        if lower.contains("/downloads/") && file.size >= 250 * ONE_MB {
+        if contains_ignore_ascii_case(&file.path, "/downloads/") && file.size >= 250 * ONE_MB {
             candidate = Some(CleanupCandidate {
                 kind: "largeDownload".into(),
                 title: "Large download".into(),
@@ -2641,7 +2702,47 @@ pub fn children_core(
     })
 }
 
+/// Allocating comparator for name sorting. ASCII names (the overwhelming
+/// majority) never build a lowercase copy; only non-ASCII names fall back.
+fn compare_names(left: &str, right: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    if left.is_ascii() && right.is_ascii() {
+        let mut left_bytes = left.bytes().map(|value| value.to_ascii_lowercase());
+        let mut right_bytes = right.bytes().map(|value| value.to_ascii_lowercase());
+        loop {
+            match (left_bytes.next(), right_bytes.next()) {
+                (None, None) => return Ordering::Equal,
+                (None, Some(_)) => return Ordering::Less,
+                (Some(_), None) => return Ordering::Greater,
+                (Some(left), Some(right)) => {
+                    let ordering = left.cmp(&right);
+                    if ordering != Ordering::Equal {
+                        return ordering;
+                    }
+                }
+            }
+        }
+    } else {
+        left.to_lowercase().cmp(&right.to_lowercase())
+    }
+}
+
+fn name_contains(name: &str, needle_lower: &str) -> bool {
+    if name.is_ascii() {
+        contains_ignore_ascii_case(name, needle_lower)
+    } else {
+        name.to_lowercase().contains(needle_lower)
+    }
+}
+
 pub fn query_files_core(index: &ScanIndex, query: &StorageFileQuery) -> StorageFilePage {
+    // The needles are prepared once. The previous implementation lowercased every
+    // filename and extension, and rebuilt the directory prefix, for every query.
+    let name_needle = query.name.as_deref().map(|value| value.to_lowercase());
+    let extension_needle = query
+        .extension
+        .as_deref()
+        .map(|value| value.to_ascii_lowercase());
     let mut filtered: Vec<&StorageFile> = index
         .files
         .iter()
@@ -2665,13 +2766,13 @@ pub fn query_files_core(index: &ScanIndex, query: &StorageFileQuery) -> StorageF
                     return false;
                 }
             }
-            if let Some(name) = query.name.as_deref() {
-                if !file.name.to_lowercase().contains(&name.to_lowercase()) {
+            if let Some(name) = name_needle.as_deref() {
+                if !name_contains(&file.name, name) {
                     return false;
                 }
             }
-            if let Some(extension) = query.extension.as_deref() {
-                if file.extension.as_deref() != Some(extension.to_lowercase().as_str()) {
+            if let Some(extension) = extension_needle.as_deref() {
+                if file.extension.as_deref() != Some(extension) {
                     return false;
                 }
             }
@@ -2721,27 +2822,39 @@ pub fn query_files_core(index: &ScanIndex, query: &StorageFileQuery) -> StorageF
     let total_bytes = filtered.iter().map(|file| file.size).sum();
     let total = filtered.len() as u64;
     let ascending = query.direction.eq_ignore_ascii_case("asc");
-    filtered.sort_by(|left, right| {
-        let ordering = match query.sort.as_str() {
-            "name" => left.name.to_lowercase().cmp(&right.name.to_lowercase()),
+    let sort = query.sort.as_str();
+    // The path tiebreak makes the order deterministic, which also lets a partial
+    // selection produce the same page a full sort would.
+    let compare = |left: &&StorageFile, right: &&StorageFile| {
+        let ordering = match sort {
+            "name" => compare_names(&left.name, &right.name),
             "modified" => left.modified.cmp(&right.modified),
             "created" => left.created.cmp(&right.created),
             "type" => left
                 .file_type
                 .cmp(&right.file_type)
-                .then(left.name.cmp(&right.name)),
+                .then_with(|| left.name.cmp(&right.name)),
             "path" => left.path.cmp(&right.path),
             _ => left.size.cmp(&right.size),
-        };
+        }
+        .then_with(|| left.path.cmp(&right.path));
         if ascending {
             ordering
         } else {
             ordering.reverse()
         }
-    });
+    };
     let limit = query.limit.clamp(1, 5_000);
     let offset = query.offset;
     let has_more = filtered.len() > offset.saturating_add(limit);
+    // Sorting the whole index costs seconds on a multi-million-entry scan while a
+    // page only needs the first `offset + limit` rows ordered.
+    let needed = offset.saturating_add(limit);
+    if needed < filtered.len() {
+        filtered.select_nth_unstable_by(needed, compare);
+        filtered.truncate(needed);
+    }
+    filtered.sort_by(compare);
     let files = filtered
         .into_iter()
         .skip(offset)

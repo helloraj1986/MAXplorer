@@ -291,6 +291,118 @@ mod tests {
         );
     }
 
+    #[test]
+    fn storage_path_containment_requires_a_component_boundary() {
+        use crate::storage::path_within;
+        assert!(path_within("/Users/rajeevk/Documents/report.pdf", "/Users/rajeevk"));
+        assert!(path_within("/Users/rajeevk/", "/Users/rajeevk"));
+        assert!(path_within("/Users/rajeevk", "/Users/rajeevk"));
+        assert!(!path_within("/Users/rajeevk2/report.pdf", "/Users/rajeevk"));
+        assert!(!path_within("/Users/rajeevk", "/Users/rajeevk/Documents"));
+        assert!(path_within("/tmp/anything", ""));
+        assert!(!path_within("relative/path", ""));
+    }
+
+    #[test]
+    fn storage_category_matching_is_case_insensitive_without_copying_the_path() {
+        use crate::storage::{category_for, file_type_for};
+        use std::path::Path;
+        assert_eq!(
+            category_for(Path::new("/Users/example/Library/Caches/com.acme/blob.bin"), Some("bin")),
+            "caches"
+        );
+        assert_eq!(
+            category_for(Path::new("/Users/example/Library/Developer/Xcode/DerivedData/a.o"), Some("o")),
+            "developer"
+        );
+        assert_eq!(
+            category_for(Path::new("/Users/example/Code/app/NODE_MODULES/pkg/index.js"), Some("js")),
+            "developer"
+        );
+        assert_eq!(
+            category_for(Path::new("/Users/example/Downloads/Trip/IMG_0042.JPG"), Some("jpg")),
+            "downloads"
+        );
+        assert_eq!(
+            category_for(Path::new("/Users/example/.Trash/old.zip"), Some("zip")),
+            "trash"
+        );
+        assert_eq!(
+            file_type_for(Path::new("/Applications/Sample.APP/Contents/Resources/pic.png"), Some("png"), "applications"),
+            "applications"
+        );
+    }
+
+    #[test]
+    fn storage_query_paging_matches_a_full_sort_and_filters_case_insensitively() {
+        use crate::storage::{query_files_core, scan_storage_index, StorageFileQuery};
+        let root = tempdir().unwrap();
+        let folder = root.path().join("frames");
+        fs::create_dir(&folder).unwrap();
+        for index in 0..20 {
+            fs::write(
+                folder.join(format!("frame-{index:02}.mp4")),
+                vec![b'x'; 100 + index * 10],
+            )
+            .unwrap();
+        }
+        // Three identical sizes ensure the ordering is decided by the path tiebreak.
+        for name in ["dup-a.txt", "dup-b.txt", "dup-c.txt"] {
+            fs::write(folder.join(name), vec![b'x'; 9_000]).unwrap();
+        }
+        let index = scan_storage_index(
+            root.path(),
+            42,
+            20_000,
+            &AtomicBool::new(false),
+            &|_| {},
+        )
+        .unwrap();
+        let make = |limit: usize, offset: usize, name: Option<&str>| StorageFileQuery {
+            scan_id: 42,
+            directory: Some(root.path().to_string_lossy().to_string()),
+            category: None,
+            file_type: None,
+            name: name.map(|value| value.to_string()),
+            extension: None,
+            min_size: None,
+            max_size: None,
+            modified_after: None,
+            modified_before: None,
+            created_after: None,
+            created_before: None,
+            hidden: None,
+            symlinks: None,
+            recursive: true,
+            sort: "size".into(),
+            direction: "desc".into(),
+            limit,
+            offset,
+        };
+        let all = query_files_core(&index, &make(5_000, 0, None));
+        let page = query_files_core(&index, &make(10, 5, None));
+        let expected: Vec<&str> = all
+            .files
+            .iter()
+            .skip(5)
+            .take(10)
+            .map(|file| file.path.as_str())
+            .collect();
+        let actual: Vec<&str> = page.files.iter().map(|file| file.path.as_str()).collect();
+        assert_eq!(actual, expected);
+        assert_eq!(page.total, all.total);
+        assert!(page.has_more);
+        let repeated = query_files_core(&index, &make(10, 5, None));
+        assert_eq!(
+            repeated.files.iter().map(|file| file.path.as_str()).collect::<Vec<_>>(),
+            actual,
+            "paging must be deterministic across identical queries"
+        );
+        let named = query_files_core(&index, &make(500, 0, Some("FRAME-07")));
+        assert_eq!(named.total, 1);
+        assert!(named.files[0].name.ends_with("frame-07.mp4"));
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn storage_scan_reads_real_available_memory() {
