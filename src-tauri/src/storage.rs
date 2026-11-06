@@ -19,8 +19,8 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use walkdir::WalkDir;
 
@@ -1383,6 +1383,25 @@ struct Bucket {
     files: u64,
 }
 
+/// Look up (or create) the bucket for a category/file-type id. The id set is tiny,
+/// so the clone happens once per distinct id, never per file.
+fn bucket_for<'a>(map: &'a mut HashMap<String, Bucket>, key: &str) -> &'a mut Bucket {
+    if !map.contains_key(key) {
+        map.insert(key.to_string(), Bucket::default());
+    }
+    map.get_mut(key).expect("bucket was just inserted")
+}
+
+fn extension_set<'a>(
+    map: &'a mut HashMap<String, HashSet<String>>,
+    key: &str,
+) -> &'a mut HashSet<String> {
+    if !map.contains_key(key) {
+        map.insert(key.to_string(), HashSet::new());
+    }
+    map.get_mut(key).expect("extension set was just inserted")
+}
+
 struct DirWork {
     record: StorageDirectory,
     direct_size: u64,
@@ -1494,6 +1513,422 @@ fn available_memory_bytes() -> Option<u64> {
     None
 }
 
+/* ------------------------------------------------------------------------- */
+/* Parallel directory walk                                                    */
+/* ------------------------------------------------------------------------- */
+
+/// Counters shared by walker threads. They exist for the memory/entry budget and
+/// for progress; per-thread detail (errors, symlink counts) travels in
+/// `WorkerOutput` and is summed once at the end.
+#[derive(Default)]
+struct WalkCounters {
+    entries: AtomicU64,
+    files: AtomicU64,
+    directories: AtomicU64,
+    /// Bytes seen while walking, including hard links that will not be counted twice.
+    /// Progress only; the exact totals are computed after the walk.
+    progress_bytes: AtomicU64,
+    index_bytes: AtomicU64,
+}
+
+impl WalkCounters {
+    fn entries(&self) -> u64 {
+        self.entries.load(Ordering::Relaxed)
+    }
+    fn files(&self) -> u64 {
+        self.files.load(Ordering::Relaxed)
+    }
+    fn directories(&self) -> u64 {
+        self.directories.load(Ordering::Relaxed)
+    }
+    fn progress_bytes(&self) -> u64 {
+        self.progress_bytes.load(Ordering::Relaxed)
+    }
+    fn index_bytes(&self) -> u64 {
+        self.index_bytes.load(Ordering::Relaxed)
+    }
+}
+
+/// First guard that stopped the walk wins, so a cancel cannot overwrite the
+/// memory/entry reason that was already recorded.
+#[derive(Default)]
+struct Stoppage {
+    limit: AtomicU8,
+}
+
+impl Stoppage {
+    fn record(&self, hit: LimitHit) {
+        let value = match hit {
+            LimitHit::Entries => 1,
+            LimitHit::Memory => 2,
+        };
+        let _ = self
+            .limit
+            .compare_exchange(0, value, Ordering::Relaxed, Ordering::Relaxed);
+    }
+    fn hit(&self) -> Option<LimitHit> {
+        match self.limit.load(Ordering::Relaxed) {
+            1 => Some(LimitHit::Entries),
+            2 => Some(LimitHit::Memory),
+            _ => None,
+        }
+    }
+}
+
+struct QueueState {
+    pending: Vec<(PathBuf, u32)>,
+    in_flight: usize,
+}
+
+/// Work-stealing queue of directories. A worker exits only when nothing is
+/// pending *and* no other worker is mid-directory, because that worker may still
+/// discover child directories.
+struct WorkQueue {
+    state: Mutex<QueueState>,
+    ready: Condvar,
+    last_path: Mutex<Option<String>>,
+}
+
+impl WorkQueue {
+    fn new(root: PathBuf) -> Self {
+        Self {
+            state: Mutex::new(QueueState {
+                pending: vec![(root, 0)],
+                in_flight: 0,
+            }),
+            ready: Condvar::new(),
+            last_path: Mutex::new(None),
+        }
+    }
+
+    /// Blocks until a directory is available, or returns `None` when the walk is
+    /// finished (or stopping).
+    fn take(&self, stopping: impl Fn() -> bool) -> Option<(PathBuf, u32)> {
+        let mut guard = self
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        loop {
+            if stopping() {
+                return None;
+            }
+            if let Some(item) = guard.pending.pop() {
+                guard.in_flight += 1;
+                return Some(item);
+            }
+            if guard.in_flight == 0 {
+                return None;
+            }
+            guard = self
+                .ready
+                .wait(guard)
+                .unwrap_or_else(|error| error.into_inner());
+        }
+    }
+
+    fn finish(&self, children: Vec<(PathBuf, u32)>) {
+        let mut guard = self
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        guard.in_flight = guard.in_flight.saturating_sub(1);
+        guard.pending.extend(children);
+        drop(guard);
+        self.ready.notify_all();
+    }
+
+    fn note_path(&self, path: &str) {
+        if let Ok(mut guard) = self.last_path.lock() {
+            *guard = Some(path.to_string());
+        }
+    }
+
+    fn last_path(&self) -> Option<String> {
+        self.last_path.lock().ok().and_then(|guard| guard.clone())
+    }
+}
+
+struct WorkerOutput {
+    files: Vec<StorageFile>,
+    inodes: Vec<Option<(u64, u64, u64)>>,
+    directories: Vec<StorageDirectory>,
+    symbolic_links: u64,
+    permission_errors: u64,
+    read_errors: u64,
+    skipped_mounts: u64,
+    skipped_reserved: u64,
+}
+
+/// Read one directory and produce the records for its direct children. Nothing
+/// shared is mutated here except counters, so workers never contend on the index.
+fn read_directory(
+    directory: &Path,
+    depth: u32,
+    excluded: &[PathBuf],
+    budget: &ScanBudget,
+    counters: &WalkCounters,
+    stoppage: &Stoppage,
+    cancel: &AtomicBool,
+) -> (
+    Vec<StorageFile>,
+    Vec<Option<(u64, u64, u64)>>,
+    Vec<StorageDirectory>,
+    Vec<(PathBuf, u32)>,
+    u64,
+    u64,
+    u64,
+    u64,
+    u64,
+) {
+    let mut files = Vec::new();
+    let mut inodes = Vec::new();
+    let mut directories = Vec::new();
+    let mut children = Vec::new();
+    let mut symbolic_links = 0u64;
+    let mut permission_errors = 0u64;
+    let mut read_errors = 0u64;
+    let mut skipped_mounts = 0u64;
+    let mut skipped_reserved = 0u64;
+
+    let listing = match fs::read_dir(directory) {
+        Ok(listing) => listing,
+        Err(error) => {
+            read_errors += 1;
+            if error.kind() == std::io::ErrorKind::PermissionDenied {
+                permission_errors += 1;
+            }
+            return (
+                files,
+                inodes,
+                directories,
+                children,
+                symbolic_links,
+                permission_errors,
+                read_errors,
+                skipped_mounts,
+                skipped_reserved,
+            );
+        }
+    };
+
+    for entry in listing {
+        if cancel.load(Ordering::Relaxed) || stoppage.hit().is_some() {
+            break;
+        }
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                read_errors += 1;
+                if error.kind() == std::io::ErrorKind::PermissionDenied {
+                    permission_errors += 1;
+                }
+                continue;
+            }
+        };
+        let path = entry.path();
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                read_errors += 1;
+                if error.kind() == std::io::ErrorKind::PermissionDenied {
+                    permission_errors += 1;
+                }
+                continue;
+            }
+        };
+        let path_text = path.to_string_lossy().to_string();
+        let summary = counters.entries.fetch_add(1, Ordering::Relaxed) + 1;
+        if summary as usize > budget.max_entries {
+            stoppage.record(LimitHit::Entries);
+            break;
+        }
+        if counters.index_bytes() >= budget.max_index_bytes {
+            stoppage.record(LimitHit::Memory);
+            break;
+        }
+        let parent_text = path
+            .parent()
+            .map(|value| value.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let name = path
+            .file_name()
+            .map(|value| value.to_string_lossy().to_string())
+            .unwrap_or_else(|| path_text.clone());
+        let is_symlink = metadata.file_type().is_symlink();
+        let child_depth = depth.saturating_add(1);
+        if metadata.is_dir() {
+            if excluded.iter().any(|mount| path == *mount) {
+                skipped_mounts += 1;
+                continue;
+            }
+            if is_reserved_directory(&name) {
+                skipped_reserved += 1;
+                continue;
+            }
+            counters.directories.fetch_add(1, Ordering::Relaxed);
+            directories.push(StorageDirectory {
+                path: path_text.clone(),
+                name: name.clone(),
+                parent: parent_text.clone(),
+                size: 0,
+                allocated: 0,
+                files: 0,
+                folders: 0,
+                direct_files: 0,
+                direct_folders: 0,
+                largest_file_size: 0,
+                largest_file_path: None,
+                modified: system_time_ms(metadata.modified()),
+                depth: child_depth,
+                is_package: is_package_directory(&name),
+                is_protected: system_protected_path(&path_text),
+                is_read_only: metadata.permissions().readonly(),
+            });
+            counters.index_bytes.fetch_add(
+                std::mem::size_of::<StorageDirectory>() as u64
+                    + (path_text.len().saturating_mul(2)) as u64
+                    + name.len() as u64
+                    + parent_text.len() as u64
+                    + ENTRY_INDEX_OVERHEAD,
+                Ordering::Relaxed,
+            );
+            if (child_depth as usize) < MAX_SCAN_DEPTH {
+                children.push((path, child_depth));
+            }
+            continue;
+        }
+
+        counters.files.fetch_add(1, Ordering::Relaxed);
+        if is_symlink {
+            symbolic_links += 1;
+        }
+        let extension = path
+            .extension()
+            .map(|value| value.to_string_lossy().to_lowercase())
+            .filter(|value| !value.is_empty());
+        let category = if is_symlink {
+            "other"
+        } else {
+            category_for(&path, extension.as_deref())
+        };
+        let file_type = if is_symlink {
+            "other"
+        } else {
+            file_type_for(&path, extension.as_deref(), category)
+        };
+        let size = metadata.len();
+        let allocated = if is_symlink {
+            0
+        } else {
+            allocated_size(&metadata)
+        };
+        counters.progress_bytes.fetch_add(size, Ordering::Relaxed);
+        let is_hidden = name.starts_with('.') || metadata_hidden(&metadata);
+        let cloud_placeholder = ends_with_ignore_ascii_case(&name, ".icloud");
+        let file = StorageFile {
+            path: path_text.clone(),
+            name,
+            parent: parent_text,
+            extension,
+            is_symlink,
+            size,
+            allocated,
+            modified: system_time_ms(metadata.modified()),
+            created: system_time_ms(metadata.created()),
+            accessed: system_time_ms(metadata.accessed()),
+            is_hidden,
+            is_package: false,
+            hard_link: false,
+            cloud_placeholder,
+            is_protected: system_protected_path(&path_text),
+            is_read_only: metadata.permissions().readonly(),
+            category: category.to_string(),
+            file_type: file_type.to_string(),
+        };
+        counters.index_bytes.fetch_add(
+            std::mem::size_of::<StorageFile>() as u64
+                + file.path.len() as u64
+                + file.name.len() as u64
+                + file.parent.len() as u64
+                + file
+                    .extension
+                    .as_ref()
+                    .map(|value| value.len())
+                    .unwrap_or(0) as u64
+                + file.category.len() as u64
+                + file.file_type.len() as u64
+                + ENTRY_INDEX_OVERHEAD,
+            Ordering::Relaxed,
+        );
+        inodes.push(if is_symlink {
+            None
+        } else {
+            inode_identity(&metadata)
+        });
+        files.push(file);
+    }
+
+    (
+        files,
+        inodes,
+        directories,
+        children,
+        symbolic_links,
+        permission_errors,
+        read_errors,
+        skipped_mounts,
+        skipped_reserved,
+    )
+}
+
+fn walk_worker(
+    queue: &WorkQueue,
+    excluded: &[PathBuf],
+    budget: &ScanBudget,
+    cancel: &AtomicBool,
+    counters: &WalkCounters,
+    stoppage: &Stoppage,
+) -> WorkerOutput {
+    let mut output = WorkerOutput {
+        files: Vec::new(),
+        inodes: Vec::new(),
+        directories: Vec::new(),
+        symbolic_links: 0,
+        permission_errors: 0,
+        read_errors: 0,
+        skipped_mounts: 0,
+        skipped_reserved: 0,
+    };
+    while let Some((directory, depth)) = queue.take(|| {
+        cancel.load(Ordering::Relaxed) || stoppage.hit().is_some()
+    }) {
+        queue.note_path(&directory.to_string_lossy());
+        let (
+            files,
+            inodes,
+            directories,
+            children,
+            symbolic_links,
+            permission_errors,
+            read_errors,
+            skipped_mounts,
+            skipped_reserved,
+        ) = read_directory(
+            &directory, depth, excluded, budget, counters, stoppage, cancel,
+        );
+        output.files.extend(files);
+        output.inodes.extend(inodes);
+        output.directories.extend(directories);
+        output.symbolic_links += symbolic_links;
+        output.permission_errors += permission_errors;
+        output.read_errors += read_errors;
+        output.skipped_mounts += skipped_mounts;
+        output.skipped_reserved += skipped_reserved;
+        queue.finish(children);
+    }
+    output
+}
+
 /// Turn the caller's entry request into a budget.
 ///
 /// `max_entries == 0` means "auto" (the Deep scan control): the ceiling stays wide
@@ -1556,27 +1991,6 @@ pub(crate) fn scan_storage_index_with_budget(
     let root_display = root.to_string_lossy().to_string();
     let excluded = excluded_mounts(root);
     let mut directories: HashMap<String, DirWork> = HashMap::new();
-    let mut files: Vec<StorageFile> = Vec::new();
-    let mut categories: HashMap<&'static str, Bucket> = HashMap::new();
-    let mut file_types: HashMap<&'static str, Bucket> = HashMap::new();
-    let mut type_extensions: HashMap<&'static str, HashSet<String>> = HashMap::new();
-    let mut seen_inodes: HashSet<(u64, u64, u64)> = HashSet::new();
-    let mut scanned_entries = 0u64;
-    let mut scanned_files = 0u64;
-    let mut scanned_directories = 0u64;
-    let mut symbolic_links = 0u64;
-    let mut hard_links = 0u64;
-    let mut permission_errors = 0u64;
-    let mut read_errors = 0u64;
-    let mut skipped_mounts = 0u64;
-    let mut skipped_reserved = 0u64;
-    let mut logical_bytes = 0u64;
-    let mut allocated_bytes = 0u64;
-    let mut index_bytes = 0u64;
-    let mut limit_hit: Option<LimitHit> = None;
-    let mut truncated = false;
-    let mut cancelled = false;
-    let mut current_path: Option<String> = None;
 
     let root_name = root
         .file_name()
@@ -1620,247 +2034,149 @@ pub(crate) fn scan_storage_index_with_budget(
         cancelled: false,
     });
 
-    let walker = WalkDir::new(root)
-        .follow_links(false)
-        .max_depth(MAX_SCAN_DEPTH)
-        .into_iter()
-        .filter_entry(|item| {
-            if item.depth() == 0 {
-                return true;
-            }
-            if excluded.iter().any(|mount| item.path() == mount) {
-                skipped_mounts += 1;
-                return false;
-            }
-            if item.file_type().is_dir() {
-                let name = item.file_name().to_string_lossy();
-                if is_reserved_directory(&name) {
-                    skipped_reserved += 1;
-                    return false;
-                }
-            }
-            true
-        });
-
-    for item in walker {
-        if cancel.load(Ordering::Relaxed) {
-            cancelled = true;
-            break;
+    let threads = std::thread::available_parallelism()
+        .map(|value| value.get())
+        .unwrap_or(4)
+        .clamp(2, 8);
+    let queue = WorkQueue::new(root.to_path_buf());
+    let counters = WalkCounters::default();
+    let stoppage = Stoppage::default();
+    let walk_started = Instant::now();
+    let workers: Vec<WorkerOutput> = std::thread::scope(|scope| {
+        let mut handles = Vec::with_capacity(threads);
+        for _ in 0..threads {
+            handles.push(scope.spawn(|| {
+                walk_worker(&queue, &excluded, &budget, cancel, &counters, &stoppage)
+            }));
         }
-        if scanned_entries as usize >= budget.max_entries {
-            truncated = true;
-            limit_hit = Some(LimitHit::Entries);
-            break;
-        }
-        if index_bytes >= budget.max_index_bytes {
-            truncated = true;
-            limit_hit = Some(LimitHit::Memory);
-            break;
-        }
-        let entry = match item {
-            Ok(entry) => entry,
-            Err(error) => {
-                read_errors += 1;
-                if error
-                    .io_error()
-                    .map(|value| value.kind() == std::io::ErrorKind::PermissionDenied)
-                    .unwrap_or(false)
-                {
-                    permission_errors += 1;
-                }
-                continue;
-            }
-        };
-        if entry.depth() == 0 {
-            continue;
-        }
-        scanned_entries += 1;
-        let path = entry.path();
-        let path_text = path.to_string_lossy().to_string();
-        current_path = Some(path_text.clone());
-        let metadata = match fs::symlink_metadata(path) {
-            Ok(metadata) => metadata,
-            Err(error) => {
-                read_errors += 1;
-                if error.kind() == std::io::ErrorKind::PermissionDenied {
-                    permission_errors += 1;
-                }
-                continue;
-            }
-        };
-        let parent_text = path
-            .parent()
-            .map(|value| value.to_string_lossy().to_string())
-            .unwrap_or_default();
-        let name = path
-            .file_name()
-            .map(|value| value.to_string_lossy().to_string())
-            .unwrap_or_else(|| path_text.clone());
-        let depth = entry.depth() as u32;
-        let is_symlink = metadata.file_type().is_symlink();
-        let is_dir = metadata.is_dir();
-        if is_dir {
-            scanned_directories += 1;
-            directories.insert(
-                path_text.clone(),
-                DirWork {
-                    record: StorageDirectory {
-                        path: path_text.clone(),
-                        name: name.clone(),
-                        parent: parent_text.clone(),
-                        size: 0,
-                        allocated: 0,
-                        files: 0,
-                        folders: 0,
-                        direct_files: 0,
-                        direct_folders: 0,
-                        largest_file_size: 0,
-                        largest_file_path: None,
-                        modified: system_time_ms(metadata.modified()),
-                        depth,
-                        is_package: is_package_directory(&name),
-                        is_protected: system_protected_path(&path_text),
-                        is_read_only: metadata.permissions().readonly(),
-                    },
-                    direct_size: 0,
-                    direct_allocated: 0,
-                },
-            );
-            if let Some(parent) = directories.get_mut(&parent_text) {
-                parent.record.direct_folders += 1;
-            }
-            index_bytes = index_bytes.saturating_add(
-                std::mem::size_of::<StorageDirectory>() as u64
-                    // The path is stored twice: once as the HashMap key, once
-                    // inside the record.
-                    + (path_text.len().saturating_mul(2)) as u64
-                    + name.len() as u64
-                    + parent_text.len() as u64
-                    + ENTRY_INDEX_OVERHEAD,
-            );
-        } else {
-            scanned_files += 1;
-            if is_symlink {
-                symbolic_links += 1;
-            }
-            let extension = path
-                .extension()
-                .map(|value| value.to_string_lossy().to_lowercase())
-                .filter(|value| !value.is_empty());
-            let category = if is_symlink {
-                "other"
-            } else {
-                category_for(path, extension.as_deref())
-            };
-            let file_type = if is_symlink {
-                "other"
-            } else {
-                file_type_for(path, extension.as_deref(), category)
-            };
-            let size = if is_symlink {
-                metadata.len()
-            } else {
-                metadata.len()
-            };
-            let allocated = if is_symlink {
-                0
-            } else {
-                allocated_size(&metadata)
-            };
-            let identity = if is_symlink {
-                None
-            } else {
-                inode_identity(&metadata)
-            };
-            let duplicate_hard_link = identity
-                .as_ref()
-                .map(|key| !seen_inodes.insert(*key))
-                .unwrap_or(false);
-            if duplicate_hard_link {
-                hard_links += 1;
-            }
-            let counted = !duplicate_hard_link;
-            if counted {
-                logical_bytes = logical_bytes.saturating_add(size);
-                allocated_bytes = allocated_bytes.saturating_add(allocated);
-                let category_bucket = categories.entry(category).or_default();
-                category_bucket.bytes = category_bucket.bytes.saturating_add(size);
-                category_bucket.allocated = category_bucket.allocated.saturating_add(allocated);
-                category_bucket.files += 1;
-                let type_bucket = file_types.entry(file_type).or_default();
-                type_bucket.bytes = type_bucket.bytes.saturating_add(size);
-                type_bucket.allocated = type_bucket.allocated.saturating_add(allocated);
-                type_bucket.files += 1;
-                if let Some(extension) = extension.as_ref() {
-                    type_extensions
-                        .entry(file_type)
-                        .or_default()
-                        .insert(extension.clone());
-                }
-            }
-            let is_hidden = name.starts_with('.') || metadata_hidden(&metadata);
-            let cloud_placeholder = ends_with_ignore_ascii_case(&name, ".icloud");
-            let file = StorageFile {
-                path: path_text.clone(),
-                name: name.clone(),
-                parent: parent_text.clone(),
-                extension,
-                is_symlink,
-                size,
-                allocated,
-                modified: system_time_ms(metadata.modified()),
-                created: system_time_ms(metadata.created()),
-                accessed: system_time_ms(metadata.accessed()),
-                is_hidden,
-                is_package: false,
-                hard_link: duplicate_hard_link,
-                cloud_placeholder,
-                is_protected: system_protected_path(&path_text),
-                is_read_only: metadata.permissions().readonly(),
-                category: category.to_string(),
-                file_type: file_type.to_string(),
-            };
-            index_bytes = index_bytes.saturating_add(
-                std::mem::size_of::<StorageFile>() as u64
-                    + file.path.len() as u64
-                    + file.name.len() as u64
-                    + file.parent.len() as u64
-                    + file
-                        .extension
-                        .as_ref()
-                        .map(|value| value.len())
-                        .unwrap_or(0) as u64
-                    + file.category.len() as u64
-                    + file.file_type.len() as u64
-                    + ENTRY_INDEX_OVERHEAD,
-            );
-            files.push(file);
-            if let Some(parent) = directories.get_mut(&parent_text) {
-                parent.record.direct_files += 1;
-                if counted {
-                    parent.direct_size = parent.direct_size.saturating_add(size);
-                    parent.direct_allocated = parent.direct_allocated.saturating_add(allocated);
-                }
-                if counted && size > parent.record.largest_file_size {
-                    parent.record.largest_file_size = size;
-                    parent.record.largest_file_path = Some(path_text.clone());
-                }
-            }
-        }
-        if scanned_entries % 1_500 == 0 {
+        // Progress is emitted from the coordinating thread so the callback never
+        // has to cross a thread boundary, and so it is throttled by wall clock
+        // instead of firing every 1,500 entries.
+        while !handles.iter().all(|handle| handle.is_finished()) {
+            std::thread::sleep(std::time::Duration::from_millis(300));
             progress(StorageScanProgress {
                 scan_id,
                 root: root_display.clone(),
-                scanned_entries,
-                scanned_files,
-                scanned_directories,
-                logical_bytes,
-                current_path: current_path.clone(),
-                elapsed_ms: started.elapsed().as_millis() as u64,
-                cancelled: false,
+                scanned_entries: counters.entries(),
+                scanned_files: counters.files(),
+                scanned_directories: counters.directories(),
+                logical_bytes: counters.progress_bytes(),
+                current_path: queue.last_path(),
+                elapsed_ms: walk_started.elapsed().as_millis() as u64,
+                cancelled: cancel.load(Ordering::Relaxed),
             });
         }
+        handles
+            .into_iter()
+            .filter_map(|handle| handle.join().ok())
+            .collect::<Vec<_>>()
+    });
+
+    let cancelled = cancel.load(Ordering::Relaxed);
+    let limit_hit = stoppage.hit();
+    let truncated = limit_hit.is_some();
+    let scanned_entries = counters.entries();
+    let scanned_directories = counters.directories();
+
+    let mut files: Vec<StorageFile> = Vec::with_capacity(scanned_entries as usize / 2);
+    let mut inodes: Vec<Option<(u64, u64, u64)>> = Vec::new();
+    let mut directory_records: Vec<StorageDirectory> = Vec::new();
+    let mut scanned_files = 0u64;
+    let mut symbolic_links = 0u64;
+    let mut permission_errors = 0u64;
+    let mut read_errors = 0u64;
+    let mut skipped_mounts = 0u64;
+    let mut skipped_reserved = 0u64;
+    for output in workers {
+        scanned_files += output.files.len() as u64;
+        symbolic_links += output.symbolic_links;
+        permission_errors += output.permission_errors;
+        read_errors += output.read_errors;
+        skipped_mounts += output.skipped_mounts;
+        skipped_reserved += output.skipped_reserved;
+        files.extend(output.files);
+        inodes.extend(output.inodes);
+        directory_records.extend(output.directories);
     }
+
+    // Directory records arrive in walk order per worker, so parent links are
+    // resolved in a second pass instead of relying on depth-first ordering.
+    let mut parent_links: Vec<String> = Vec::with_capacity(directory_records.len());
+    for record in directory_records {
+        parent_links.push(record.parent.clone());
+        directories.insert(
+            record.path.clone(),
+            DirWork {
+                record,
+                direct_size: 0,
+                direct_allocated: 0,
+            },
+        );
+    }
+    for parent in parent_links {
+        if let Some(parent_work) = directories.get_mut(&parent) {
+            parent_work.record.direct_folders += 1;
+        }
+    }
+
+    // Hard links, per-directory direct totals and category buckets are resolved
+    // once, after the walk. Doing this with the walk would need a global inode set
+    // inside every worker.
+    let mut seen_inodes: HashSet<(u64, u64, u64)> = HashSet::new();
+    let mut categories: HashMap<String, Bucket> = HashMap::new();
+    let mut file_types: HashMap<String, Bucket> = HashMap::new();
+    let mut type_extensions: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut logical_bytes = 0u64;
+    let mut allocated_bytes = 0u64;
+    let mut hard_links = 0u64;
+    for (index, file) in files.iter_mut().enumerate() {
+        let duplicate = inodes
+            .get(index)
+            .and_then(|identity| *identity)
+            .map(|key| !seen_inodes.insert(key))
+            .unwrap_or(false);
+        file.hard_link = duplicate;
+        if duplicate {
+            hard_links += 1;
+        }
+        let counted = !duplicate;
+        if counted {
+            logical_bytes = logical_bytes.saturating_add(file.size);
+            allocated_bytes = allocated_bytes.saturating_add(file.allocated);
+            let category_bucket = bucket_for(&mut categories, &file.category);
+            category_bucket.bytes = category_bucket.bytes.saturating_add(file.size);
+            category_bucket.allocated = category_bucket.allocated.saturating_add(file.allocated);
+            category_bucket.files += 1;
+            let type_bucket = bucket_for(&mut file_types, &file.file_type);
+            type_bucket.bytes = type_bucket.bytes.saturating_add(file.size);
+            type_bucket.allocated = type_bucket.allocated.saturating_add(file.allocated);
+            type_bucket.files += 1;
+            if let Some(extension) = file.extension.as_ref() {
+                extension_set(&mut type_extensions, &file.file_type).insert(extension.clone());
+            }
+        }
+        if let Some(parent) = directories.get_mut(&file.parent) {
+            parent.record.direct_files += 1;
+            if counted {
+                parent.direct_size = parent.direct_size.saturating_add(file.size);
+                parent.direct_allocated = parent.direct_allocated.saturating_add(file.allocated);
+                // Ties resolve by path so the result does not depend on walk order.
+                let larger = file.size > parent.record.largest_file_size
+                    || (file.size == parent.record.largest_file_size
+                        && parent
+                            .record
+                            .largest_file_path
+                            .as_deref()
+                            .map(|current| file.path.as_str() < current)
+                            .unwrap_or(true));
+                if file.size > 0 && larger {
+                    parent.record.largest_file_size = file.size;
+                    parent.record.largest_file_path = Some(file.path.clone());
+                }
+            }
+        }
+    }
+    drop(inodes);
 
     // Seed each directory with its direct-file totals, then propagate aggregate
     // totals bottom-up. A directory contributes to exactly one parent, so no
@@ -1917,8 +2233,8 @@ pub(crate) fn scan_storage_index_with_budget(
     let mut category_list: Vec<StorageCategory> = categories
         .into_iter()
         .map(|(id, bucket)| StorageCategory {
-            id: id.to_string(),
-            label: category_label(id).to_string(),
+            label: category_label(&id).to_string(),
+            id,
             bytes: bucket.bytes,
             allocated: bucket.allocated,
             files: bucket.files,
@@ -1931,15 +2247,15 @@ pub(crate) fn scan_storage_index_with_budget(
         .into_iter()
         .map(|(id, bucket)| {
             let mut extensions: Vec<String> = type_extensions
-                .remove(id)
+                .remove(&id)
                 .unwrap_or_default()
                 .into_iter()
                 .collect();
             extensions.sort();
             extensions.truncate(12);
             StorageFileType {
-                id: id.to_string(),
-                label: file_type_label(id).to_string(),
+                label: file_type_label(&id).to_string(),
+                id,
                 bytes: bucket.bytes,
                 allocated: bucket.allocated,
                 files: bucket.files,
@@ -2117,7 +2433,7 @@ pub(crate) fn scan_storage_index_with_budget(
         scanned_files,
         scanned_directories,
         logical_bytes,
-        current_path,
+        current_path: queue.last_path(),
         elapsed_ms: result.elapsed_ms,
         cancelled,
     });

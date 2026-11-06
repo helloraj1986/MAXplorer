@@ -291,6 +291,71 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn storage_parallel_walk_counts_hard_links_and_nested_totals_once() {
+        use crate::storage::scan_storage_index;
+        let root = tempdir().unwrap();
+        let inner = root.path().join("a").join("b");
+        fs::create_dir_all(&inner).unwrap();
+        fs::write(root.path().join("a").join("one.txt"), vec![b'a'; 1_000]).unwrap();
+        fs::write(inner.join("two.txt"), vec![b'b'; 2_000]).unwrap();
+        fs::hard_link(
+            root.path().join("a").join("one.txt"),
+            root.path().join("linked.txt"),
+        )
+        .unwrap();
+        let index = scan_storage_index(root.path(), 71, 20_000, &AtomicBool::new(false), &|_| {})
+            .unwrap();
+        assert_eq!(index.scan.scanned_files, 3);
+        assert_eq!(index.scan.scanned_directories, 2);
+        assert_eq!(index.scan.hard_links, 1);
+        assert_eq!(index.scan.total_logical_bytes, 3_000);
+        assert_eq!(index.scan.total_allocated_bytes >= 3_000, true);
+        // Walk order decides which of the two links is the "additional" one.
+        let flagged = index.files.iter().filter(|file| file.hard_link).count();
+        assert_eq!(flagged, 1, "exactly one hard link is flagged as uncounted");
+        assert!(index
+            .files
+            .iter()
+            .any(|file| file.name == "linked.txt"));
+        let child = crate::storage::children_core(&index, &index.scan.root, 100).unwrap();
+        assert_eq!(child.total_size, 3_000);
+    }
+
+    #[test]
+    fn storage_parallel_walk_visits_every_directory_in_a_wide_tree() {
+        use crate::storage::scan_storage_index;
+        let root = tempdir().unwrap();
+        for directory in 0..40 {
+            let path = root.path().join(format!("dir-{directory:02}"));
+            fs::create_dir(&path).unwrap();
+            for file in 0..15 {
+                fs::write(path.join(format!("file-{file:02}.bin")), vec![b'x'; 32]).unwrap();
+            }
+        }
+        let index = scan_storage_index(root.path(), 72, 50_000, &AtomicBool::new(false), &|_| {})
+            .unwrap();
+        assert_eq!(index.scan.scanned_directories, 40);
+        assert_eq!(index.scan.scanned_files, 600);
+        assert_eq!(index.scan.total_logical_bytes, 600 * 32);
+        assert_eq!(index.files.len(), 600);
+        assert_eq!(index.directories.len(), 41);
+        // Every file must be attributed to its parent directory exactly once.
+        let accounted: u64 = index
+            .directories
+            .values()
+            .map(|directory| directory.direct_files)
+            .sum();
+        assert_eq!(accounted, 600);
+        let folders: u64 = index
+            .directories
+            .values()
+            .map(|directory| directory.direct_folders)
+            .sum();
+        assert_eq!(folders, 40);
+    }
+
     #[test]
     fn storage_path_containment_requires_a_component_boundary() {
         use crate::storage::path_within;
@@ -569,18 +634,25 @@ mod tests {
 
     #[test]
     fn storage_scan_can_be_cancelled_from_progress() {
+        // The analyzer's Cancel button sets the same flag this callback does. The
+        // scan reports progress before the walk starts, so cancelling from the
+        // first report deterministically stops the walk.
         use crate::storage::scan_storage_index;
         let cancel = AtomicBool::new(false);
         let root = tempdir().unwrap();
         for index in 0..1_600 {
             fs::write(root.path().join(format!("file-{index}.bin")), b"x").unwrap();
         }
-        let result = scan_storage_index(root.path(), 22, 20_000, &cancel, &|progress| {
-            if progress.scanned_entries >= 1_500 {
-                cancel.store(true, std::sync::atomic::Ordering::Relaxed);
-            }
+        let reports = std::sync::atomic::AtomicU32::new(0);
+        let result = scan_storage_index(root.path(), 22, 20_000, &cancel, &|_| {
+            reports.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            cancel.store(true, std::sync::atomic::Ordering::Relaxed);
         })
         .unwrap();
+        assert!(
+            reports.load(std::sync::atomic::Ordering::Relaxed) >= 1,
+            "the scan must report progress"
+        );
         assert!(result.scan.cancelled);
         assert!(result.scan.scanned_files < 1_600);
     }
