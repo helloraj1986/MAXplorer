@@ -483,6 +483,7 @@ fn scan_entries(
     let mut errors = 0u64;
     let mut complete = true;
     let mut fse_errors = 0u64;
+    let mut first_write_error: Option<String> = None;
 
     let walker = WalkDir::new(&root_path)
         .follow_links(false)
@@ -538,20 +539,27 @@ fn scan_entries(
             set_activity(activity, "indexing", Some(item.path().to_string_lossy().to_string()));
         }
         if batch.len() >= BATCH_SIZE {
-            if engine.write_batch(&root, generation, &batch).is_err() {
+            if let Err(error) = engine.write_batch(&root, generation, &batch) {
                 fse_errors += 1;
+                if first_write_error.is_none() {
+                    first_write_error = Some(error.message.clone());
+                }
             }
             batch.clear();
         }
     }
     if !batch.is_empty() {
-        if engine.write_batch(&root, generation, &batch).is_err() {
+        if let Err(error) = engine.write_batch(&root, generation, &batch) {
             fse_errors += 1;
+            if first_write_error.is_none() {
+                first_write_error = Some(error.message.clone());
+            }
         }
     }
     let error = if fse_errors > 0 {
         Some(format!(
-            "{fse_errors} index writes failed. The index needs reconciliation."
+            "{fse_errors} index writes failed ({}). The index needs reconciliation.",
+            first_write_error.unwrap_or_else(|| "no detail".into())
         ))
     } else if errors > 0 {
         Some(format!(
