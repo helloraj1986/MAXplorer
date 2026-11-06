@@ -193,9 +193,14 @@ Backend contracts are all camelCase and registered in `src-tauri/src/lib.rs`.
 
 ### Index and persistent cache
 
-The full file/directory index is kept **in memory for the current scan**, keyed by scan ID,
-so drill-down, filters, categories, and deletion revalidation are fast. Completed scans are
-also written to a versioned local SQLite cache:
+The scan builds its file records in memory while it walks (bounded by the memory budget
+above) and writes them to a versioned local SQLite cache. Once the rows are durable the
+in-memory file vector is **released**: directory aggregates stay in RAM (about 2% of the
+entries), while `get_storage_children` and `query_storage_files` are served from the `files`
+table, which is indexed by `parent`, `size`, `file_type` and `category`. A whole-volume scan
+therefore drops from several gigabytes of steady-state RSS to the directory map plus the
+scan summary. Deletion revalidation keeps working because path membership is checked against
+the same persisted rows (`has_path`).
 
 ```text
 <app data>/storage/cache.sqlite3

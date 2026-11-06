@@ -357,6 +357,167 @@ mod tests {
     }
 
     #[test]
+    fn storage_persisted_index_serves_children_and_pages_from_sqlite() {
+        use crate::storage::{
+            children_core, children_for, query_files_core, query_files_for, scan_storage_index,
+            PersistedIndex, ScanIndex, StorageFileQuery,
+        };
+        use crate::storage_cache::StorageCache;
+        let root = tempdir().unwrap();
+        let cache_root = tempdir().unwrap();
+        fs::create_dir(root.path().join("videos")).unwrap();
+        fs::write(root.path().join("videos").join("clip.mp4"), vec![b'v'; 8_192]).unwrap();
+        fs::write(root.path().join("notes.txt"), vec![b'n'; 512]).unwrap();
+        fs::write(root.path().join("tiny.bin"), vec![b't'; 16]).unwrap();
+        let index = scan_storage_index(root.path(), 61, 20_000, &AtomicBool::new(false), &|_| {})
+            .unwrap();
+        let cache = StorageCache::new(cache_root.path().join("cache.sqlite3")).unwrap();
+        let directories = index.directories.values().cloned().collect::<Vec<_>>();
+        cache.store(&index.scan, &index.files, &directories).unwrap();
+        let slim = ScanIndex {
+            scan: index.scan.clone(),
+            files: Vec::new(),
+            directories: index.directories.clone(),
+            persisted: Some(PersistedIndex {
+                cache: cache.clone(),
+                scan_id: index.scan.scan_id,
+            }),
+        };
+
+        let from_memory = children_core(&index, &index.scan.root, 100).unwrap();
+        let from_sql = children_for(&slim, &index.scan.root, 100).unwrap();
+        assert_eq!(from_sql.total_size, from_memory.total_size);
+        assert_eq!(from_sql.total_files, from_memory.total_files);
+        assert_eq!(
+            from_sql.files.iter().map(|file| file.path.clone()).collect::<Vec<_>>(),
+            from_memory.files.iter().map(|file| file.path.clone()).collect::<Vec<_>>()
+        );
+        assert_eq!(from_sql.directories.len(), from_memory.directories.len());
+
+        let make = |min_size: Option<u64>, offset: usize| StorageFileQuery {
+            scan_id: 61,
+            directory: Some(index.scan.root.clone()),
+            category: None,
+            file_type: None,
+            name: None,
+            extension: None,
+            min_size,
+            max_size: None,
+            modified_after: None,
+            modified_before: None,
+            created_after: None,
+            created_before: None,
+            hidden: None,
+            symlinks: None,
+            recursive: true,
+            sort: "size".into(),
+            direction: "desc".into(),
+            limit: 2,
+            offset,
+        };
+        let memory_page = query_files_core(&index, &make(None, 0));
+        let sql_page = query_files_for(&slim, &make(None, 0));
+        assert_eq!(sql_page.total, memory_page.total);
+        assert_eq!(sql_page.total_bytes, memory_page.total_bytes);
+        assert_eq!(
+            sql_page.files.iter().map(|file| file.path.clone()).collect::<Vec<_>>(),
+            memory_page.files.iter().map(|file| file.path.clone()).collect::<Vec<_>>()
+        );
+        assert!(sql_page.has_more, "three files, page of two");
+        let filtered = query_files_for(&slim, &make(Some(1_000), 0));
+        assert_eq!(filtered.total, 1);
+        assert_eq!(filtered.files[0].name, "clip.mp4");
+        assert!(cache.has_path(61, &filtered.files[0].path).unwrap());
+        assert!(!cache.has_path(61, "/definitely/not/scanned").unwrap());
+    }
+
+    #[test]
+    fn storage_delete_accepts_paths_from_the_persisted_index() {
+        use crate::storage::{
+            delete_core, scan_storage_index, PersistedIndex, ScanIndex, StorageDeleteItem,
+            StorageDeleteRequest,
+        };
+        use crate::storage_cache::StorageCache;
+        let root = tempdir().unwrap();
+        let cache_root = tempdir().unwrap();
+        let path = root.path().join("obsolete.log");
+        fs::write(&path, vec![b'o'; 4_096]).unwrap();
+        let index = scan_storage_index(root.path(), 62, 20_000, &AtomicBool::new(false), &|_| {})
+            .unwrap();
+        let file = index.files[0].clone();
+        let cache = StorageCache::new(cache_root.path().join("cache.sqlite3")).unwrap();
+        let directories = index.directories.values().cloned().collect::<Vec<_>>();
+        cache.store(&index.scan, &index.files, &directories).unwrap();
+        let slim = ScanIndex {
+            scan: index.scan.clone(),
+            files: Vec::new(),
+            directories: index.directories.clone(),
+            persisted: Some(PersistedIndex {
+                cache,
+                scan_id: index.scan.scan_id,
+            }),
+        };
+        let outcome = delete_core(
+            &slim,
+            &StorageDeleteRequest {
+                operation_id: 4,
+                scan_id: 62,
+                items: vec![StorageDeleteItem {
+                    path: file.path.clone(),
+                    expected_size: Some(file.size),
+                    expected_modified: file.modified,
+                    is_directory: false,
+                }],
+                permanent: true,
+            },
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        assert_eq!(outcome.results[0].status, "completed");
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn storage_state_releases_the_file_index_once_persisted() {
+        use crate::storage::{children_for, scan_storage_index, StorageState};
+        let root = tempdir().unwrap();
+        let data = tempdir().unwrap();
+        fs::create_dir(root.path().join("videos")).unwrap();
+        fs::write(root.path().join("videos").join("clip.mp4"), vec![b'v'; 4_096]).unwrap();
+        fs::write(root.path().join("notes.txt"), b"hello").unwrap();
+        let index =
+            scan_storage_index(root.path(), 81, 20_000, &AtomicBool::new(false), &|_| {}).unwrap();
+        let state = StorageState::new(data.path().join("storage/cache.sqlite3"));
+        let index = state.store(index);
+        state.persist_async(index);
+        let mut current = None;
+        for _ in 0..400 {
+            current = state.current();
+            if current
+                .as_ref()
+                .map(|scan| scan.persisted.is_some())
+                .unwrap_or(false)
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        let current = current.expect("the scan stays current");
+        assert!(
+            current.persisted.is_some(),
+            "a successful persist swaps in the sqlite-backed index"
+        );
+        assert!(
+            current.files.is_empty(),
+            "file records are released once the rows are durable"
+        );
+        let children = children_for(&current, &current.scan.root, 100).unwrap();
+        assert_eq!(children.files.len(), 1);
+        assert_eq!(children.total_size, 4_101);
+        assert_eq!(children.directories.len(), 1);
+    }
+
+    #[test]
     fn storage_path_containment_requires_a_component_boundary() {
         use crate::storage::path_within;
         assert!(path_within("/Users/rajeevk/Documents/report.pdf", "/Users/rajeevk"));

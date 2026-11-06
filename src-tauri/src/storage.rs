@@ -394,7 +394,7 @@ pub struct StorageDeleteProgress {
 
 #[derive(Default)]
 pub struct StorageState {
-    current: Mutex<Option<Arc<ScanIndex>>>,
+    current: Arc<Mutex<Option<Arc<ScanIndex>>>>,
     cancels: Mutex<HashMap<u64, Arc<AtomicBool>>>,
     cache_path: PathBuf,
     cache: Mutex<Option<StorageCache>>,
@@ -412,7 +412,7 @@ impl StorageState {
             ),
         );
         Self {
-            current: Mutex::new(None),
+            current: Arc::new(Mutex::new(None)),
             cancels: Mutex::new(HashMap::new()),
             cache_path,
             cache: Mutex::new(None),
@@ -450,7 +450,7 @@ impl StorageState {
         }
     }
 
-    fn store(&self, index: ScanIndex) -> Arc<ScanIndex> {
+    pub(crate) fn store(&self, index: ScanIndex) -> Arc<ScanIndex> {
         let index = Arc::new(index);
         if let Ok(mut current) = self.current.lock() {
             *current = Some(index.clone());
@@ -458,15 +458,48 @@ impl StorageState {
         index
     }
 
-    fn persist_async(&self, index: Arc<ScanIndex>) {
+    pub(crate) fn persist_async(&self, index: Arc<ScanIndex>) {
         let Some(cache) = self.cache() else {
             logging::warn("storage.cache", "no cache available; scan will not persist");
             return;
         };
+        let slot = self.current.clone();
         std::thread::spawn(move || {
             let directories = index.directories.values().cloned().collect::<Vec<_>>();
             if let Err(error) = cache.store(&index.scan, &index.files, &directories) {
                 logging::error("storage.cache", format!("could not persist scan: {error}"));
+                return;
+            }
+            // The rows are durable, so the multi-hundred-megabyte file index can be
+            // released. Drill-down and paging now read the same rows from SQLite.
+            let freed = index.file_index_bytes();
+            let slim = ScanIndex {
+                scan: index.scan.clone(),
+                files: Vec::new(),
+                directories: index.directories.clone(),
+                persisted: Some(PersistedIndex {
+                    cache: cache.clone(),
+                    scan_id: index.scan.scan_id,
+                }),
+            };
+            let mut guard = match slot.lock() {
+                Ok(guard) => guard,
+                Err(error) => error.into_inner(),
+            };
+            let replace = guard
+                .as_ref()
+                .map(|current| current.scan.scan_id == index.scan.scan_id)
+                .unwrap_or(false);
+            if replace {
+                *guard = Some(Arc::new(slim));
+                logging::info(
+                    "storage.cache",
+                    format!(
+                        "released {} MiB of in-memory file index for scan {}; queries now read sqlite",
+                        freed / (1024 * 1024),
+                        index.scan.scan_id
+                    ),
+                );
             }
         });
     }
@@ -522,7 +555,7 @@ impl StorageState {
         cache.query_files(query)
     }
 
-    fn current(&self) -> Option<Arc<ScanIndex>> {
+    pub(crate) fn current(&self) -> Option<Arc<ScanIndex>> {
         self.current.lock().ok().and_then(|value| value.clone())
     }
 
@@ -1408,10 +1441,72 @@ struct DirWork {
     direct_allocated: u64,
 }
 
+/// Handle to a scan whose file rows live in the SQLite cache. Once this is set the
+/// in-memory file vector is released, so drill-down and paging are served by the
+/// `files` table (indexed by parent, size, type and category) instead of a full
+/// scan of every entry.
+#[derive(Clone)]
+pub(crate) struct PersistedIndex {
+    pub cache: crate::storage_cache::StorageCache,
+    pub scan_id: u64,
+}
+
 pub(crate) struct ScanIndex {
     pub scan: StorageScanResult,
     pub files: Vec<StorageFile>,
     pub directories: HashMap<String, StorageDirectory>,
+    pub persisted: Option<PersistedIndex>,
+}
+
+impl ScanIndex {
+    /// Approximate bytes held by the in-memory file records.
+    fn file_index_bytes(&self) -> u64 {
+        self.files
+            .iter()
+            .map(|file| {
+                std::mem::size_of::<StorageFile>() as u64
+                    + file.path.len() as u64
+                    + file.name.len() as u64
+                    + file.parent.len() as u64
+                    + file.extension.as_ref().map(|value| value.len()).unwrap_or(0) as u64
+                    + file.category.len() as u64
+                    + file.file_type.len() as u64
+                    + ENTRY_INDEX_OVERHEAD
+            })
+            .sum()
+    }
+}
+
+/// Serve a folder listing from SQLite when the scan has been persisted, and fall
+/// back to the in-memory index while the write is still running.
+pub(crate) fn children_for(
+    index: &ScanIndex,
+    path: &str,
+    limit: usize,
+) -> Result<StorageChildren, AppError> {
+    if let Some(persisted) = index.persisted.as_ref() {
+        match persisted.cache.children(persisted.scan_id, path, limit) {
+            Ok(children) => return Ok(children),
+            Err(error) => logging::warn(
+                "storage.cache",
+                format!("sqlite children failed; using the in-memory index: {error}"),
+            ),
+        }
+    }
+    children_core(index, path, limit)
+}
+
+pub(crate) fn query_files_for(index: &ScanIndex, query: &StorageFileQuery) -> StorageFilePage {
+    if let Some(persisted) = index.persisted.as_ref() {
+        match persisted.cache.query_files(query) {
+            Ok(page) => return page,
+            Err(error) => logging::warn(
+                "storage.cache",
+                format!("sqlite file query failed; using the in-memory index: {error}"),
+            ),
+        }
+    }
+    query_files_core(index, query)
 }
 
 /// Where a scan is allowed to stop. `max_entries` is a count guard the caller can
@@ -1424,6 +1519,7 @@ pub(crate) struct ScanBudget {
 
 impl ScanBudget {
     /// Budget for tests and callers that want an explicit byte ceiling.
+    #[cfg(test)]
     pub(crate) fn with_bytes(max_entries: usize, max_index_bytes: u64) -> Self {
         Self {
             max_entries,
@@ -1952,6 +2048,9 @@ pub(crate) fn resolve_scan_budget(requested_max_entries: usize) -> ScanBudget {
     }
 }
 
+/// Convenience wrapper used by tests and by any caller that only has an entry
+/// count; the app passes a resolved budget straight to the walker.
+#[cfg(test)]
 pub(crate) fn scan_storage_index(
     root: &Path,
     scan_id: u64,
@@ -2440,6 +2539,7 @@ pub(crate) fn scan_storage_index_with_budget(
 
     Ok(ScanIndex {
         scan: result,
+        persisted: None,
         files,
         directories: directory_list
             .into_iter()
@@ -3525,7 +3625,14 @@ pub fn delete_core_with_progress(
             ));
             continue;
         }
-        if !known.contains(item.path.as_str()) {
+        let persisted_known = || {
+            index
+                .persisted
+                .as_ref()
+                .and_then(|persisted| persisted.cache.has_path(persisted.scan_id, &item.path).ok())
+                .unwrap_or(false)
+        };
+        if !known.contains(item.path.as_str()) && !persisted_known() {
             results.push(OperationResult::failed(
                 &display,
                 "This item was not part of the verified scan. Rescan before removing it.".into(),
@@ -3767,7 +3874,7 @@ pub fn get_storage_children(
 ) -> Result<StorageChildren, AppError> {
     if let Some(index) = state.current() {
         if index.scan.scan_id == scan_id {
-            return children_core(&index, &path, limit.unwrap_or(2_000));
+            return children_for(&index, &path, limit.unwrap_or(2_000));
         }
     }
     state.cached_children(scan_id, &path, limit.unwrap_or(2_000))
@@ -3780,7 +3887,7 @@ pub fn query_storage_files(
 ) -> Result<StorageFilePage, AppError> {
     if let Some(index) = state.current() {
         if index.scan.scan_id == query.scan_id {
-            return Ok(query_files_core(&index, &query));
+            return Ok(query_files_for(&index, &query));
         }
     }
     state.cached_query(&query)

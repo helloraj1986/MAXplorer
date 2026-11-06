@@ -528,3 +528,38 @@
   of an 11 M-entry disk costs several GB of RSS while the analyzer is open. The cache schema
   already stores exactly these rows in SQLite; serving drill-down from the cache instead of a
   RAM index is the next architectural step if multi-TB volumes matter.
+
+## Phase 23 - Storage analyzer scale pass (2026-11-07)
+
+Four linked pieces of work on `perf/storage-analyzer-scale`, each verified on its own.
+
+1. **Query hot path.** Every file paid for a lowercase copy of its whole path twice (category
+   and file type), two formatted Strings per path-containment test, a lowercase filename for
+   the iCloud probe, and every query rebuilt the directory prefix per row. Containment,
+   component and case-insensitive matching are now allocation-free byte comparisons, and a
+   paged query only orders the window it returns (partial selection) with a path tiebreak for
+   determinism. Filters prepare their needles once per query.
+2. **Parallel walk.** Directories go to a work-stealing pool of 2-8 threads; workers only read,
+   classify and count, and hard links, per-directory totals and category buckets are resolved
+   in one pass after the walk so no thread needs a global inode set. Progress is emitted every
+   300ms from the coordinating thread instead of every 1,500 entries (~7,300 IPC events for a
+   whole-volume scan). Measured on the home folder, release build: **3.85M entries in 50s =
+   76,652 entries/s**, versus 7,300 entries/s single-threaded, a **10.5x** improvement
+   (an 11M-entry volume goes from ~25 minutes to ~2.5).
+3. **Navigation.** Eight analyzer views became five (Overview, Browse, Files, Treemap, Clean
+   up); largest folders, file types and duplicates stay routable from the Overview cards and
+   the Clean up tabs. Scan volume / Deep scan / Scan folder... collapsed into one Scan menu;
+   the duplicated coverage warning in the hero is gone; the pre-scan marketing card became a
+   single action card; four per-row icon buttons became one actions menu.
+4. **SQLite-backed index.** After a scan is persisted, the in-memory file vector is released
+   and `get_storage_children` / `query_storage_files` read the indexed `files` table (parent,
+   size, file_type, category). Directory aggregates and the scan summary stay in RAM (about 2%
+   of entries). Delete verification uses `has_path` against the same rows, so the safety net
+   is unchanged. Cached-scan restore already used this path.
+
+Verification: `cargo test` **89 passed** (new: parallel walk visits every directory in a wide
+tree, hard-link totals across workers, SQL parity for children and paged queries, delete
+through a persisted index, and the state releasing its file records after persisting); storage component suite **19 passed**; `npm run typecheck` clean;
+`npm test` **341 passed / 9 failed**, the same pre-existing `storageStore.test.ts` and
+`ThemeCreator.test.tsx` failures caused by `window.localStorage` under the node test
+environment. The temporary probes used for the two performance numbers were removed.

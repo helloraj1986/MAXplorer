@@ -513,6 +513,23 @@ impl StorageCache {
         })
     }
 
+    /// Membership check used by the delete path once the in-memory index has been
+    /// released: a path may be removed only if the verified scan recorded it.
+    pub fn has_path(&self, scan_id: u64, path: &str) -> Result<bool, AppError> {
+        let connection = self.connect()?;
+        let found: Option<i64> = connection
+            .query_row(
+                "SELECT 1 FROM files WHERE scan_id = ?1 AND path = ?2
+                 UNION ALL
+                 SELECT 1 FROM directories WHERE scan_id = ?1 AND path = ?2
+                 LIMIT 1",
+                params![scan_id as i64, path],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(found.is_some())
+    }
+
     pub fn clear(&self) -> Result<(), AppError> {
         let connection = self.connect()?;
         connection.execute_batch(

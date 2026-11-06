@@ -266,7 +266,10 @@ boundaries are:
   permission errors without aborting, and deduplicates hard-linked inodes.
 - Large lists never cross IPC wholesale. The frontend requests `get_storage_children` for one
   folder or `query_storage_files` for one filtered page. The result payload contains only
-  aggregates, top files/folders, and recommendations.
+  aggregates, top files/folders, and recommendations. Once a scan is persisted, both commands
+  read the indexed `files`/`directories` rows instead of scanning an in-memory vector; the
+  in-memory file list is released after the write so steady-state memory stays near the
+  directory map, and delete verification uses the same rows.
 - Duplicate verification is staged: file size → first/last 64 KiB fingerprint → SHA-256 in
   128 KiB chunks. Files changing during hashing are excluded. At least one copy of every
   group must remain selected.
