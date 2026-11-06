@@ -52,6 +52,39 @@
   --statusbar: #1c1c1c;
   --image-border: rgba(255, 255, 255, 0.14);
   --focus-ring: #ffffff;
+
+  /* Preview pane ---------------------------------------------------------
+     The preview is a first-class region. Themes and community designs can
+     override these tokens (or the base surface/text/accent tokens they point
+     at) without any component hardcoding a palette. */
+  --preview-background: var(--surface);
+  --preview-header-background: var(--mica);
+  --preview-border-color: var(--border);
+  --preview-toolbar-background: var(--surface-2);
+  --preview-stage-background: var(--surface-2);
+  --preview-stage-border-color: var(--border);
+  --preview-card-background: var(--surface-raised);
+  --preview-card-border-color: var(--border);
+  --preview-muted-color: var(--text-3);
+  --preview-chip-background: var(--accent-tint);
+  --preview-chip-color: var(--accent);
+  --preview-code-background: var(--field);
+  --preview-code-color: var(--text);
+  --preview-line-number-color: var(--text-3);
+  --preview-token-comment: var(--text-3);
+  --preview-token-string: var(--success);
+  --preview-token-number: var(--warning);
+  --preview-token-keyword: var(--accent);
+  --preview-token-key: var(--accent-border);
+  --preview-token-tag: var(--file-accent-css);
+  --preview-token-attr: var(--file-accent-js);
+  --preview-token-punct: var(--text-2);
+  --preview-token-mark-background: var(--accent-soft);
+  --preview-token-mark-color: var(--text);
+  --preview-shadow: var(--shadow-1);
+  --preview-radius: var(--radius);
+  --preview-splitter-color: var(--pane-divider-color);
+
   --accent-soft: rgba(96, 205, 255, 0.18);
   --accent-tint: rgba(96, 205, 255, 0.08);
   --warning-soft: rgba(252, 225, 0, 0.08);

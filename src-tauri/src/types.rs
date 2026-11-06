@@ -227,6 +227,89 @@ pub struct TextPreview {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PreviewMetadata {
+    pub path: String,
+    pub name: String,
+    pub extension: Option<String>,
+    pub content_type: String,
+    pub content_type_tree: Vec<String>,
+    pub kind: String,
+    pub size: Option<u64>,
+    pub is_dir: bool,
+    pub is_symlink: bool,
+    pub is_readable: bool,
+    pub is_package: bool,
+    pub is_icloud_placeholder: bool,
+    pub is_network_volume: bool,
+    pub modified: Option<i64>,
+    pub created: Option<i64>,
+    pub duration: Option<f64>,
+    pub width: Option<u64>,
+    pub height: Option<u64>,
+    pub codecs: Vec<String>,
+    pub page_count: Option<u64>,
+    pub tags: Vec<String>,
+    pub quick_look_supported: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewThumbnail {
+    pub data_url: Option<String>,
+    pub width: Option<u64>,
+    pub height: Option<u64>,
+    pub mime: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiveEntry {
+    pub name: String,
+    pub size: Option<u64>,
+    pub compressed_size: Option<u64>,
+    pub is_dir: bool,
+    pub modified: Option<i64>,
+    pub method: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchiveListing {
+    pub format: String,
+    pub entries: Vec<ArchiveEntry>,
+    pub total_size: u64,
+    pub compressed_size: u64,
+    pub truncated: bool,
+    pub encrypted: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderPreview {
+    pub path: String,
+    pub item_count: u64,
+    pub total_size: u64,
+    pub files: u64,
+    pub folders: u64,
+    pub truncated: bool,
+    pub cancelled: bool,
+    pub entries: Vec<Entry>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextRangePreview {
+    pub text: String,
+    pub offset: u64,
+    pub next_offset: u64,
+    pub truncated: bool,
+    pub binary: bool,
+    pub size: u64,
+    pub decoded_plist: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PlatformInfo {
     pub platform: String,
     pub home: String,

@@ -63,6 +63,18 @@ export function ratioAtPointer(
   return clampRatioToBounds((clientX - container.left - dividerWidth / 2) / usable, bounds);
 }
 
+/** Vertical equivalent of `ratioAtPointer`, used by bottom preview layouts. */
+export function ratioAtPointerY(
+  clientY: number,
+  container: Pick<DOMRect, "top" | "height">,
+  bounds: RatioBounds,
+  dividerHeight = DEFAULT_DIVIDER_HIT_AREA,
+): number {
+  const usable = container.height - dividerHeight;
+  if (!Number.isFinite(clientY) || usable <= 0) return 0.5;
+  return clampRatioToBounds((clientY - container.top - dividerHeight / 2) / usable, bounds);
+}
+
 /** Applies a keyboard delta, supporting Home/End and reset semantics. */
 export function keyboardRatio(
   current: number,

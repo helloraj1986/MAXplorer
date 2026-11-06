@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   CircleAlert,
   CircleCheck,
   CircleX,
@@ -20,6 +21,7 @@ import {
   ClipboardPaste,
   Clock,
   Cloud,
+  CloudDownload,
   CloudOff,
   Columns2,
   Copy,
@@ -72,15 +74,20 @@ import {
   MoreHorizontal,
   Music,
   Palette,
+  PanelBottom,
   PanelLeft,
   PanelRight,
   PanelsTopLeft,
+  Pause,
+  Play,
   Pencil,
   Pin,
   PinOff,
   Plus,
   Presentation,
   RefreshCw,
+  RotateCcw,
+  RotateCw,
   Rows3,
   Scissors,
   Search,
@@ -101,7 +108,10 @@ import {
   Undo2,
   Usb,
   Wrench,
+  WrapText,
   X,
+  ZoomIn,
+  ZoomOut,
   type LucideIcon,
 } from "lucide-react";
 
@@ -124,6 +134,7 @@ export type AppIconName =
   | "chevronDown"
   | "chevronRight"
   | "chevronLeft"
+  | "chevronUp"
   | "more"
   | "new"
   | "cut"
@@ -196,6 +207,15 @@ export type AppIconName =
   | "columns"
   | "compare"
   | "fullscreen"
+  | "zoomIn"
+  | "zoomOut"
+  | "rotateCw"
+  | "rotateCcw"
+  | "wrapText"
+  | "panelBottom"
+  | "play"
+  | "pause"
+  | "cloudDownload"
   | "palette"
   | "spinner"
   | "appWindow"
@@ -243,6 +263,7 @@ const ICONS: Record<AppIconName, LucideIcon> = {
   chevronDown: ChevronDown,
   chevronRight: ChevronRight,
   chevronLeft: ChevronLeft,
+  chevronUp: ChevronUp,
   more: MoreHorizontal,
   new: FilePlus2,
   cut: Scissors,
@@ -315,6 +336,15 @@ const ICONS: Record<AppIconName, LucideIcon> = {
   columns: Columns2,
   compare: GitCompareArrows,
   fullscreen: Maximize2,
+  zoomIn: ZoomIn,
+  zoomOut: ZoomOut,
+  rotateCw: RotateCw,
+  rotateCcw: RotateCcw,
+  wrapText: WrapText,
+  panelBottom: PanelBottom,
+  play: Play,
+  pause: Pause,
+  cloudDownload: CloudDownload,
   palette: Palette,
   spinner: Loader2,
   appWindow: AppWindowMac,

@@ -138,6 +138,35 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
+      // Space is the native Quick Look gesture. It is intercepted before the
+      // file list's Space-to-toggle behaviour so the two never fight. With no
+      // selection the list keeps its original behaviour.
+      if (
+        key === " " &&
+        isFileList(event.target) &&
+        !modifier &&
+        !event.shiftKey &&
+        !event.altKey
+      ) {
+        const selected = state.selectedEntries(activePane);
+        if (selected.length) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (state.quickLookOpen) {
+            void state.closeQuickLook();
+          } else {
+            void state.openQuickLook(selected.map((entry) => entry.path));
+          }
+          return;
+        }
+      }
+
+      if (state.quickLookOpen && key === "Escape") {
+        event.preventDefault();
+        void state.closeQuickLook();
+        return;
+      }
+
       // The file list owns these keys while it has focus.
       if (
         isFileList(event.target) &&
@@ -267,6 +296,8 @@ export function useKeyboardShortcuts(): void {
         state.setDetailsPane(!state.detailsPane);
         return;
       }
+      // Cmd+Option+P is the documented shortcut; Option+P remains for
+      // compatibility with the previous preview pane implementation.
       if (event.altKey && lower === "p") {
         event.preventDefault();
         state.setPreviewPane(!state.previewPane);

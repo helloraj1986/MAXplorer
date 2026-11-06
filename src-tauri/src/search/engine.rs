@@ -1,5 +1,6 @@
 use crate::error::AppError;
 use crate::search::extract;
+use crate::search::live;
 use crate::search::model::{
     DuplicateFile, DuplicateGroup, DuplicateRequest, DuplicateResponse, IndexError, IndexStatus,
     LocationCoverage, SearchHit, SearchMode, SearchRequest, SearchSuggestion, SortDirection,
@@ -13,11 +14,21 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 pub const DEFAULT_MAX_CONTENT_BYTES: u64 = 1_500_000;
-const CANDIDATE_LIMIT: usize = 50_000;
+/// Hard ceiling on rows pulled into memory for ranking. The previous value
+/// (50 000) could allocate hundreds of megabytes per keystroke.
+const CANDIDATE_LIMIT: usize = 12_000;
+/// Guard for building the trigram name index: above this many rows the index is
+/// built by the maintenance path after junk rows have been pruned, never on the
+/// startup path.
+const NAME_INDEX_MAX_ROWS: usize = 1_500_000;
+/// How stale the materialised counters may get before the indexer refreshes them.
+const COUNTS_TTL_MS: i64 = 5 * 60 * 1000;
+
 
 fn db_error(error: rusqlite::Error) -> AppError {
     AppError::new("search_database", format!("Search index error: {error}"), None)
@@ -101,7 +112,28 @@ fn path_key(path: &str) -> String {
 
 pub struct SearchEngine {
     pub db_path: PathBuf,
-    fts_available: bool,
+    fts_available: Arc<AtomicBool>,
+    /// True only once the trigram name index exists *and* is fully populated.
+    /// A half-built index would silently hide results, so the flag is shared
+    /// with the indexer thread and flips on completion.
+    name_index: Arc<AtomicBool>,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct IndexCounts {
+    pub files: u64,
+    pub folders: u64,
+    pub content: u64,
+    pub pending: u64,
+    pub failed: u64,
+    pub skipped: u64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct PruneReport {
+    pub examined: u64,
+    pub removed: u64,
 }
 
 impl SearchEngine {
@@ -115,13 +147,21 @@ impl SearchEngine {
                 )
             })?;
         }
-        let mut engine = Self { db_path, fts_available: false };
+        let mut engine = Self {
+            db_path,
+            fts_available: Arc::new(AtomicBool::new(false)),
+            name_index: Arc::new(AtomicBool::new(false)),
+        };
         engine.migrate()?;
         Ok(engine)
     }
 
+    pub fn name_index(&self) -> Arc<AtomicBool> {
+        self.name_index.clone()
+    }
+
     pub fn fts_available(&self) -> bool {
-        self.fts_available
+        self.fts_available.load(Ordering::Relaxed)
     }
 
     fn write_conn(&self) -> Result<Connection, AppError> {
@@ -198,6 +238,12 @@ impl SearchEngine {
             CREATE INDEX IF NOT EXISTS idx_files_kind ON files(kind);
             CREATE INDEX IF NOT EXISTS idx_files_extension ON files(extension);
             CREATE INDEX IF NOT EXISTS idx_files_content_state ON files(content_state);
+            CREATE TABLE IF NOT EXISTS location_counts (
+                root TEXT PRIMARY KEY,
+                files INTEGER NOT NULL DEFAULT 0,
+                content INTEGER NOT NULL DEFAULT 0,
+                updated_at INTEGER NOT NULL DEFAULT 0
+            );
             "#,
         )
         .map_err(db_error)?;
@@ -247,9 +293,10 @@ impl SearchEngine {
             .query_row("SELECT value FROM meta WHERE key = 'fts_available'", [], |row| row.get(0))
             .optional()
             .map_err(db_error)?;
-        self.fts_available = fts_flag.as_deref() == Some("1");
+        self.fts_available
+            .store(fts_flag.as_deref() == Some("1"), Ordering::Relaxed);
 
-        if self.fts_available {
+        if self.fts_available.load(Ordering::Relaxed) {
             // Keep the FTS table in sync without rewriting it manually on every
             // update. Triggers are cheap and transactional with the row write.
             conn.execute_batch(
@@ -278,7 +325,123 @@ impl SearchEngine {
                     .ok();
             }
         }
+
+        // Substring name/path search needs an index that a leading wildcard can
+        // actually use. FTS5's trigram tokenizer answers `%term%` in milliseconds
+        // where `LIKE '%term%'` needs a full table scan.
+        let name_fts_exists: Option<String> = conn
+            .query_row(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='files_name_fts'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(db_error)?;
+        if name_fts_exists.is_none() {
+            match conn.execute_batch(
+                "CREATE VIRTUAL TABLE files_name_fts USING fts5(name, path, tokenize='trigram');",
+            ) {
+                Ok(()) => {
+                    conn.execute(
+                        "INSERT OR REPLACE INTO meta(key, value) VALUES ('name_fts_available', '1')",
+                        [],
+                    )
+                    .ok();
+                }
+                Err(_) => {
+                    conn.execute(
+                        "INSERT OR REPLACE INTO meta(key, value) VALUES ('name_fts_available', '0')",
+                        [],
+                    )
+                    .ok();
+                }
+            }
+        }
+        let name_fts_flag: Option<String> = conn
+            .query_row("SELECT value FROM meta WHERE key = 'name_fts_available'", [], |row| row.get(0))
+            .optional()
+            .map_err(db_error)?;
+        if name_fts_flag.as_deref() == Some("1") {
+            conn.execute_batch(
+                r#"
+                CREATE TRIGGER IF NOT EXISTS files_name_ai AFTER INSERT ON files BEGIN
+                    INSERT INTO files_name_fts(rowid, name, path) VALUES (new.id, new.name, new.path);
+                END;
+                CREATE TRIGGER IF NOT EXISTS files_name_ad AFTER DELETE ON files BEGIN
+                    DELETE FROM files_name_fts WHERE rowid = old.id;
+                END;
+                CREATE TRIGGER IF NOT EXISTS files_name_au AFTER UPDATE OF name, path ON files BEGIN
+                    DELETE FROM files_name_fts WHERE rowid = old.id;
+                    INSERT INTO files_name_fts(rowid, name, path) VALUES (new.id, new.name, new.path);
+                END;
+                "#,
+            )
+            .map_err(db_error)?;
+            let populated: Option<String> = conn
+                .query_row("SELECT value FROM meta WHERE key = 'name_fts_populated'", [], |row| row.get(0))
+                .optional()
+                .map_err(db_error)?;
+            self.name_index
+                .store(populated.as_deref() == Some("1"), Ordering::Relaxed);
+        }
         Ok(())
+    }
+
+    /// Builds the trigram name index if it is missing. Called from the indexer
+    /// thread, never from the startup path, so launch latency is unaffected.
+    /// Returns true when the index is complete and safe to query.
+    pub fn populate_name_index(&self) -> Result<bool, AppError> {
+        if self.name_index.load(Ordering::Relaxed) {
+            // Self-healing guard: a flag set against an empty index would make
+            // every substring query return nothing, which is worse than slow.
+            if self.cached_counts().files == 0 {
+                return Ok(true);
+            }
+            if let Ok(conn) = self.read_conn() {
+                let present = conn
+                    .query_row("SELECT 1 FROM files_name_fts LIMIT 1", [], |row| row.get::<_, i64>(0))
+                    .optional()
+                    .ok()
+                    .flatten()
+                    .is_some();
+                if !present {
+                    return self.rebuild_name_index();
+                }
+            }
+            return Ok(true);
+        }
+        if self.meta("name_fts_available").as_deref() != Some("1") {
+            return Ok(false);
+        }
+        // Never build a trigram index over a bloated table: prune first.
+        if self.cached_counts().files as usize > NAME_INDEX_MAX_ROWS {
+            return Ok(false);
+        }
+        let mut conn = self.write_conn()?;
+        let existing: i64 = conn
+            .query_row("SELECT COUNT(*) FROM files_name_fts", [], |row| row.get(0))
+            .unwrap_or(0);
+        if existing == 0 {
+            let tx = conn.transaction().map_err(db_error)?;
+            tx.execute(
+                "INSERT INTO files_name_fts(rowid, name, path)
+                 SELECT id, name, path FROM files LIMIT ?1",
+                params![NAME_INDEX_MAX_ROWS as i64],
+            )
+            .map_err(db_error)?;
+            let inserted: i64 = tx
+                .query_row("SELECT COUNT(*) FROM files_name_fts", [], |row| row.get(0))
+                .unwrap_or(0);
+            tx.commit().map_err(db_error)?;
+            if (inserted as usize) >= NAME_INDEX_MAX_ROWS {
+                // The index would be silently incomplete; leave the flag off and
+                // let the maintenance path prune first.
+                return Ok(false);
+            }
+        }
+        self.set_meta("name_fts_populated", "1")?;
+        self.name_index.store(true, Ordering::Relaxed);
+        Ok(true)
     }
 
     pub fn meta(&self, key: &str) -> Option<String> {
@@ -465,30 +628,26 @@ impl SearchEngine {
             paused: self.paused(),
             activity: activity.to_string(),
             current_path,
-            fts_available: self.fts_available,
+            fts_available: self.fts_available.load(Ordering::Relaxed),
             content_enabled: self.content_enabled(),
             max_content_bytes: self.max_content_bytes(),
             db_path: self.db_path.to_string_lossy().to_string(),
             ..Default::default()
         };
         status.index_size_bytes = db_size(&self.db_path);
+        // Counters are materialised by the indexer. Counting six million rows on
+        // every keystroke is what made the previous build appear to hang.
+        let counts = self.cached_counts();
+        status.indexed_files = counts.files;
+        status.indexed_folders = counts.folders;
+        status.searchable_content = counts.content;
+        status.pending_content = counts.pending;
+        status.failed_content = counts.failed;
+        status.skipped_content = counts.skipped;
         let conn = match self.read_conn() {
             Ok(conn) => conn,
             Err(_) => return status,
         };
-        let count = |sql: &str| -> u64 {
-            conn.query_row(sql, [], |row| row.get::<_, i64>(0))
-                .unwrap_or(0)
-                .max(0) as u64
-        };
-        status.indexed_files = count("SELECT COUNT(*) FROM files WHERE is_dir = 0");
-        status.indexed_folders = count("SELECT COUNT(*) FROM files WHERE is_dir = 1");
-        status.searchable_content = count(
-            "SELECT COUNT(*) FROM files WHERE content_state = 'indexed'",
-        );
-        status.pending_content = count("SELECT COUNT(*) FROM files WHERE content_state = 'pending'");
-        status.failed_content = count("SELECT COUNT(*) FROM files WHERE content_state = 'error'");
-        status.skipped_content = count("SELECT COUNT(*) FROM files WHERE content_state = 'skipped'");
         status.last_reconciliation = conn
             .query_row("SELECT MAX(last_indexed) FROM locations", [], |row| {
                 row.get::<_, Option<i64>>(0)
@@ -500,9 +659,348 @@ impl SearchEngine {
         status
     }
 
+    /// Reads the materialised counters. Six primary-key lookups, no table scans.
+    pub fn cached_counts(&self) -> IndexCounts {
+        let conn = match self.read_conn() {
+            Ok(conn) => conn,
+            Err(_) => return IndexCounts::default(),
+        };
+        let read = |key: &str| -> u64 {
+            conn.query_row("SELECT value FROM meta WHERE key = ?1", params![key], |row| {
+                row.get::<_, String>(0)
+            })
+            .optional()
+            .ok()
+            .flatten()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0)
+        };
+        let counts = IndexCounts {
+            files: read("counts.files"),
+            folders: read("counts.folders"),
+            content: read("counts.content"),
+            pending: read("counts.pending"),
+            failed: read("counts.failed"),
+            skipped: read("counts.skipped"),
+            updated_at: read("counts.updated_at") as i64,
+        };
+        counts
+    }
+
+    /// Recomputes the materialised counters and per-location totals in a single
+    /// grouped pass, then stores them. Runs on the indexer thread.
+    pub fn refresh_counts(&self, force: bool) -> Result<IndexCounts, AppError> {
+        let current = self.cached_counts();
+        if !force && current.updated_at > 0 && current_ms() - current.updated_at < COUNTS_TTL_MS {
+            return Ok(current);
+        }
+        let mut conn = self.write_conn()?;
+        let tx = conn.transaction().map_err(db_error)?;
+        let mut totals = IndexCounts { updated_at: current_ms(), ..Default::default() };
+        let grouped: Vec<(String, i64, i64, i64, i64, i64, i64)> = {
+            let mut statement = tx
+                .prepare(
+                    "SELECT root,
+                            SUM(is_dir = 0), SUM(is_dir = 1),
+                            SUM(content_state = 'indexed'), SUM(content_state = 'pending'),
+                            SUM(content_state = 'error'), SUM(content_state = 'skipped')
+                     FROM files GROUP BY root",
+                )
+                .map_err(db_error)?;
+            let rows = statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, i64>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, i64>(6)?,
+                    ))
+                })
+                .map_err(db_error)?;
+            rows.filter_map(|row| row.ok()).collect()
+        };
+        for (root, files, folders, content, pending, failed, skipped) in grouped {
+            totals.files += files.max(0) as u64;
+            totals.folders += folders.max(0) as u64;
+            totals.content += content.max(0) as u64;
+            totals.pending += pending.max(0) as u64;
+            totals.failed += failed.max(0) as u64;
+            totals.skipped += skipped.max(0) as u64;
+            tx.execute(
+                "INSERT INTO location_counts(root, files, content, updated_at)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(root) DO UPDATE SET files = excluded.files,
+                     content = excluded.content, updated_at = excluded.updated_at",
+                params![root, files.max(0), content.max(0), totals.updated_at],
+            )
+            .map_err(db_error)?;
+        }
+        for (key, value) in [
+            ("counts.files", totals.files),
+            ("counts.folders", totals.folders),
+            ("counts.content", totals.content),
+            ("counts.pending", totals.pending),
+            ("counts.failed", totals.failed),
+            ("counts.skipped", totals.skipped),
+            ("counts.updated_at", totals.updated_at as u64),
+        ] {
+            tx.execute(
+                "INSERT OR REPLACE INTO meta(key, value) VALUES (?1, ?2)",
+                params![key, value.to_string()],
+            )
+            .map_err(db_error)?;
+        }
+        tx.commit().map_err(db_error)?;
+        Ok(totals)
+    }
+
+    /// Removes rows that the current exclusion policy would never index.
+    ///
+    /// Maintenance drops the FTS triggers and the secondary indexes for the
+    /// duration of the prune, then rebuilds both from the survivors. Keeping them
+    /// in place makes every deleted row maintain ten B-tree entries and two FTS
+    /// rows, which turns a six-million-row repair into an hour of work.
+    pub fn prune_excluded(&self) -> Result<PruneReport, AppError> {
+        const CHUNK: i64 = 20_000;
+        const INDEXES: &[&str] = &[
+            "idx_files_name_lower",
+            "idx_files_path_lower",
+            "idx_files_parent",
+            "idx_files_root",
+            "idx_files_modified",
+            "idx_files_created",
+            "idx_files_size",
+            "idx_files_kind",
+            "idx_files_extension",
+            "idx_files_content_state",
+        ];
+        let read = self.read_conn()?;
+        let mut report = PruneReport::default();
+        let mut cursor = 0i64;
+        let mut prepared = false;
+        loop {
+            let mut statement = read
+                .prepare("SELECT id, root, path FROM files WHERE id > ?1 ORDER BY id LIMIT ?2")
+                .map_err(db_error)?;
+            let rows: Vec<(i64, String, String)> = statement
+                .query_map(params![cursor, CHUNK], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })
+                .map_err(db_error)?
+                .filter_map(|row| row.ok())
+                .collect();
+            drop(statement);
+            if rows.is_empty() {
+                break;
+            }
+            report.examined += rows.len() as u64;
+            cursor = rows.last().map(|(id, _, _)| *id).unwrap_or(cursor);
+            let doomed: Vec<i64> = rows
+                .iter()
+                .filter(|(_, root, path)| {
+                    live::path_is_excluded(Path::new(path), Path::new(root))
+                })
+                .map(|(id, _, _)| *id)
+                .collect();
+            if doomed.is_empty() {
+                continue;
+            }
+            let mut write = self.write_conn()?;
+            if !prepared {
+                prepared = true;
+                let mut sql = String::from(
+                    "DROP TRIGGER IF EXISTS files_ai;
+                     DROP TRIGGER IF EXISTS files_ad;
+                     DROP TRIGGER IF EXISTS files_au;
+                     DROP TRIGGER IF EXISTS files_name_ai;
+                     DROP TRIGGER IF EXISTS files_name_ad;
+                     DROP TRIGGER IF EXISTS files_name_au;",
+                );
+                for index in INDEXES {
+                    sql.push_str(&format!("DROP INDEX IF EXISTS {index};"));
+                }
+                write.execute_batch(&sql).map_err(db_error)?;
+            }
+            let tx = write.transaction().map_err(db_error)?;
+            {
+                let placeholders = vec!["?"; doomed.len()].join(",");
+                let sql = format!("DELETE FROM files WHERE id IN ({placeholders})");
+                let params: Vec<rusqlite::types::Value> = doomed
+                    .iter()
+                    .map(|id| rusqlite::types::Value::Integer(*id))
+                    .collect();
+                tx.execute(&sql, params_from_iter(params.iter()))
+                    .map_err(db_error)?;
+            }
+            tx.commit().map_err(db_error)?;
+            report.removed += doomed.len() as u64;
+        }
+        if prepared {
+            self.restore_indexes()?;
+            self.restore_triggers()?;
+        }
+        if report.removed > 0 {
+            self.set_meta("name_fts_populated", "0")?;
+            self.name_index.store(false, Ordering::Relaxed);
+            self.rebuild_name_index()?;
+            self.refresh_counts(true)?;
+        }
+        Ok(report)
+    }
+
+    /// Recreates the metadata indexes that a prune drops for speed.
+    fn restore_indexes(&self) -> Result<(), AppError> {
+        let conn = self.write_conn()?;
+        conn.execute_batch(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_files_name_lower ON files(name_lower);
+            CREATE INDEX IF NOT EXISTS idx_files_path_lower ON files(path_lower);
+            CREATE INDEX IF NOT EXISTS idx_files_parent ON files(parent);
+            CREATE INDEX IF NOT EXISTS idx_files_root ON files(root);
+            CREATE INDEX IF NOT EXISTS idx_files_modified ON files(modified);
+            CREATE INDEX IF NOT EXISTS idx_files_created ON files(created);
+            CREATE INDEX IF NOT EXISTS idx_files_size ON files(size);
+            CREATE INDEX IF NOT EXISTS idx_files_kind ON files(kind);
+            CREATE INDEX IF NOT EXISTS idx_files_extension ON files(extension);
+            CREATE INDEX IF NOT EXISTS idx_files_content_state ON files(content_state);
+            "#,
+        )
+        .map_err(db_error)
+    }
+
+    /// Reinstalls the FTS maintenance triggers after a maintenance operation.
+    fn restore_triggers(&self) -> Result<(), AppError> {
+        let conn = self.write_conn()?;
+        if self.fts_available.load(Ordering::Relaxed) {
+            conn.execute_batch(
+                r#"
+                CREATE TRIGGER IF NOT EXISTS files_ai AFTER INSERT ON files BEGIN
+                    INSERT INTO files_fts(rowid, name, content) VALUES (new.id, new.name, coalesce(new.content, ''));
+                END;
+                CREATE TRIGGER IF NOT EXISTS files_ad AFTER DELETE ON files BEGIN
+                    DELETE FROM files_fts WHERE rowid = old.id;
+                END;
+                CREATE TRIGGER IF NOT EXISTS files_au AFTER UPDATE OF name, content ON files BEGIN
+                    DELETE FROM files_fts WHERE rowid = old.id;
+                    INSERT INTO files_fts(rowid, name, content) VALUES (new.id, new.name, coalesce(new.content, ''));
+                END;
+                "#,
+            )
+            .map_err(db_error)?;
+        }
+        if self.meta("name_fts_available").as_deref() == Some("1") {
+            conn.execute_batch(
+                r#"
+                CREATE TRIGGER IF NOT EXISTS files_name_ai AFTER INSERT ON files BEGIN
+                    INSERT INTO files_name_fts(rowid, name, path) VALUES (new.id, new.name, new.path);
+                END;
+                CREATE TRIGGER IF NOT EXISTS files_name_ad AFTER DELETE ON files BEGIN
+                    DELETE FROM files_name_fts WHERE rowid = old.id;
+                END;
+                CREATE TRIGGER IF NOT EXISTS files_name_au AFTER UPDATE OF name, path ON files BEGIN
+                    DELETE FROM files_name_fts WHERE rowid = old.id;
+                    INSERT INTO files_name_fts(rowid, name, path) VALUES (new.id, new.name, new.path);
+                END;
+                "#,
+            )
+            .map_err(db_error)?;
+        }
+        Ok(())
+    }
+
+    /// Rebuilds the trigram name index from scratch after a prune.
+    pub fn rebuild_name_index(&self) -> Result<bool, AppError> {
+        if self.meta("name_fts_available").as_deref() != Some("1") {
+            return Ok(false);
+        }
+        let mut conn = self.write_conn()?;
+        {
+            let tx = conn.transaction().map_err(db_error)?;
+            tx.execute("DELETE FROM files_name_fts", []).map_err(db_error)?;
+            tx.execute(
+                "INSERT INTO files_name_fts(rowid, name, path) SELECT id, name, path FROM files",
+                [],
+            )
+            .map_err(db_error)?;
+            tx.commit().map_err(db_error)?;
+        }
+        self.set_meta("name_fts_populated", "1")?;
+        self.name_index.store(true, Ordering::Relaxed);
+        Ok(true)
+    }
+
+    /// Compacts the database after a large prune.
+    ///
+    /// Both FTS tables are rebuilt from the surviving rows rather than updated:
+    /// dropping a virtual table is instant, and a rebuild also removes index rows
+    /// that belong to files deleted before the exclusion policy existed. The
+    /// triggers are recreated afterwards so incremental writes stay correct.
+    /// Requires free disk space roughly equal to the live database size.
+    pub fn optimize(&self) -> Result<u64, AppError> {
+        let mut conn = self.write_conn()?;
+        conn.execute_batch(
+            "DROP TRIGGER IF EXISTS files_ai;
+             DROP TRIGGER IF EXISTS files_ad;
+             DROP TRIGGER IF EXISTS files_au;
+             DROP TRIGGER IF EXISTS files_name_ai;
+             DROP TRIGGER IF EXISTS files_name_ad;
+             DROP TRIGGER IF EXISTS files_name_au;",
+        )
+        .map_err(db_error)?;
+        conn.execute_batch(
+            "DROP TABLE IF EXISTS files_fts;
+             DROP TABLE IF EXISTS files_name_fts;",
+        )
+        .map_err(db_error)?;
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE files_fts USING fts5(name, content, tokenize='unicode61');
+             CREATE VIRTUAL TABLE files_name_fts USING fts5(name, path, tokenize='trigram');",
+        )
+        .map_err(db_error)?;
+        {
+            let tx = conn.transaction().map_err(db_error)?;
+            tx.execute(
+                "INSERT INTO files_fts(rowid, name, content) SELECT id, name, coalesce(content, '') FROM files",
+                [],
+            )
+            .map_err(db_error)?;
+            tx.execute(
+                "INSERT INTO files_name_fts(rowid, name, path) SELECT id, name, path FROM files",
+                [],
+            )
+            .map_err(db_error)?;
+            tx.commit().map_err(db_error)?;
+        }
+        self.fts_available.store(true, Ordering::Relaxed);
+        self.set_meta("fts_available", "1")?;
+        self.set_meta("fts_populated", "1")?;
+        self.set_meta("name_fts_available", "1")?;
+        self.set_meta("name_fts_populated", "1")?;
+        self.name_index.store(true, Ordering::Relaxed);
+        self.restore_triggers()?;
+        drop(conn);
+        let vacuum = Connection::open_with_flags(
+            &self.db_path,
+            OpenFlags::SQLITE_OPEN_READ_WRITE,
+        )
+        .map_err(db_error)?;
+        vacuum.execute_batch("VACUUM;").map_err(db_error)?;
+        Ok(db_size(&self.db_path))
+    }
+
     fn location_coverage(&self, conn: &Connection) -> Vec<LocationCoverage> {
         let mut statement = match conn.prepare(
-            "SELECT path, name, status, last_indexed, error FROM locations ORDER BY added_at",
+            "SELECT l.path, l.name, l.status, l.last_indexed, l.error,
+                    coalesce(c.files, 0), coalesce(c.content, 0)
+             FROM locations l LEFT JOIN location_counts c ON c.root = l.path
+             ORDER BY l.added_at",
         ) {
             Ok(statement) => statement,
             Err(_) => return Vec::new(),
@@ -514,32 +1012,24 @@ impl SearchEngine {
                 row.get::<_, String>(2)?,
                 row.get::<_, Option<i64>>(3)?,
                 row.get::<_, Option<String>>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, i64>(6)?,
             ))
         });
         let mut locations = Vec::new();
         if let Ok(rows) = rows {
             for row in rows.flatten() {
-                let (path, name, mut state, last_indexed, error) = row;
+                let (path, name, mut state, last_indexed, error, indexed_files, searchable_files) = row;
                 let available = Path::new(&path).is_dir();
                 if !available {
                     state = "unavailable".into();
                 }
-                let indexed_files = query_count(
-                    conn,
-                    "SELECT COUNT(*) FROM files WHERE root = ?1 AND is_dir = 0",
-                    params![path],
-                );
-                let searchable_files = query_count(
-                    conn,
-                    "SELECT COUNT(*) FROM files WHERE root = ?1 AND content_state = 'indexed'",
-                    params![path],
-                );
                 locations.push(LocationCoverage {
                     path,
                     name,
                     status: state,
-                    indexed_files,
-                    searchable_files,
+                    indexed_files: indexed_files.max(0) as u64,
+                    searchable_files: searchable_files.max(0) as u64,
                     last_indexed,
                     error: if available { error } else { Some("This location is currently unavailable. Reconnect the drive or folder.".into()) },
                 });
@@ -837,12 +1327,16 @@ impl SearchEngine {
     pub fn search(
         &self,
         request: &SearchRequest,
-        cancel: &AtomicBool,
+        cancel: &Arc<AtomicBool>,
         max_results: usize,
     ) -> Result<(Vec<SearchHit>, usize, u64), AppError> {
         let started = Instant::now();
         let _ = started;
         let conn = self.read_conn()?;
+        // Statement-level cancellation: without this, superseding a query did
+        // nothing until SQLite finished scanning.
+        let token = cancel.clone();
+        let _ = conn.progress_handler(20_000, Some(move || token.load(Ordering::Relaxed)));
         let mut candidates: HashMap<i64, CandidateRow> = HashMap::new();
 
         if matches!(request.mode, SearchMode::Name | SearchMode::Both) {
@@ -1021,6 +1515,37 @@ impl SearchEngine {
                 .collect()
         };
         if !terms.is_empty() {
+            // Preferred path: trigram index, which answers `%term%` without a
+            // table scan. Only usable for case-insensitive substring queries of
+            // three or more characters.
+            if let Some(fts_query) = build_name_fts_query(&terms, request) {
+                if self.name_index.load(Ordering::Relaxed) {
+                    let sql = format!(
+                        "SELECT id, root, path, name, extension, kind, size, created, modified, accessed,
+                                is_dir, is_hidden, is_symlink, NULL AS content
+                         FROM files WHERE {} AND id IN (
+                             SELECT rowid FROM files_name_fts WHERE files_name_fts MATCH ?
+                         ) LIMIT {}",
+                        clauses.join(" AND "),
+                        CANDIDATE_LIMIT
+                    );
+                    let mut bound = values.clone();
+                    bound.push(rusqlite::types::Value::Text(fts_query));
+                    let trigram_rows: Vec<CandidateRow> = {
+                        let mut statement = conn.prepare(&sql).map_err(db_error)?;
+                        let rows = statement
+                            .query_map(params_from_iter(bound.iter()), CandidateRow::from_row)
+                            .map_err(db_error)?;
+                        rows.filter_map(|row| row.ok()).collect()
+                    };
+                    if !trigram_rows.is_empty() {
+                        return Ok(trigram_rows);
+                    }
+                    // An empty trigram result is never trusted on its own. A stale
+                    // or partially built index would otherwise hide every match
+                    // silently, so the scan below is the safety net.
+                }
+            }
             let mut term_clauses = Vec::new();
             for term in &terms {
                 if request.case_sensitive {
@@ -1080,7 +1605,7 @@ impl SearchEngine {
         request: &SearchRequest,
     ) -> Result<Vec<CandidateRow>, AppError> {
         let (filter, values) = self.filter_sql(request);
-        if self.fts_available && !request.case_sensitive {
+        if self.fts_available.load(Ordering::Relaxed) && !request.case_sensitive {
             if let Some(fts_query) = build_fts_query(request) {
                 let sql = format!(
                     "SELECT f.id, f.root, f.path, f.name, f.extension, f.kind, f.size,
@@ -1153,7 +1678,7 @@ impl SearchEngine {
     pub fn find_duplicates(
         &self,
         request: &DuplicateRequest,
-        cancel: &AtomicBool,
+        cancel: &Arc<AtomicBool>,
     ) -> Result<DuplicateResponse, AppError> {
         let started = Instant::now();
         let conn = self.read_conn()?;
@@ -1273,12 +1798,6 @@ impl SearchEngine {
             elapsed_ms: started.elapsed().as_millis() as u64,
         })
     }
-}
-
-fn query_count(conn: &Connection, sql: &str, params: impl rusqlite::Params) -> u64 {
-    conn.query_row(sql, params, |row| row.get::<_, i64>(0))
-        .unwrap_or(0)
-        .max(0) as u64
 }
 
 fn roots_sql(roots: &[String]) -> (String, Vec<rusqlite::types::Value>) {
@@ -1662,6 +2181,31 @@ pub(crate) fn sort_hits(hits: &mut [SearchHit], request: &SearchRequest) {
     }
 }
 
+/// Builds a trigram FTS5 query for substring name/path matching.
+///
+/// Returns `None` when the query cannot be answered by the trigram index: terms
+/// shorter than three characters produce no trigrams, and case-sensitive
+/// searches need `instr`, which the tokenizer cannot provide.
+fn build_name_fts_query(terms: &[String], request: &SearchRequest) -> Option<String> {
+    if request.case_sensitive || terms.is_empty() {
+        return None;
+    }
+    let mut parts = Vec::with_capacity(terms.len());
+    for term in terms {
+        if term.chars().count() < 3 {
+            return None;
+        }
+        // Trigram tokenizers treat the phrase as a literal substring.
+        let escaped = term.replace('"', "\"\"");
+        parts.push(format!("{{name path}} : \"{escaped}\""));
+    }
+    Some(parts.join(if request.match_mode == crate::search::model::MatchMode::Any {
+        " OR "
+    } else {
+        " AND "
+    }))
+}
+
 fn build_fts_query(request: &SearchRequest) -> Option<String> {
     let terms = if request.content_terms.is_empty() {
         request.terms.clone()
@@ -1835,7 +2379,7 @@ mod tests {
             terms: vec!["invoice".into()],
             ..base_request(&root)
         };
-        let (hits, total, _) = engine.search(&request, &AtomicBool::new(false), 50).unwrap();
+        let (hits, total, _) = engine.search(&request, &Arc::new(AtomicBool::new(false)), 50).unwrap();
         assert_eq!(total, 1);
         assert_eq!(hits[0].entry.name, "invoice-march.pdf");
         assert_eq!(hits[0].match_kind, "name");
@@ -1846,7 +2390,7 @@ mod tests {
             mode: SearchMode::Content,
             ..base_request(&root)
         };
-        let (hits, total, _) = engine.search(&request, &AtomicBool::new(false), 50).unwrap();
+        let (hits, total, _) = engine.search(&request, &Arc::new(AtomicBool::new(false)), 50).unwrap();
         assert_eq!(total, 1);
         assert_eq!(hits[0].entry.name, "notes.txt");
         assert_eq!(hits[0].match_kind, "content");
@@ -1859,7 +2403,7 @@ mod tests {
             ..base_request(root)
         };
         let (plain_hits, plain_total, _) = engine
-            .search(&plain_request, &AtomicBool::new(false), 50)
+            .search(&plain_request, &Arc::new(AtomicBool::new(false)), 50)
             .unwrap();
         assert_eq!(plain_total, 1);
         assert_eq!(plain_hits[0].entry.name, "notes.txt");
@@ -1884,7 +2428,7 @@ mod tests {
             min_size: Some(1024),
             ..base_request(&root)
         };
-        let (hits, total, _) = engine.search(&request, &AtomicBool::new(false), 50).unwrap();
+        let (hits, total, _) = engine.search(&request, &Arc::new(AtomicBool::new(false)), 50).unwrap();
         assert_eq!(total, 1);
         assert_eq!(hits[0].entry.name, "large.txt");
     }
@@ -1912,7 +2456,7 @@ mod tests {
                     include_similar_names: false,
                     limit: 20,
                 },
-                &AtomicBool::new(false),
+                &Arc::new(AtomicBool::new(false)),
             )
             .unwrap();
         assert_eq!(response.groups.len(), 1);
@@ -1979,7 +2523,7 @@ mod tests {
             terms: vec!["Überblick".into()],
             ..base_request(root)
         };
-        let (hits, total, _) = engine.search(&request, &AtomicBool::new(false), 20).unwrap();
+        let (hits, total, _) = engine.search(&request, &Arc::new(AtomicBool::new(false)), 20).unwrap();
         assert_eq!(total, 1);
         assert_eq!(hits[0].entry.name, "Résumé-Überblick.txt");
 
@@ -1989,7 +2533,7 @@ mod tests {
             case_sensitive: true,
             ..base_request(root)
         };
-        let (hits, total, _) = engine.search(&request, &AtomicBool::new(false), 20).unwrap();
+        let (hits, total, _) = engine.search(&request, &Arc::new(AtomicBool::new(false)), 20).unwrap();
         assert_eq!(total, 1);
         assert_eq!(hits[0].entry.name, "README");
 
@@ -1998,7 +2542,7 @@ mod tests {
             no_extension: true,
             ..base_request(root)
         };
-        let (hits, total, _) = engine.search(&request, &AtomicBool::new(false), 20).unwrap();
+        let (hits, total, _) = engine.search(&request, &Arc::new(AtomicBool::new(false)), 20).unwrap();
         assert_eq!(total, 1);
         assert_eq!(hits[0].entry.name, "README");
     }
@@ -2022,7 +2566,7 @@ mod tests {
             empty_folders: true,
             ..base_request(root)
         };
-        let (hits, total, _) = engine.search(&request, &AtomicBool::new(false), 20).unwrap();
+        let (hits, total, _) = engine.search(&request, &Arc::new(AtomicBool::new(false)), 20).unwrap();
         assert_eq!(total, 1);
         assert_eq!(hits[0].entry.name, "Empty");
         assert!(hits[0].entry.is_dir);
@@ -2047,7 +2591,7 @@ mod tests {
             terms: vec!["persisted".into()],
             ..base_request(&root)
         };
-        let (hits, total, _) = reopened.search(&request, &AtomicBool::new(false), 20).unwrap();
+        let (hits, total, _) = reopened.search(&request, &Arc::new(AtomicBool::new(false)), 20).unwrap();
         assert_eq!(total, 1);
         assert_eq!(hits[0].entry.name, "persisted.txt");
     }
@@ -2065,7 +2609,7 @@ mod tests {
         engine
             .write_batch(&root.to_string_lossy(), 1, &entries)
             .unwrap();
-        let cancel = AtomicBool::new(true);
+        let cancel = Arc::new(AtomicBool::new(true));
         let request = SearchRequest {
             query_id: 1,
             terms: vec!["match".into()],
@@ -2100,7 +2644,7 @@ mod tests {
             recursive: false,
             ..base_request(root)
         };
-        let (hits, total, _) = engine.search(&request, &AtomicBool::new(false), 20).unwrap();
+        let (hits, total, _) = engine.search(&request, &Arc::new(AtomicBool::new(false)), 20).unwrap();
         assert_eq!(total, 1);
         assert_eq!(hits[0].entry.name, "match-root.txt");
     }
@@ -2142,7 +2686,7 @@ mod tests {
         let mut samples = Vec::new();
         for _ in 0..20 {
             let started = Instant::now();
-            let (hits, total, _) = engine.search(&request, &AtomicBool::new(false), 50).unwrap();
+            let (hits, total, _) = engine.search(&request, &Arc::new(AtomicBool::new(false)), 50).unwrap();
             samples.push(started.elapsed().as_millis());
             assert!(total >= hits.len());
             assert!(!hits.is_empty());
@@ -2190,5 +2734,170 @@ mod tests {
             sort: SortOrder::Relevance,
             sort_direction: SortDirection::Desc,
         }
+    }
+
+    fn write_files(engine: &SearchEngine, root: &Path, names: &[&str]) -> Vec<Entry> {
+        let mut entries = Vec::new();
+        for name in names {
+            let path = root.join(name);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).unwrap();
+            }
+            fs::write(&path, b"x").unwrap();
+            entries.push(entry(&path));
+        }
+        engine
+            .write_batch(&root.to_string_lossy(), 1, &entries)
+            .unwrap();
+        entries
+    }
+
+    #[test]
+    fn trigram_name_index_answers_partial_and_mid_word_queries() {
+        let (directory, engine) = engine();
+        let root = directory.path();
+        write_files(
+            &engine,
+            root,
+            &["my-resume-2026.pdf", "resume.docx", "annual-report.pdf"],
+        );
+        engine.refresh_counts(true).unwrap();
+        assert!(engine.populate_name_index().unwrap());
+        assert!(engine.name_index().load(Ordering::Relaxed));
+
+        let request = SearchRequest {
+            query_id: 1,
+            terms: vec!["resume".into()],
+            ..base_request(root)
+        };
+        let (hits, total, _) =
+            engine.search(&request, &Arc::new(AtomicBool::new(false)), 50).unwrap();
+        let names: Vec<&str> = hits.iter().map(|hit| hit.entry.name.as_str()).collect();
+        assert_eq!(total, 2);
+        assert!(names.contains(&"my-resume-2026.pdf"));
+        assert!(names.contains(&"resume.docx"));
+
+        // Mid-word substring: `%esum%` must still match, which is what the
+        // trigram tokenizer buys over the previous unicode61 FTS table.
+        let request = SearchRequest {
+            query_id: 2,
+            terms: vec!["esum".into()],
+            ..base_request(root)
+        };
+        let (hits, total, _) =
+            engine.search(&request, &Arc::new(AtomicBool::new(false)), 50).unwrap();
+        assert_eq!(total, 2, "mid-word substring must match through trigram");
+
+        // Path-only matches must survive the join.
+        let nested = root.join("projects");
+        write_files(&engine, root, &["projects/resume-builder/main.ts"]);
+        engine.refresh_counts(true).unwrap();
+        engine.rebuild_name_index().unwrap();
+        let request = SearchRequest {
+            query_id: 3,
+            terms: vec!["resume-builder".into()],
+            ..base_request(root)
+        };
+        let (hits, total, _) =
+            engine.search(&request, &Arc::new(AtomicBool::new(false)), 50).unwrap();
+        assert_eq!(total, 1);
+        assert_eq!(hits[0].entry.name, "main.ts");
+        let _ = nested;
+    }
+
+    #[test]
+    fn prune_removes_rows_the_exclusion_policy_rejects() {
+        let (directory, engine) = engine();
+        let root = directory.path();
+        write_files(
+            &engine,
+            root,
+            &[
+                "Documents/tax.pdf",
+                ".local/share/tool/blob.bin",
+                ".lmstudio/models/weight.gguf",
+                "projects/app/node_modules/left-pad/index.js",
+                "projects/app/src/main.ts",
+            ],
+        );
+        let before = engine.refresh_counts(true).unwrap();
+        assert_eq!(before.files, 5);
+
+        let report = engine.prune_excluded().unwrap();
+        assert_eq!(report.removed, 3, "junk trees must be removed");
+
+        let after = engine.refresh_counts(true).unwrap();
+        assert_eq!(after.files, 2);
+        let request = SearchRequest {
+            query_id: 9,
+            terms: vec!["tax".into()],
+            ..base_request(root)
+        };
+        let (hits, total, _) =
+            engine.search(&request, &Arc::new(AtomicBool::new(false)), 50).unwrap();
+        assert_eq!(total, 1);
+        assert_eq!(hits[0].entry.name, "tax.pdf");
+    }
+
+    #[test]
+    fn counters_are_materialised_instead_of_counted_per_query() {
+        let (directory, engine) = engine();
+        let root = directory.path();
+        write_files(&engine, root, &["a.txt", "b.txt", "folder/c.txt"]);
+        engine
+            .write_batch(
+                &root.to_string_lossy(),
+                1,
+                &[entry(&root.join("folder"))],
+            )
+            .unwrap();
+        let counts = engine.refresh_counts(true).unwrap();
+        assert_eq!(counts.files, 3);
+        assert_eq!(counts.folders, 1);
+
+        let status = engine.status("idle", None);
+        assert_eq!(status.indexed_files, 3);
+        assert_eq!(status.indexed_folders, 1);
+        // Reading status must not recompute anything.
+        let cached = engine.cached_counts();
+        assert_eq!(cached.files, 3);
+        assert!(cached.updated_at > 0);
+    }
+
+    #[test]
+    fn status_reports_a_location_without_scanning_files() {
+        let (directory, engine) = engine();
+        let root = directory.path();
+        engine.add_location(&root.to_string_lossy()).unwrap();
+        write_files(&engine, root, &["a.txt", "b.txt"]);
+        engine.refresh_counts(true).unwrap();
+        let status = engine.status("idle", None);
+        assert_eq!(status.locations.len(), 1);
+        assert_eq!(status.locations[0].indexed_files, 2);
+    }
+
+    #[test]
+    fn an_empty_trigram_index_falls_back_instead_of_hiding_matches() {
+        let (directory, engine) = engine();
+        let root = directory.path();
+        write_files(&engine, root, &["resume.pdf", "notes.txt"]);
+        engine.refresh_counts(true).unwrap();
+        assert!(engine.populate_name_index().unwrap());
+
+        // Simulate a stale or partially built name index.
+        {
+            let conn = engine.write_conn().unwrap();
+            conn.execute("DELETE FROM files_name_fts", []).unwrap();
+        }
+
+        let request = SearchRequest {
+            query_id: 1,
+            terms: vec!["resume".into()],
+            ..base_request(root)
+        };
+        let (hits, total, _) =
+            engine.search(&request, &Arc::new(AtomicBool::new(false)), 50).unwrap();
+        assert_eq!(total, 1, "the scan fallback must still find the file");
+        assert_eq!(hits[0].entry.name, "resume.pdf");
     }
 }

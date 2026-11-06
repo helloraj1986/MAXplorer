@@ -17,6 +17,9 @@ const BATCH_SIZE: usize = 200;
 const RECONCILE_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 const DEBOUNCE: Duration = Duration::from_millis(450);
 const WATCH_TICK: Duration = Duration::from_millis(250);
+/// Hard ceiling on entries examined in one pass. A single pathological tree can
+/// no longer own the whole index or run for hours.
+const MAX_FILES_PER_SCAN: usize = 400_000;
 /// Leave the launch path alone before starting the expensive first scan.
 const STARTUP_GRACE: Duration = Duration::from_secs(20);
 /// Give the window time to appear before installing recursive watchers.
@@ -136,6 +139,12 @@ fn indexer_loop(
     mark_background_thread();
     let (sender, receiver) = channel();
     let started_at = Instant::now();
+    // Publish counters and the name index before the first query needs them.
+    // Both are cheap once the index has been pruned, and a missing counter is
+    // what previously forced a full table scan per keystroke.
+    let _ = engine.refresh_counts(false);
+    let _ = engine.populate_name_index();
+    let mut last_counts = Instant::now();
     let mut _watcher_guard: Option<RecommendedWatcher> = None;
     let mut tracked_roots: Vec<String> = Vec::new();
     let mut pending: HashMap<PathBuf, Instant> = HashMap::new();
@@ -277,6 +286,11 @@ fn indexer_loop(
         if activity.lock().map(|value| value.activity.is_empty()).unwrap_or(false) {
             set_activity(&activity, "watching", None);
         }
+        if last_counts.elapsed() > Duration::from_secs(300) {
+            last_counts = Instant::now();
+            let _ = engine.refresh_counts(false);
+            let _ = engine.populate_name_index();
+        }
         thread::sleep(WATCH_TICK);
     }
     set_activity(&activity, "stopped", None);
@@ -406,11 +420,12 @@ fn scan_root(
         root,
         generation,
         stop,
-        usize::MAX,
+        MAX_FILES_PER_SCAN,
         Some(app_focused),
         Some(force_index_until),
     );
     let _ = engine.finish_scan(root, generation, complete, error.clone());
+    let _ = engine.refresh_counts(false);
     crate::logging::info(
         "search.indexer",
         format!(
@@ -468,6 +483,7 @@ fn scan_entries(
     let mut errors = 0u64;
     let mut complete = true;
     let mut fse_errors = 0u64;
+    let mut first_write_error: Option<String> = None;
 
     let walker = WalkDir::new(&root_path)
         .follow_links(false)
@@ -523,20 +539,27 @@ fn scan_entries(
             set_activity(activity, "indexing", Some(item.path().to_string_lossy().to_string()));
         }
         if batch.len() >= BATCH_SIZE {
-            if engine.write_batch(&root, generation, &batch).is_err() {
+            if let Err(error) = engine.write_batch(&root, generation, &batch) {
                 fse_errors += 1;
+                if first_write_error.is_none() {
+                    first_write_error = Some(error.message.clone());
+                }
             }
             batch.clear();
         }
     }
     if !batch.is_empty() {
-        if engine.write_batch(&root, generation, &batch).is_err() {
+        if let Err(error) = engine.write_batch(&root, generation, &batch) {
             fse_errors += 1;
+            if first_write_error.is_none() {
+                first_write_error = Some(error.message.clone());
+            }
         }
     }
     let error = if fse_errors > 0 {
         Some(format!(
-            "{fse_errors} index writes failed. The index needs reconciliation."
+            "{fse_errors} index writes failed ({}). The index needs reconciliation.",
+            first_write_error.unwrap_or_else(|| "no detail".into())
         ))
     } else if errors > 0 {
         Some(format!(
@@ -768,7 +791,7 @@ mod tests {
             limit: 20,
             ..base_search_request(&root)
         };
-        let (hits, total, _) = engine.search(&request, &AtomicBool::new(false), 20).unwrap();
+        let (hits, total, _) = engine.search(&request, &Arc::new(AtomicBool::new(false)), 20).unwrap();
         assert_eq!(total, 1);
         assert_eq!(hits[0].entry.name, "readme.md");
 
@@ -782,7 +805,7 @@ mod tests {
             ..base_search_request(&root)
         };
         let (phrase_hits, phrase_total, _) = engine
-            .search(&phrase_request, &AtomicBool::new(false), 20)
+            .search(&phrase_request, &Arc::new(AtomicBool::new(false)), 20)
             .unwrap();
         assert_eq!(phrase_total, 1);
         assert_eq!(phrase_hits[0].entry.name, "readme.md");

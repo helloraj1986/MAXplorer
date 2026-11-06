@@ -44,8 +44,12 @@ Status vocabulary:
 | Settings | Settings entry points | Explicit request | Implemented | Command-bar Settings menu and `Mod+,`; sidebar Appearance removed |
 | Sidebar | Navigation-only scope | Explicit request | Implemented | Appearance/theme footer removed; Home/pins/locations retained |
 | Sidebar | Collapse/restore | Explicit request | Implemented | Command-bar toggle and `Mod+B`; visibility persisted |
-| Search | Recursive name search | Search box observed | Implemented | Bounded 500 results/8 s/200k entries |
-| Search | Content/index search | Not observed | Unsupported | Name-based only; documented |
+| Search | Recursive name search | Search box observed | Implemented | Contextual folder search: bounded 500 results/8 s/200k entries |
+| Search | Universal indexed search | Explicit request | Implemented | SQLite index + FTS5 content + trigram name index; three providers with a 5 s query budget |
+| Search | Content/index search | Not observed | Implemented | Extracted text for text/Markdown/JSON/HTML/CSV/code/PDF/DOCX/XLSX/PPTX; OCR not supported |
+| Search | Search index hygiene | Explicit request | Implemented | Dot-directories, package caches, bundles and build output excluded; prune + compact actions |
+| Search | Progressive results and cancellation | Explicit request | Implemented | Per-provider progress events; statement-level cancellation; UI watchdog prevents an endless spinner |
+| Search | Natural-language query interpreter | Explicit request | Implemented | Kinds, extensions, sizes, dates, locations, exclusions, content phrases as editable chips |
 | Sidebar | Home / Quick access | 21H2 nav pane | Implemented | Default real folders shown on Home |
 | Sidebar | Pinned folders | Screenshot | Implemented | Pin/unpin; persisted |
 | Sidebar | Desktop, Downloads, Documents, Pictures, Music, Videos | Screenshot | Verified/implemented | Real `dirs` locations |

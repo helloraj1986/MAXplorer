@@ -5,7 +5,7 @@ pub mod live;
 pub mod model;
 
 use crate::error::AppError;
-use crate::search::engine::{dedupe_hits, SearchEngine};
+use crate::search::engine::{dedupe_hits, PruneReport, SearchEngine};
 use crate::search::indexer::{IndexActivity, IndexerHandle};
 use crate::search::model::{
     DuplicateRequest, DuplicateResponse, IndexError, IndexStatus, SearchHit, SearchProgress,
@@ -140,10 +140,16 @@ impl SearchService {
     ) -> Result<SearchResponse, AppError> {
         let started = Instant::now();
         let cancel = Arc::new(AtomicBool::new(false));
+        // Only one query may be in flight. A newer query supersedes every older
+        // one, so keystrokes cannot queue up minutes of work behind each other.
         if let Ok(mut map) = self.cancels.lock() {
+            for token in map.values() {
+                token.store(true, Ordering::Relaxed);
+            }
+            map.clear();
             map.insert(request.query_id, cancel.clone());
         }
-        let result = self.execute_search(&request, &cancel, progress);
+        let result = self.execute_search(&request, &cancel, progress, started);
         if let Ok(mut map) = self.cancels.lock() {
             map.remove(&request.query_id);
         }
@@ -155,9 +161,15 @@ impl SearchService {
     fn execute_search(
         &self,
         request: &SearchRequest,
-        cancel: &AtomicBool,
+        cancel: &Arc<AtomicBool>,
         progress: &dyn Fn(SearchProgress),
+        started: Instant,
     ) -> Result<SearchResponse, AppError> {
+        /// Wall-clock budget for the whole query. Individual providers stop at
+        /// their own limits; this stops a slow provider from extending the query
+        /// indefinitely.
+        const SEARCH_BUDGET: std::time::Duration = std::time::Duration::from_millis(5_000);
+        let over_budget = || started.elapsed() > SEARCH_BUDGET;
         let status = self.status();
         let mut stats = SearchStats {
             fts_available: self.engine.fts_available(),
@@ -200,18 +212,20 @@ impl SearchService {
                     all_hits.append(&mut hits);
                 }
                 Err(error) => {
-                    stats.errors += 1;
-                    stats.notes.push(format!(
-                        "The index provider could not complete: {}. Other providers are still being searched.",
-                        error.message
-                    ));
+                    if !cancel.load(Ordering::Relaxed) {
+                        stats.errors += 1;
+                        stats.notes.push(format!(
+                            "The index provider could not complete: {}. Other providers are still being searched.",
+                            error.message
+                        ));
+                    }
                 }
             }
         } else if request.include_indexed && !request.has_constraints() {
             stats.notes.push("Enter a search term or choose a filter to begin.".into());
         }
 
-        if request.include_live && !cancel.load(Ordering::Relaxed) {
+        if request.include_live && !cancel.load(Ordering::Relaxed) && !over_budget() {
             let content_budget = if request.needs_content() { 120 } else { 0 };
             let live = live::scan_live(request, cancel, content_budget);
             stats.live_scanned = live.scanned;
@@ -234,7 +248,7 @@ impl SearchService {
             all_hits.extend(live.hits);
         }
 
-        if request.include_spotlight && !cancel.load(Ordering::Relaxed) {
+        if request.include_spotlight && !cancel.load(Ordering::Relaxed) && !over_budget() {
             let (spotlight_hits, notes) = live::spotlight_search(request);
             stats.spotlight_hits = spotlight_hits.len();
             for note in notes {
@@ -302,6 +316,21 @@ impl SearchService {
             note: None,
         });
         Ok(SearchResponse { query_id: request.query_id, hits, stats })
+    }
+
+    /// Removes index rows the current exclusion policy rejects, then rebuilds
+    /// the trigram name index and refreshes the materialised counters. This is
+    /// the repair path for an index built before the policy existed.
+    pub fn prune_index(&self) -> Result<PruneReport, AppError> {
+        self.engine.prune_excluded()
+    }
+
+    pub fn rebuild_name_index(&self) -> Result<bool, AppError> {
+        self.engine.rebuild_name_index()
+    }
+
+    pub fn optimize_index(&self) -> Result<u64, AppError> {
+        self.engine.optimize()
     }
 
     pub fn find_duplicates(

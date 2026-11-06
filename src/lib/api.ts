@@ -3,21 +3,26 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AppError,
   ApplicationInfo,
+  ArchiveListing,
   ComparisonProgress,
   ConflictPolicy,
   DirectoryListing,
   FileEntry,
   FolderComparison,
+  FolderPreview,
   FolderStats,
   Location,
   NetworkComputer,
   OperationResult,
   PlatformInfo,
+  PreviewMetadata,
+  PreviewThumbnail,
   Properties,
   SearchResult,
   StorageAudit,
   StorageCleanupResult,
   TextPreview,
+  TextRangePreview,
   TransferMode,
   TransferOutcome,
   TransferProgress,
@@ -150,6 +155,9 @@ export const api = {
   setSearchContentLimit: (bytes: number) =>
     call<IndexStatus>("set_search_content_limit", { bytes }),
   rebuildSearchIndex: () => call<IndexStatus>("rebuild_search_index"),
+  pruneSearchIndex: () => call<IndexStatus>("prune_search_index"),
+  optimizeSearchIndex: () => call<IndexStatus>("optimize_search_index"),
+  rebuildSearchNameIndex: () => call<IndexStatus>("rebuild_search_name_index"),
   clearSearchIndex: () => call<IndexStatus>("clear_search_index"),
   retryFailedExtractions: () => call<IndexStatus>("retry_failed_extractions"),
   removeSearchPath: (path: string) => call<void>("remove_search_path", { path }),
@@ -204,6 +212,37 @@ export const api = {
   getFolderStats: (path: string) => call<FolderStats>("get_folder_stats", { path }),
   readTextPreview: (path: string, maxBytes = 128 * 1024) =>
     call<TextPreview>("read_text_preview", { path, maxBytes }),
+
+  /* Preview pane ---------------------------------------------------------- */
+  previewMetadata: (path: string) =>
+    call<PreviewMetadata>("preview_metadata", { path }),
+  previewThumbnail: (path: string, size = 1024) =>
+    call<PreviewThumbnail>("preview_thumbnail", { path, size }),
+  previewQuickLookOpen: (paths: string[]) =>
+    call<void>("preview_quicklook_open", { paths }),
+  previewQuickLookClose: () => call<void>("preview_quicklook_close"),
+  previewReadText: (path: string, offset = 0, maxBytes = 256 * 1024) =>
+    call<TextRangePreview>("preview_read_text", { path, offset, maxBytes }),
+  previewArchive: (path: string) => call<ArchiveListing>("preview_archive", { path }),
+  previewExtractArchive: (path: string, destination: string) =>
+    call<string>("preview_extract_archive", { path, destination }),
+  previewFolderSummary: (path: string, requestId: number, sampleLimit = 12) =>
+    call<FolderPreview>("preview_folder_summary", { path, requestId, sampleLimit }),
+  cancelPreviewTask: (requestId: number) =>
+    call<void>("cancel_preview_task", { requestId }),
+  clearPreviewCache: () => call<void>("preview_clear_cache"),
+  previewDownloadICloud: (path: string) =>
+    call<void>("preview_download_icloud", { path }),
+  previewWatch: (path: string) => call<void>("preview_watch", { path }),
+  previewUnwatch: () => call<void>("preview_unwatch"),
+  onPreviewChanged: (
+    handler: (event: { path: string; kind: string }) => void,
+  ): Promise<UnlistenFn> => {
+    if (!isTauri) return Promise.resolve(() => undefined);
+    return listen<{ path: string; kind: string }>("preview-changed", (event) =>
+      handler(event.payload),
+    );
+  },
   listApplications: () => call<ApplicationInfo[]>("list_applications"),
   readAppIcon: (path: string) => call<string | null>("read_app_icon", { path }),
   openPath: (path: string) => call<void>("open_path", { path }),

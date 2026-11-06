@@ -6,6 +6,9 @@ import type {
   PersistedPaneState,
   PersistedState,
   PersistedTab,
+  PreviewPreferences,
+  PreviewPosition,
+  PreviewRendererId,
   ShortcutMap,
   NetworkConnection,
   SortDirection,
@@ -17,7 +20,7 @@ import type {
   TransferHistoryItem,
   ViewMode,
 } from "./types";
-import { HOME_LOCATION } from "./types";
+import { DEFAULT_PREVIEW_PREFERENCES, HOME_LOCATION } from "./types";
 import { normalizeTagColor, normalizeTagName, tagPathKey } from "./tags";
 import { networkConnectionName, normalizeNetworkAddress } from "./network";
 import {
@@ -68,6 +71,7 @@ export function defaultPersisted(
     showExtensions: left.showExtensions,
     detailsPane: false,
     previewPane: false,
+    preview: { ...DEFAULT_PREVIEW_PREFERENCES },
     theme: "system",
     interfaceTheme: DEFAULT_INTERFACE_THEME,
     display: { ...DEFAULT_DISPLAY_PREFERENCES },
@@ -197,6 +201,94 @@ function parseTransferHistory(value: unknown): TransferHistoryItem[] {
         TRANSFER_STATUSES.has((item as TransferHistoryItem).status),
     )
     .slice(0, 40);
+}
+
+
+function parsePreviewPreferences(
+  value: unknown,
+  legacyVisible: boolean,
+): PreviewPreferences {
+  if (!value || typeof value !== "object") {
+    return { ...DEFAULT_PREVIEW_PREFERENCES, visible: legacyVisible };
+  }
+  const raw = value as Partial<PreviewPreferences>;
+  const positions = new Set<PreviewPosition>(["left", "right", "bottom"]);
+  const enabled = Array.isArray(raw.renderers)
+    ? new Set(
+        raw.renderers.filter((item): item is PreviewRendererId =>
+          DEFAULT_PREVIEW_PREFERENCES.renderers.includes(item as PreviewRendererId),
+        ),
+      )
+    : null;
+  return {
+    visible: raw.visible === true,
+    position: positions.has(raw.position as PreviewPosition)
+      ? (raw.position as PreviewPosition)
+      : DEFAULT_PREVIEW_PREFERENCES.position,
+    focusMode: raw.focusMode === true,
+    width: clampNumber(raw.width, 240, 2400, DEFAULT_PREVIEW_PREFERENCES.width),
+    height: clampNumber(raw.height, 180, 620, DEFAULT_PREVIEW_PREFERENCES.height),
+    ratio: clampNumber(
+      raw.ratio,
+      0.18,
+      0.6,
+      Math.max(
+        0.24,
+        Math.min(0.5, clampNumber(raw.width, 240, 2400, DEFAULT_PREVIEW_PREFERENCES.width) / 1280),
+      ),
+    ),
+    singleRatio: clampNumber(
+      raw.singleRatio,
+      0.18,
+      0.6,
+      Math.max(
+        0.4,
+        clampNumber(
+          raw.ratio,
+          0.18,
+          0.6,
+          Math.max(
+            0.24,
+            Math.min(0.5, clampNumber(raw.width, 240, 2400, DEFAULT_PREVIEW_PREFERENCES.width) / 1280),
+          ),
+        ) + 0.08,
+      ),
+    ),
+    heightRatio: clampNumber(
+      raw.heightRatio,
+      0.18,
+      0.6,
+      Math.max(0.24, Math.min(0.5, clampNumber(raw.height, 180, 620, DEFAULT_PREVIEW_PREFERENCES.height) / 900)),
+    ),
+    singleHeightRatio: clampNumber(
+      raw.singleHeightRatio,
+      0.18,
+      0.6,
+      Math.max(
+        0.36,
+        clampNumber(
+          raw.heightRatio,
+          0.18,
+          0.6,
+          Math.max(0.24, Math.min(0.5, clampNumber(raw.height, 180, 620, DEFAULT_PREVIEW_PREFERENCES.height) / 900)),
+        ) + 0.06,
+      ),
+    ),
+    autoPlayMedia: raw.autoPlayMedia === true,
+    textLimit: clampNumber(
+      raw.textLimit,
+      16 * 1024,
+      4 * 1024 * 1024,
+      DEFAULT_PREVIEW_PREFERENCES.textLimit,
+    ),
+    renderers: (() => {
+      const values = enabled
+        ? DEFAULT_PREVIEW_PREFERENCES.renderers.filter((item) => enabled.has(item))
+        : [...DEFAULT_PREVIEW_PREFERENCES.renderers];
+      if (!values.includes("metadata")) values.push("metadata");
+      return values;
+    })(),
+  };
 }
 
 function parseColumnVisibility(value: unknown): ColumnVisibility {
@@ -332,6 +424,8 @@ export function parsePersisted(raw: string | null): PersistedState | null {
     const tags = parseTags(value.tags);
     const tagAssignments = parseTagAssignments(value.tagAssignments, tags);
     const networkConnections = parseNetworkConnections(value.networkConnections);
+    const preview = parsePreviewPreferences(value.preview, value.previewPane === true);
+    if (value.detailsPane && preview.visible) preview.visible = false;
     const validTagIds = new Set(tags.map((tag) => tag.id));
     const legacyTabs = parseTabs(value.tabs);
     const parsedPanes = value.panes as Partial<Record<PaneId, unknown>> | undefined;
@@ -387,7 +481,8 @@ export function parsePersisted(raw: string | null): PersistedState | null {
       showHidden: left.showHidden,
       showExtensions: left.showExtensions,
       detailsPane: Boolean(value.detailsPane),
-      previewPane: Boolean(value.previewPane),
+      previewPane: preview.visible,
+      preview,
       theme: THEMES.has(value.theme ?? "") ? value.theme! : "system",
       interfaceTheme: normalizeInterfaceTheme(value.interfaceTheme),
       display: normalizeDisplayPreferences(value.display),

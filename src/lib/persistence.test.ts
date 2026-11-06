@@ -429,3 +429,78 @@ describe("dual-pane persistence", () => {
     expect(value.panes.left.tabs[0].id).not.toBe(value.panes.right.tabs[0].id);
   });
 });
+
+describe("persisted preview preferences", () => {
+  it("restores position, size, focus mode, playback, and renderers", () => {
+    const parsed = parsePersisted(
+      JSON.stringify(
+        snapshot({
+          previewPane: true,
+          preview: {
+            visible: true,
+            position: "bottom",
+            focusMode: true,
+            width: 420,
+            height: 280,
+            ratio: 420 / 1280,
+            singleRatio: 420 / 1280 + 0.08,
+            heightRatio: 280 / 900,
+            singleHeightRatio: 280 / 900 + 0.06,
+            autoPlayMedia: true,
+            textLimit: 65_536,
+            renderers: ["pdf", "text", "quicklook"],
+          },
+        }),
+      ),
+    );
+    expect(parsed?.previewPane).toBe(true);
+    expect(parsed?.preview).toEqual({
+      visible: true,
+      position: "bottom",
+      focusMode: true,
+      width: 420,
+      height: 280,
+      ratio: 420 / 1280,
+      singleRatio: 420 / 1280 + 0.08,
+      heightRatio: 280 / 900,
+      singleHeightRatio: 280 / 900 + 0.06,
+      autoPlayMedia: true,
+      textLimit: 65_536,
+      renderers: ["pdf", "text", "quicklook", "metadata"],
+    });
+  });
+
+  it("derives visibility from the legacy boolean and never shows both side panes", () => {
+    const legacy = parsePersisted(JSON.stringify(snapshot({ previewPane: true })));
+    expect(legacy?.preview?.visible).toBe(true);
+    const both = parsePersisted(
+      JSON.stringify(snapshot({ previewPane: true, detailsPane: true })),
+    );
+    expect(both?.preview?.visible).toBe(false);
+    expect(both?.previewPane).toBe(false);
+  });
+
+  it("tolerates unknown positions, sizes, and renderer ids", () => {
+    const parsed = parsePersisted(
+      JSON.stringify(
+        snapshot({
+          preview: {
+            visible: true,
+            position: "diagonal",
+            width: 9_000,
+            height: 1,
+            renderers: ["pdf", "not-a-renderer"],
+          },
+        }),
+      ),
+    );
+    expect(parsed?.preview?.position).toBe("right");
+    expect(parsed?.preview?.width).toBe(2400);
+    expect(parsed?.preview?.height).toBe(180);
+    expect(parsed?.preview?.ratio).toBe(0.5);
+    expect(parsed?.preview?.singleRatio).toBe(0.58);
+    expect(parsed?.preview?.heightRatio).toBe(0.24);
+    expect(parsed?.preview?.singleHeightRatio).toBe(0.36);
+    expect(parsed?.preview?.renderers).toEqual(["pdf", "metadata"]);
+  });
+});

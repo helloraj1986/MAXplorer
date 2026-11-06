@@ -1,7 +1,9 @@
+import { useShallow } from "zustand/react/shallow";
 import { Icon } from "./Icon";
 import { SyncStatusIcon, type SyncState } from "./icons/SyncStatusIcon";
 import { useExplorerStore, selectStatusText } from "../state/explorerStore";
 import { isTerminalTransfer } from "../lib/transfers";
+import { formatSize } from "../lib/format";
 
 function transferSyncState(transfers: Array<{ status: string }>): SyncState {
   if (transfers.some((item) => item.status === "failed")) return "error";
@@ -20,6 +22,12 @@ export function StatusBar() {
   const openTransfers = useExplorerStore((state) => state.openTransfers);
   const viewMode = useExplorerStore((state) => state.panes[state.activePane].viewMode);
   const setViewMode = useExplorerStore((state) => state.setViewMode);
+  const previewVisible = useExplorerStore((state) => state.preview.visible);
+  const setPreviewPane = useExplorerStore((state) => state.setPreviewPane);
+  const previewSelection = useExplorerStore(
+    useShallow((state) => state.selectedEntries(state.activePane)),
+  );
+  const previewItem = previewSelection.length === 1 ? previewSelection[0] : null;
   const tab = useExplorerStore(
     (state) => state.panes[state.activePane].tabs.find(
       (item) => item.id === state.panes[state.activePane].activeTabId,
@@ -44,6 +52,15 @@ export function StatusBar() {
             {activePane === "left" ? "Left pane" : "Right pane"}
           </span>
         ) : null}
+        {previewVisible && previewItem ? (
+          <span className="status-preview-item" title={previewItem.path}>
+            <Icon name="eye" size={11} />
+            <span>{previewItem.name}</span>
+            {!previewItem.isDir && previewItem.size != null ? (
+              <span className="status-preview-size">{formatSize(previewItem.size)}</span>
+            ) : null}
+          </span>
+        ) : null}
       </div>
       <div className="status-right">
         {transfers.length ? (
@@ -58,6 +75,16 @@ export function StatusBar() {
             {transfers.filter((item) => !isTerminalTransfer(item)).length || transfers.length}
           </button>
         ) : null}
+        <button
+          type="button"
+          className={`status-view ${previewVisible ? "active" : ""}`}
+          aria-label={previewVisible ? "Hide preview pane" : "Show preview pane"}
+          aria-pressed={previewVisible}
+          title={previewVisible ? "Hide preview pane" : "Show preview pane"}
+          onClick={() => setPreviewPane(!previewVisible)}
+        >
+          <Icon name="eye" size={14} />
+        </button>
         <button
           type="button"
           className={`status-view ${viewMode === "details" ? "active" : ""}`}

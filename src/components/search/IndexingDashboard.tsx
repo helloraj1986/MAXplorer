@@ -24,6 +24,8 @@ export function IndexingDashboard() {
   const setContentLimit = useSearchStore((state) => state.setContentLimit);
   const rebuildIndex = useSearchStore((state) => state.rebuildIndex);
   const clearIndex = useSearchStore((state) => state.clearIndex);
+  const pruneIndex = useSearchStore((state) => state.pruneIndex);
+  const optimizeIndex = useSearchStore((state) => state.optimizeIndex);
   const retryExtractions = useSearchStore((state) => state.retryExtractions);
   const settings = useSearchStore((state) => state.settings);
   const updateSettings = useSearchStore((state) => state.updateSettings);
@@ -204,6 +206,14 @@ export function IndexingDashboard() {
           <button type="button" className="dialog-button" onClick={() => void rebuildIndex()}>
             <Icon name="refresh" size={13} />
             Rebuild index
+          </button>
+          <button type="button" className="dialog-button" onClick={() => void pruneIndex()}>
+            <Icon name="sync" size={13} />
+            Clean excluded folders
+          </button>
+          <button type="button" className="dialog-button" onClick={() => void optimizeIndex()}>
+            <Icon name="archive" size={13} />
+            Compact database
           </button>
           <button type="button" className="dialog-button" onClick={() => void retryExtractions()}>
             <Icon name="sync" size={13} />

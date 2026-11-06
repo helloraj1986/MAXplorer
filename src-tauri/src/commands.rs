@@ -4,6 +4,7 @@ use crate::error::AppError;
 use crate::listing;
 use crate::metadata;
 use crate::network_discovery::{self, NetworkComputer};
+use crate::preview::{self, PreviewState};
 use crate::network_mount;
 use crate::operations;
 use crate::paths::{expand_user, home_dir, normalize_path, parent_path};
@@ -12,8 +13,9 @@ use crate::search::{self, SearchService};
 use crate::storage_maintenance::{self, StorageAudit, StorageCleanupResult};
 use crate::transfer::{self, TransferControl, TransferState};
 use crate::types::{
-    ApplicationInfo, ConflictPolicy, DirectoryListing, FolderComparison, FolderStats, Location,
-    OperationResult, PlatformInfo, Properties, SearchResult, TextPreview, TransferOutcome,
+    ApplicationInfo, ArchiveListing, ConflictPolicy, DirectoryListing, FolderComparison,
+    FolderPreview, FolderStats, Location, OperationResult, PlatformInfo, PreviewMetadata,
+    PreviewThumbnail, Properties, SearchResult, TextPreview, TextRangePreview, TransferOutcome,
     TransferRequest,
 };
 use std::path::{Path, PathBuf};
@@ -314,6 +316,42 @@ pub async fn retry_failed_extractions(
 }
 
 #[tauri::command]
+pub async fn prune_search_index(
+    state: State<'_, SearchService>,
+) -> Result<IndexStatus, AppError> {
+    let service = state.inner().clone();
+    blocking(move || {
+        service.prune_index()?;
+        Ok(service.status())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn optimize_search_index(
+    state: State<'_, SearchService>,
+) -> Result<IndexStatus, AppError> {
+    let service = state.inner().clone();
+    blocking(move || {
+        service.optimize_index()?;
+        Ok(service.status())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn rebuild_search_name_index(
+    state: State<'_, SearchService>,
+) -> Result<IndexStatus, AppError> {
+    let service = state.inner().clone();
+    blocking(move || {
+        service.rebuild_name_index()?;
+        Ok(service.status())
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn remove_search_path(
     state: State<'_, SearchService>,
     path: String,
@@ -506,6 +544,119 @@ pub async fn read_text_preview(
     let path = normalize_path(&path)?;
     let max_bytes = max_bytes.unwrap_or(128 * 1024);
     blocking(move || metadata::read_text_preview(&path, max_bytes)).await
+}
+
+#[tauri::command]
+pub async fn preview_metadata(path: String) -> Result<PreviewMetadata, AppError> {
+    let path = normalize_path(&path)?;
+    blocking(move || preview::preview_metadata(&path)).await
+}
+
+#[tauri::command]
+pub async fn preview_thumbnail(
+    app: tauri::AppHandle,
+    path: String,
+    size: Option<u32>,
+) -> Result<PreviewThumbnail, AppError> {
+    let path = normalize_path(&path)?;
+    let size = size.unwrap_or(1024);
+    blocking(move || {
+        let state = app.state::<PreviewState>();
+        preview::thumbnail(state.inner(), &path, size)
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn preview_quicklook_open(
+    state: State<'_, PreviewState>,
+    paths: Vec<String>,
+) -> Result<(), AppError> {
+    let mut normalized = Vec::with_capacity(paths.len());
+    for path in paths {
+        normalized.push(normalize_path(&path)?);
+    }
+    preview::open_quick_look(state.inner(), &normalized)
+}
+
+#[tauri::command]
+pub fn preview_quicklook_close(state: State<'_, PreviewState>) {
+    preview::close_quick_look(state.inner());
+}
+
+#[tauri::command]
+pub async fn preview_read_text(
+    path: String,
+    offset: Option<u64>,
+    max_bytes: Option<usize>,
+) -> Result<TextRangePreview, AppError> {
+    let path = normalize_path(&path)?;
+    let offset = offset.unwrap_or(0);
+    let max_bytes = max_bytes.unwrap_or(256 * 1024);
+    blocking(move || preview::text_range(&path, offset, max_bytes)).await
+}
+
+#[tauri::command]
+pub async fn preview_archive(path: String) -> Result<ArchiveListing, AppError> {
+    let path = normalize_path(&path)?;
+    blocking(move || preview::archive_listing(&path)).await
+}
+
+#[tauri::command]
+pub async fn preview_extract_archive(
+    path: String,
+    destination: String,
+) -> Result<String, AppError> {
+    let path = normalize_path(&path)?;
+    let destination = normalize_path(&destination)?;
+    blocking(move || preview::extract_archive(&path, &destination)).await
+}
+
+#[tauri::command]
+pub async fn preview_folder_summary(
+    app: tauri::AppHandle,
+    path: String,
+    request_id: u64,
+    sample_limit: Option<usize>,
+) -> Result<FolderPreview, AppError> {
+    let path = normalize_path(&path)?;
+    let sample_limit = sample_limit.unwrap_or(12);
+    blocking(move || {
+        let state = app.state::<PreviewState>();
+        preview::folder_preview(state.inner(), &path, request_id, sample_limit)
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn cancel_preview_task(state: State<'_, PreviewState>, request_id: u64) {
+    preview::cancel_task(state.inner(), request_id);
+}
+
+#[tauri::command]
+pub fn preview_clear_cache(state: State<'_, PreviewState>) {
+    preview::clear_thumbnail_cache(state.inner());
+}
+
+#[tauri::command]
+pub fn preview_download_icloud(path: String) -> Result<(), AppError> {
+    let path = normalize_path(&path)?;
+    preview::download_icloud(&path)
+}
+
+#[tauri::command]
+pub fn preview_watch(
+    app: tauri::AppHandle,
+    state: State<'_, PreviewState>,
+    path: String,
+) -> Result<(), AppError> {
+    let path = normalize_path(&path)?;
+    preview::watch(state.inner(), app, &path)
+}
+
+#[tauri::command]
+pub fn preview_unwatch(state: State<'_, PreviewState>) {
+    preview::unwatch(state.inner());
 }
 
 #[tauri::command]
