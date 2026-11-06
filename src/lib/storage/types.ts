@@ -1,14 +1,19 @@
 import type { FileEntry, OperationResult } from "../types";
 
+/**
+ * Views reachable from the analyzer navigation. `largestFolders`, `fileTypes` and
+ * `duplicates` remain routable from the Overview cards and the Clean up tabs, but
+ * are deliberately not separate navigation entries.
+ */
 export type StorageView =
   | "overview"
-  | "tree"
+  | "browse"
   | "files"
-  | "largestFolders"
-  | "fileTypes"
   | "treemap"
+  | "cleanup"
   | "duplicates"
-  | "cleanup";
+  | "largestFolders"
+  | "fileTypes";
 
 export type StorageRisk = "low" | "review" | "high";
 export type StorageSort = "size" | "name" | "modified" | "created" | "type" | "path";

@@ -103,7 +103,7 @@ export function StorageDetails() {
             Open
           </button>
         ) : (
-          <button type="button" className="storage-toolbar-button" onClick={() => { void openDirectory(path); setView("tree"); }}>
+          <button type="button" className="storage-toolbar-button" onClick={() => { void openDirectory(path); setView("browse"); }}>
             <Icon name="folder" size={13} />
             Open folder
           </button>

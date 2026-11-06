@@ -49,11 +49,11 @@ function Recommendation({
           <button
             type="button"
             className="storage-icon-button"
-            title="Inspect in folder tree"
-            aria-label={`Inspect ${recommendation.path} in folder tree`}
+            title="Inspect in folder browser"
+            aria-label={`Inspect ${recommendation.path} in folder browser`}
             onClick={() => {
               void openDirectory(recommendation.isDirectory ? recommendation.path : parentPath(recommendation.path) ?? recommendation.path);
-              setView("tree");
+              setView("browse");
             }}
           >
             <Icon name="folderOpen" size={12} />

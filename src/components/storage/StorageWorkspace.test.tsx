@@ -175,7 +175,7 @@ describe("StorageWorkspace", () => {
 
   it("switches to cleanup without replacing file-browser state", () => {
     render(<StorageWorkspace />);
-    fireEvent.click(screen.getByRole("button", { name: /^Cleanup/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Clean up/ }));
     expect(screen.getByRole("heading", { name: "Cleanup recommendations" })).toBeTruthy();
     expect(screen.getAllByText("High risk").length).toBeGreaterThan(0);
     expect(screen.getByText(/Age, size, or location alone never prove/i)).toBeTruthy();
@@ -210,7 +210,7 @@ describe("StorageWorkspace", () => {
 
   it("can exclude a recommendation from future cleanup suggestions", () => {
     render(<StorageWorkspace />);
-    fireEvent.click(screen.getByRole("button", { name: /^Cleanup/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Clean up/ }));
     fireEvent.click(
       screen.getByRole("button", {
         name: "Exclude /Users/test/Library/Caches from future recommendations",
@@ -246,9 +246,9 @@ describe("StorageWorkspace", () => {
   it("offers a scan state when no result exists", () => {
     useStorageStore.setState({ scan: null, view: "overview" });
     render(<StorageWorkspace />);
-    expect(screen.getByText(/Know exactly what fills this volume/i)).toBeTruthy();
+    expect(screen.getByText(/Ready to measure/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Quick overview scan/i })).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: /Deep scan/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Deep scan/i).length).toBeGreaterThan(0);
   });
 
   it("does not fake a scan when the Tauri runtime is unavailable", async () => {
@@ -256,6 +256,11 @@ describe("StorageWorkspace", () => {
     render(<StorageWorkspace />);
     expect(screen.getAllByText(/Choose a volume/i).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Quick overview scan/i })).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: /Deep scan/i }).length).toBeGreaterThan(0);
+    // Scan scopes live behind one menu instead of three header buttons.
+    const menu = screen.getByText(/^Scan$/, { selector: "summary" });
+    expect(menu).toBeTruthy();
+    fireEvent.click(menu);
+    expect(screen.getAllByText(/^Deep scan$/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Choose folder/).length).toBeGreaterThan(0);
   });
 });

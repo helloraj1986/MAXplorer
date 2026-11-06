@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { Icon } from "../Icon";
 import { FileTypeIcon } from "../icons/FileTypeIcon";
 import { useStorageStore } from "../../state/storageStore";
@@ -42,6 +42,12 @@ function timestamp(value: string): number | null {
   const date = new Date(`${value}T00:00:00`);
   return Number.isNaN(date.getTime()) ? null : date.getTime();
 }
+
+const closeRowMenu = (event: MouseEvent<HTMLButtonElement>, run: () => void) => {
+  event.stopPropagation();
+  event.currentTarget.closest("details")?.removeAttribute("open");
+  run();
+};
 
 function FileRow({ file }: { file: StorageFile }) {
   const selectedFile = useStorageStore((state) => state.selectedFile);
@@ -99,10 +105,22 @@ function FileRow({ file }: { file: StorageFile }) {
       <td className="storage-number storage-muted">{formatSize(file.allocated)}</td>
       <td className="storage-date">{formatDate(file.modified)}</td>
       <td className="storage-row-actions">
-        <button type="button" className="storage-icon-button" title="Reveal in MAXplorer" aria-label={`Reveal ${file.name} in MAXplorer`} onClick={(event) => { event.stopPropagation(); void revealInMaxplorer(file.path); }}><Icon name="folderOpen" size={12} /></button>
-        <button type="button" className="storage-icon-button" title="Reveal in Finder" aria-label={`Reveal ${file.name} in Finder`} onClick={(event) => { event.stopPropagation(); void revealInFinder(file.path); }}><Icon name="open" size={12} /></button>
-        <button type="button" className="storage-icon-button" title="Open" aria-label={`Open ${file.name}`} onClick={(event) => { event.stopPropagation(); void openFile(file.path); }}><Icon name="eye" size={12} /></button>
-        <button type="button" className="storage-icon-button" title="Properties" aria-label={`Properties for ${file.name}`} onClick={(event) => { event.stopPropagation(); void openProperties(file.path); }}><Icon name="properties" size={12} /></button>
+        <details className="storage-row-menu">
+          <summary
+            className="storage-icon-button"
+            title="Actions"
+            aria-label={`Actions for ${file.name}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <Icon name="chevronDown" size={12} />
+          </summary>
+          <div className="storage-row-menu-items" role="group" aria-label={`Actions for ${file.name}`}>
+            <button type="button" onClick={(event) => closeRowMenu(event, () => void revealInMaxplorer(file.path))}>Reveal in MAXplorer</button>
+            <button type="button" onClick={(event) => closeRowMenu(event, () => void revealInFinder(file.path))}>Reveal in Finder</button>
+            <button type="button" onClick={(event) => closeRowMenu(event, () => void openFile(file.path))}>Open</button>
+            <button type="button" onClick={(event) => closeRowMenu(event, () => void openProperties(file.path))}>Properties</button>
+          </div>
+        </details>
       </td>
     </tr>
   );
