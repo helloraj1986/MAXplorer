@@ -195,6 +195,20 @@ is the same database with the exclusion policy absent and the trigram index not 
 | Reopen existing index | 5.2 s (schema migration) | 1.2 ms |
 | Cancellation | ignored during SQL | aborts inside SQLite |
 
+Scale check on a synthetic 500,000-row index (same schema, narrow rows, warm cache):
+
+| Query | `LIKE '%term%'` | trigram `MATCH` |
+| --- | --- | --- |
+| `resume` (50,180 rows) | 46.1 ms | 9.4 ms |
+| `esum` (mid-word, 50,180 rows) | 46 ms | 3.2 ms |
+| `resume-01` (951 rows) | 44 ms | 0.6 ms |
+| Trigram build for 500 k rows | — | 2.6 s |
+
+At this size the `LIKE` cost is modest because the rows are narrow and cached; the
+dominant repair on the real machine was index hygiene (6.35 M rows → 157 k). The trigram
+index still wins 5–70× and, unlike a leading-wildcard scan, does not degrade as rows grow
+wider or the cache goes cold.
+
 Reproduce with:
 
 ```bash
