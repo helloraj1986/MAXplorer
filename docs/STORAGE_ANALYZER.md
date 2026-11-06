@@ -168,14 +168,21 @@ Backend contracts are all camelCase and registered in `src-tauri/src/lib.rs`.
 - Reserved filesystem metadata folders (Spotlight, fseventsd, temporary item stores, etc.)
   are skipped and counted in the scan report.
 - Permission and read errors are counted and the scan continues.
-- Bounded by a configurable entry cap (default 500,000; the Deep scan control raises it to
-  5,000,000; hard ceiling 5,000,000) and can be cancelled by request ID. Partial results are
-  reported honestly. Separate controls cover quick overview, deep scan, deep scan of the Home
+- Bounded by a memory budget rather than a fixed entry ceiling: the Quick overview scan asks
+  for 500,000 entries, the Deep scan control asks for `0` ("auto") and the backend sizes the
+  walk to 55% of the memory the machine can reclaim (macOS `host_statistics64`
+  free + speculative + inactive + purgeable, Linux `MemAvailable`, else a fixed 4 GiB),
+  floored at 192 MiB. The absolute count ceiling is 50,000,000 and is only a walker safety
+  valve. The live index footprint is measured entry by entry (record + every heap string)
+  and the scan stops before the budget is exceeded. Scans can be cancelled by request ID.
+  Partial results are reported honestly, with `truncationReason` naming the guard that
+  stopped them. Separate controls cover quick overview, deep scan, deep scan of the Home
   folder, **Scan folder...** for an arbitrary absolute path, rescan this folder, duplicate
   detection, and cancel.
 - A whole-volume scan traverses system data, caches, application support, and every user
-  folder in one global cap. It can reach the cap before a deeply nested user folder. Scan that
-  folder directly with **Scan folder...** for complete, fast coverage of just those files.
+  folder in one global budget. On a machine without enough free memory for the whole tree it
+  can stop before a deeply nested user folder. Scan that folder directly with
+  **Scan folder...** for complete, fast coverage of just those files.
 - Progress events (`storage-scan-progress`) contain entries/files/folders/bytes/elapsed and
   the current path; no completion percentage is invented.
 - Directory aggregates are computed bottom-up once after traversal. A directory contributes

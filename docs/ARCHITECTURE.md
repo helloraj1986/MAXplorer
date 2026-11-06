@@ -260,8 +260,9 @@ boundaries are:
   uninspected remainder as system/snapshot/purgeable/protected space.
 - Categorization is location-first and assigns exactly one category per file. File-type
   groups are a separate content-oriented axis. No file is opened for classification.
-- The scan is cancellable and emits `storage-scan-progress`. It caps entries (default
-  500,000, ceiling 5,000,000), skips nested mounts and reserved metadata directories, detects
+- The scan is cancellable and emits `storage-scan-progress`. It budgets entries by available
+  memory (Quick scan 500,000 entries; Deep scan auto-sizes to 55% of reclaimable RAM, absolute
+  ceiling 50,000,000), skips nested mounts and reserved metadata directories, detects
   permission errors without aborting, and deduplicates hard-linked inodes.
 - Large lists never cross IPC wholesale. The frontend requests `get_storage_children` for one
   folder or `query_storage_files` for one filtered page. The result payload contains only

@@ -145,6 +145,8 @@ export interface StorageScanResult {
   cleanupRecoverableBytes: number;
   cancelled: boolean;
   truncated: boolean;
+  /** Which guard stopped the scan ("entry limit of …" / "memory budget of …"), null when complete. */
+  truncationReason: string | null;
   maxEntries: number;
   categories: StorageCategory[];
   fileTypes: StorageFileType[];
@@ -309,8 +311,11 @@ export interface StorageSelectionSummary {
   lowRisk: number;
 }
 
-/** Deep scan ceiling exposed by the analyzer UI (the backend hard cap is 5M). */
-export const DEEP_SCAN_MAX_ENTRIES = 5_000_000;
+/**
+ * Deep scan asks for `0` entries, which the backend reads as "auto": the scan is
+ * sized to the machine's available memory instead of a fixed entry count.
+ */
+export const DEEP_SCAN_MAX_ENTRIES = 0;
 
 export const DEFAULT_STORAGE_FILE_QUERY: Omit<StorageFileQuery, "scanId"> = {
   directory: null,

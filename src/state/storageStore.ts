@@ -393,9 +393,10 @@ export const useStorageStore = create<StorageState>((set, get) => ({
     }
     const target = root ?? volume.mountPoint;
     const scanId = nextId();
+    const budgetLabel = maxEntries === 0 ? "auto (memory-budgeted)" : String(maxEntries ?? 500_000);
     logDiagnostic(
       "info",
-      `Starting storage scan id=${scanId} root=${target} maxEntries=${maxEntries ?? 500_000}`,
+      `Starting storage scan id=${scanId} root=${target} maxEntries=${budgetLabel}`,
       "storage.scan",
     );
     activeScanId = scanId;

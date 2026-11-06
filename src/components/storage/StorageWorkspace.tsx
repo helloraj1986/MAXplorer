@@ -158,7 +158,7 @@ export function StorageWorkspace() {
                 className="storage-toolbar-button"
                 onClick={() => void startScan(undefined, DEEP_SCAN_MAX_ENTRIES)}
                 disabled={!volume}
-                title="Deep scan allows up to 5,000,000 entries and can take several minutes"
+                title="Deep scan runs until the available-memory budget is reached (no fixed entry cap) and can take several minutes"
               >
                 <Icon name="database" size={13} />
                 Deep scan

@@ -57,6 +57,7 @@ function scan(root: string, cleanup: StorageScanResult["cleanup"] = []): Storage
     cleanupRecoverableBytes: 100,
     cancelled: false,
     truncated: false,
+    truncationReason: null,
     maxEntries: 500_000,
     categories: [],
     fileTypes: [],

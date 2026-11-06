@@ -499,3 +499,32 @@
   nine failures are the pre-existing `storageStore.test.ts` and `ThemeCreator.test.tsx`
   suites that read `window.localStorage` under the `node` test environment; neither file
   is touched by this work. `npm run typecheck` clean.
+
+## Phase 22 - Memory-budgeted storage scans (2026-11-07)
+
+- Removed the 5,000,000-entry hard cap that stopped the Storage Space Analyzer mid-volume.
+  Deep scan now sends `maxEntries = 0`, which the backend reads as "auto":
+  `resolve_scan_budget` sizes the walk to 55% of the memory the machine can actually reclaim
+  (macOS `host_statistics64` free + speculative + inactive + purgeable; Linux `MemAvailable`;
+  4 GiB fixed elsewhere), floored at 192 MiB so small machines still get a usable scan. The
+  absolute count ceiling is now 50,000,000 and is only a walker safety valve.
+- The walk measures the live index footprint entry by entry (record size + every heap string +
+  allocator/slot/inode overhead) and stops before the byte budget is exceeded, instead of
+  trusting a bytes-per-entry guess that a real volume can violate.
+- `StorageScanResult.truncationReason` ("entry limit of N entries" / "memory budget of X of
+  index space") now tells the UI which guard stopped a truncated scan; the overview warning,
+  hero note and usage legend use it, and cancelled scans no longer claim to have hit a limit.
+- Verification on this Mac (32 GB, `/System/Volumes/Data` at 855 GB / 11 M inodes): reclaimable
+  14,011 MiB -> 7,706 MiB index budget, i.e. roughly 14 M entries at the measured ~550 B each,
+  against the previous 5 M ceiling. A 35 s real scan of the home folder processed millions of
+  entries with RSS tracking the accounting within a few percent and no truncation.
+- Tests: `cargo test` **81 passed** (new: auto budget beats the old ceiling, absolute ceiling
+  clamp, macOS VM counters readable, a scan stops on a 12 KB byte budget and reports the
+  memory reason); storage component suite **19 passed** including the new memory-budget copy
+  test. `npm run typecheck` clean. `npm test` **341 passed / 9 failed**, the same nine
+  pre-existing `storageStore.test.ts` and `ThemeCreator.test.tsx` failures caused by
+  `window.localStorage` being absent under the `node` test environment.
+- Known limitation: the index is still held in memory for the session, so a whole-volume scan
+  of an 11 M-entry disk costs several GB of RSS while the analyzer is open. The cache schema
+  already stores exactly these rows in SQLite; serving drill-down from the cache instead of a
+  RAM index is the next architectural step if multi-TB volumes matter.

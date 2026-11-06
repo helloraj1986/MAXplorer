@@ -24,8 +24,24 @@ use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use walkdir::WalkDir;
 
-const DEFAULT_MAX_ENTRIES: usize = 500_000;
-const MAX_ENTRIES_LIMIT: usize = 5_000_000;
+/// Absolute ceiling on entries walked, independent of memory. It exists only so a
+/// pathological tree (or a hostile network mount) cannot keep the walker alive
+/// forever; the real guard is the memory budget below. The Quick overview control
+/// asks for 500,000 entries explicitly; Deep scan sends `0` (auto).
+const MAX_ENTRIES_LIMIT: usize = 50_000_000;
+/// Share of currently-available memory the in-memory index may claim. The rest
+/// is headroom for the webview, the SQLite cache write, and the OS.
+const INDEX_MEMORY_SHARE_PERCENT: u64 = 55;
+/// Never plan an index smaller than this, so small machines still get a usable
+/// 500,000-entry Quick scan instead of an immediately truncated one.
+const MIN_INDEX_BUDGET_BYTES: u64 = 192 * 1024 * 1024;
+/// Used when the platform cannot report available memory (Windows without a
+/// probing crate): a fixed budget that still beats the old 5,000,000 ceiling.
+const FALLBACK_INDEX_BUDGET_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+/// Per-entry bookkeeping the record strings do not cover: the `Vec`/`HashMap` slot,
+/// the `(device, inode)` key, and the allocator header that rounds each small
+/// string allocation up to a 16-byte boundary.
+const ENTRY_INDEX_OVERHEAD: u64 = 160;
 const MAX_SCAN_DEPTH: usize = 96;
 const TOP_RESULT_LIMIT: usize = 500;
 const ONE_GB: u64 = 1024 * 1024 * 1024;
@@ -63,6 +79,8 @@ pub struct StorageVolume {
 pub struct StorageScanRequest {
     pub scan_id: u64,
     pub root: String,
+    /// Entry ceiling. `0` (the Deep scan control) means auto: the backend sizes the
+    /// scan to the machine's available memory.
     #[serde(default)]
     pub max_entries: usize,
 }
@@ -192,6 +210,8 @@ pub struct StorageScanResult {
     pub cleanup_recoverable_bytes: u64,
     pub cancelled: bool,
     pub truncated: bool,
+    /// Prose describing which guard stopped the scan, set only when `truncated`.
+    pub truncation_reason: Option<String>,
     pub max_entries: u64,
     pub categories: Vec<StorageCategory>,
     pub file_types: Vec<StorageFileType>,
@@ -1321,10 +1341,148 @@ pub(crate) struct ScanIndex {
     pub directories: HashMap<String, StorageDirectory>,
 }
 
+/// Where a scan is allowed to stop. `max_entries` is a count guard the caller can
+/// request; `max_index_bytes` is the memory guard the backend always applies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ScanBudget {
+    pub max_entries: usize,
+    pub max_index_bytes: u64,
+}
+
+impl ScanBudget {
+    /// Budget for tests and callers that want an explicit byte ceiling.
+    pub(crate) fn with_bytes(max_entries: usize, max_index_bytes: u64) -> Self {
+        Self {
+            max_entries,
+            max_index_bytes,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LimitHit {
+    Entries,
+    Memory,
+}
+
+#[cfg(target_os = "macos")]
+fn sysctl_u64(name: &str) -> Option<u64> {
+    let name = std::ffi::CString::new(name).ok()?;
+    let mut value: u64 = 0;
+    let mut size = std::mem::size_of::<u64>();
+    let status = unsafe {
+        libc::sysctlbyname(
+            name.as_ptr(),
+            &mut value as *mut u64 as *mut libc::c_void,
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if status != 0 {
+        return None;
+    }
+    // Most `vm.*` counters are 32-bit; sysctlbyname writes only the low bytes of
+    // our u64 (little-endian, the only endianness macOS ships on).
+    if size == 4 {
+        Some(value & 0xFFFF_FFFF)
+    } else {
+        Some(value)
+    }
+}
+
+/// Memory the process can grow into without pushing the machine into swap.
+///
+/// `sysctl vm.*` only exposes free/speculative counters, and `_SC_AVPHYS_PAGES`
+/// reports free pages alone; both undercount a warm Mac by gigabytes. The
+/// `host_statistics64` VM statistics are the same numbers `vm_stat` prints, so
+/// free + speculative + inactive + purgeable is used as the reclaimable total.
+#[cfg(target_os = "macos")]
+#[allow(deprecated)] // libc's replacement is the mach2 crate; not worth a new dependency for one call per scan.
+pub(crate) fn available_memory_bytes() -> Option<u64> {
+    use std::mem::MaybeUninit;
+    let mut stats = MaybeUninit::<libc::vm_statistics64>::uninit();
+    let mut count = libc::HOST_VM_INFO64_COUNT;
+    let status = unsafe {
+        libc::host_statistics64(
+            libc::mach_host_self(),
+            libc::HOST_VM_INFO64,
+            stats.as_mut_ptr() as libc::host_info64_t,
+            &mut count,
+        )
+    };
+    if status != 0 {
+        return None;
+    }
+    let stats = unsafe { stats.assume_init() };
+    let page_size = sysctl_u64("vm.pagesize").or_else(|| sysctl_u64("hw.pagesize"))?;
+    let reclaimable = u64::from(stats.free_count)
+        .saturating_add(u64::from(stats.speculative_count))
+        .saturating_add(u64::from(stats.inactive_count))
+        .saturating_add(u64::from(stats.purgeable_count));
+    Some(reclaimable.saturating_mul(page_size))
+}
+
+#[cfg(target_os = "linux")]
+fn available_memory_bytes() -> Option<u64> {
+    let text = std::fs::read_to_string("/proc/meminfo").ok()?;
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("MemAvailable:") {
+            let kilobytes: u64 = rest.split_whitespace().next()?.parse().ok()?;
+            return Some(kilobytes.saturating_mul(1024));
+        }
+    }
+    None
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn available_memory_bytes() -> Option<u64> {
+    None
+}
+
+/// Turn the caller's entry request into a budget.
+///
+/// `max_entries == 0` means "auto" (the Deep scan control): the ceiling stays wide
+/// open and the memory guard decides where to stop. Any explicit request is
+/// clamped to the absolute ceiling but never silently lowered — the memory guard
+/// still stops the walk, and the scan reports that it did.
+pub(crate) fn resolve_scan_budget(requested_max_entries: usize) -> ScanBudget {
+    let max_index_bytes = match available_memory_bytes() {
+        Some(bytes) => (bytes.saturating_mul(INDEX_MEMORY_SHARE_PERCENT) / 100)
+            .max(MIN_INDEX_BUDGET_BYTES),
+        None => FALLBACK_INDEX_BUDGET_BYTES,
+    };
+    let max_entries = if requested_max_entries == 0 {
+        MAX_ENTRIES_LIMIT
+    } else {
+        requested_max_entries.clamp(1_000, MAX_ENTRIES_LIMIT)
+    };
+    ScanBudget {
+        max_entries,
+        max_index_bytes,
+    }
+}
+
 pub(crate) fn scan_storage_index(
     root: &Path,
     scan_id: u64,
     max_entries: usize,
+    cancel: &AtomicBool,
+    progress: &dyn Fn(StorageScanProgress),
+) -> Result<ScanIndex, AppError> {
+    scan_storage_index_with_budget(
+        root,
+        scan_id,
+        resolve_scan_budget(max_entries),
+        cancel,
+        progress,
+    )
+}
+
+pub(crate) fn scan_storage_index_with_budget(
+    root: &Path,
+    scan_id: u64,
+    budget: ScanBudget,
     cancel: &AtomicBool,
     progress: &dyn Fn(StorageScanProgress),
 ) -> Result<ScanIndex, AppError> {
@@ -1342,7 +1500,6 @@ pub(crate) fn scan_storage_index(
     let started = Instant::now();
     let started_at = now_ms();
     let root_display = root.to_string_lossy().to_string();
-    let max_entries = max_entries.clamp(1_000, MAX_ENTRIES_LIMIT);
     let excluded = excluded_mounts(root);
     let mut directories: HashMap<String, DirWork> = HashMap::new();
     let mut files: Vec<StorageFile> = Vec::new();
@@ -1361,6 +1518,8 @@ pub(crate) fn scan_storage_index(
     let mut skipped_reserved = 0u64;
     let mut logical_bytes = 0u64;
     let mut allocated_bytes = 0u64;
+    let mut index_bytes = 0u64;
+    let mut limit_hit: Option<LimitHit> = None;
     let mut truncated = false;
     let mut cancelled = false;
     let mut current_path: Option<String> = None;
@@ -1434,8 +1593,14 @@ pub(crate) fn scan_storage_index(
             cancelled = true;
             break;
         }
-        if scanned_entries as usize >= max_entries {
+        if scanned_entries as usize >= budget.max_entries {
             truncated = true;
+            limit_hit = Some(LimitHit::Entries);
+            break;
+        }
+        if index_bytes >= budget.max_index_bytes {
+            truncated = true;
+            limit_hit = Some(LimitHit::Memory);
             break;
         }
         let entry = match item {
@@ -1510,6 +1675,15 @@ pub(crate) fn scan_storage_index(
             if let Some(parent) = directories.get_mut(&parent_text) {
                 parent.record.direct_folders += 1;
             }
+            index_bytes = index_bytes.saturating_add(
+                std::mem::size_of::<StorageDirectory>() as u64
+                    // The path is stored twice: once as the HashMap key, once
+                    // inside the record.
+                    + (path_text.len().saturating_mul(2)) as u64
+                    + name.len() as u64
+                    + parent_text.len() as u64
+                    + ENTRY_INDEX_OVERHEAD,
+            );
         } else {
             scanned_files += 1;
             if is_symlink {
@@ -1592,6 +1766,20 @@ pub(crate) fn scan_storage_index(
                 category: category.to_string(),
                 file_type: file_type.to_string(),
             };
+            index_bytes = index_bytes.saturating_add(
+                std::mem::size_of::<StorageFile>() as u64
+                    + file.path.len() as u64
+                    + file.name.len() as u64
+                    + file.parent.len() as u64
+                    + file
+                        .extension
+                        .as_ref()
+                        .map(|value| value.len())
+                        .unwrap_or(0) as u64
+                    + file.category.len() as u64
+                    + file.file_type.len() as u64
+                    + ENTRY_INDEX_OVERHEAD,
+            );
             files.push(file);
             if let Some(parent) = directories.get_mut(&parent_text) {
                 parent.record.direct_files += 1;
@@ -1806,10 +1994,17 @@ pub(crate) fn scan_storage_index(
             format_bytes(allocated_bytes)
         ));
     }
-    if truncated {
+    let truncation_reason = limit_hit.map(|hit| match hit {
+        LimitHit::Entries => format!("entry limit of {} entries", budget.max_entries),
+        LimitHit::Memory => format!(
+            "memory budget of {} of index space",
+            format_bytes(budget.max_index_bytes)
+        ),
+    });
+    if let Some(reason) = truncation_reason.as_deref() {
         notes.push(format!(
-            "The scan stopped at the {} entry safety limit. Increase the limit or scan a narrower folder for complete results.",
-            max_entries
+            "The scan stopped at its {reason} after {} entries were inspected. Scan a narrower folder for complete results.",
+            scanned_entries
         ));
     }
     if cancelled {
@@ -1849,7 +2044,8 @@ pub(crate) fn scan_storage_index(
         cleanup_recoverable_bytes,
         cancelled,
         truncated,
-        max_entries: max_entries as u64,
+        truncation_reason,
+        max_entries: budget.max_entries as u64,
         categories: category_list,
         file_types: file_type_list,
         largest_files,
@@ -3066,21 +3262,22 @@ pub async fn scan_storage(
     use tauri::Emitter;
     let root = normalize_path(&request.root)?;
     let scan_id = request.scan_id;
-    let max_entries = if request.max_entries == 0 {
-        DEFAULT_MAX_ENTRIES
-    } else {
-        request.max_entries
-    };
+    // `0` means auto: the Deep scan control lets the memory guard decide where the
+    // walk stops instead of a fixed entry count.
+    let budget = resolve_scan_budget(request.max_entries);
     let root_text = root.to_string_lossy().to_string();
     logging::info(
         "storage.scan",
-        format!("start id={scan_id} root={root_text} max_entries={max_entries}"),
+        format!(
+            "start id={scan_id} root={root_text} max_entries={} index_budget_bytes={}",
+            budget.max_entries, budget.max_index_bytes
+        ),
     );
     let cancel = state.register(scan_id);
     let app_handle = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         logging::catch("storage scan", || {
-            scan_storage_index(&root, scan_id, max_entries, &cancel, &|progress| {
+            scan_storage_index_with_budget(&root, scan_id, budget, &cancel, &|progress| {
                 let _ = app_handle.emit("storage-scan-progress", progress);
             })
         })

@@ -274,6 +274,72 @@ mod tests {
         assert_eq!(page.total_bytes, 5000);
     }
 
+    #[test]
+    fn storage_scan_auto_budget_exceeds_the_old_entry_ceiling() {
+        use crate::storage::resolve_scan_budget;
+        let auto = resolve_scan_budget(0);
+        assert!(
+            auto.max_entries > 5_000_000,
+            "auto deep scan must not inherit the old 5,000,000 ceiling"
+        );
+        assert!(auto.max_index_bytes >= 192 * 1024 * 1024);
+        assert_eq!(resolve_scan_budget(20_000).max_entries, 20_000);
+        assert_eq!(
+            resolve_scan_budget(usize::MAX).max_entries,
+            50_000_000,
+            "explicit requests clamp to the absolute ceiling"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn storage_scan_reads_real_available_memory() {
+        use crate::storage::{available_memory_bytes, resolve_scan_budget};
+        let available = available_memory_bytes().expect("macOS VM counters should be readable");
+        assert!(
+            available > 1024 * 1024 * 1024,
+            "implausible available memory: {available}"
+        );
+        let budget = resolve_scan_budget(0);
+        println!(
+            "available={} MiB index_budget={} MiB",
+            available / (1024 * 1024),
+            budget.max_index_bytes / (1024 * 1024)
+        );
+    }
+
+    #[test]
+    fn storage_scan_stops_at_the_memory_budget_and_reports_it() {
+        use crate::storage::{scan_storage_index_with_budget, ScanBudget};
+        let root = tempdir().unwrap();
+        let media = root.path().join("media");
+        fs::create_dir(&media).unwrap();
+        for index in 0..400 {
+            fs::write(media.join(format!("clip-{index:04}.mp4")), vec![b'x'; 64]).unwrap();
+        }
+        let budget = ScanBudget::with_bytes(usize::MAX, 12_000);
+        let scan = scan_storage_index_with_budget(
+            root.path(),
+            31,
+            budget,
+            &AtomicBool::new(false),
+            &|_| {},
+        )
+        .unwrap();
+        assert!(scan.scan.truncated);
+        assert!(scan.scan.scanned_entries < 401);
+        let reason = scan.scan.truncation_reason.clone().unwrap_or_default();
+        assert!(
+            reason.contains("memory budget"),
+            "unexpected truncation reason: {reason}"
+        );
+        assert!(scan
+            .scan
+            .notes
+            .iter()
+            .any(|note| note.contains("memory budget")));
+    }
+
     #[cfg(unix)]
     #[test]
     fn storage_scan_lists_symlinks_without_following_them() {

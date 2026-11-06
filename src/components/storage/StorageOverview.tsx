@@ -62,9 +62,11 @@ function CapacityHero({ volume, scan }: { volume: StorageVolume | null; scan: St
       {scan && scan.uninspectedBytes > 0 ? (
         <p className="storage-hero-note">
           <Icon name="info" size={12} />
-          {scan.truncated || scan.cancelled
-            ? `${formatSize(scan.uninspectedBytes)} was not inspected because the scan stopped at its ${formatCount(scan.maxEntries)} entry limit. This is not a cleanup estimate. Run Deep scan, or scan your Home folder or a narrower folder for complete coverage.`
-            : `${formatSize(scan.uninspectedBytes)} of reported usage is not attributable to inspected files. APFS snapshots, purgeable space, system-protected data, other volumes sharing the container, and unreadable locations can all contribute.`}
+          {scan.cancelled
+            ? `${formatSize(scan.uninspectedBytes)} was not inspected because the scan was cancelled. This is not a cleanup estimate.`
+            : scan.truncated
+              ? `${formatSize(scan.uninspectedBytes)} was not inspected because the scan stopped at its ${scan.truncationReason ?? `${formatCount(scan.maxEntries)} entry limit`}. This is not a cleanup estimate. Run Deep scan, or scan your Home folder or a narrower folder for complete coverage.`
+              : `${formatSize(scan.uninspectedBytes)} of reported usage is not attributable to inspected files. APFS snapshots, purgeable space, system-protected data, other volumes sharing the container, and unreadable locations can all contribute.`}
         </p>
       ) : null}
     </section>
@@ -116,12 +118,12 @@ function UsageBar({ scan }: { scan: StorageScanResult }) {
             style={{ width: `${(uninspected / capacity) * 100}%` }}
             title={
               incomplete
-                ? `${formatSize(uninspected)} was not inspected because the scan hit its entry limit`
+                ? `${formatSize(uninspected)} was not inspected because the scan stopped early`
                 : `${formatSize(uninspected)} cannot be attributed to inspected files`
             }
             aria-label={
               incomplete
-                ? `${formatSize(uninspected)} not inspected because the scan hit its entry limit`
+                ? `${formatSize(uninspected)} not inspected because the scan stopped early`
                 : `${formatSize(uninspected)} uninspected or system-managed storage`
             }
           />
@@ -161,7 +163,7 @@ function UsageBar({ scan }: { scan: StorageScanResult }) {
             <span className="storage-legend-size">{formatSize(uninspected)}</span>
             <span className="storage-legend-percent" />
             <span className="storage-legend-files">
-              {incomplete ? "Scan stopped at entry limit" : "Not attributable to files"}
+              {incomplete ? "Scan stopped early" : "Not attributable to files"}
             </span>
             <span />
           </div>
@@ -290,7 +292,7 @@ export function StorageOverview() {
               className="storage-toolbar-button"
               onClick={() => void startScan(undefined, DEEP_SCAN_MAX_ENTRIES)}
               disabled={!volume || scanning}
-              title="Allow up to 5,000,000 entries; this can take several minutes"
+              title="Scan until the available-memory budget is reached (no fixed entry cap); this can take several minutes"
             >
               <Icon name="database" size={13} />
               Deep scan
@@ -325,7 +327,7 @@ export function StorageOverview() {
           <span>
             {scan.cancelled
               ? "This is a partial scan. Totals and categories cover only inspected entries."
-              : `The scan reached its ${formatCount(scan.maxEntries)} entry safety limit, so ${formatSize(scan.uninspectedBytes)} was never examined. This is not a cleanup estimate.`}
+              : `The scan stopped at its ${scan.truncationReason ?? `${formatCount(scan.maxEntries)} entry limit`}, so ${formatSize(scan.uninspectedBytes)} was never examined. This is not a cleanup estimate.`}
           </span>
           <div className="storage-warning-actions">
             {homeFolder ? (

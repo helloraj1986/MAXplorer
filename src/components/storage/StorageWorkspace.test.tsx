@@ -48,6 +48,7 @@ const scan: StorageScanResult = {
   cleanupRecoverableBytes: 250_000,
   cancelled: false,
   truncated: false,
+  truncationReason: null,
   maxEntries: 500_000,
   categories: [
     { id: "applications", label: "Applications", bytes: 300_000, allocated: 300_000, files: 4, percent: 50 },
@@ -156,7 +157,20 @@ describe("StorageWorkspace", () => {
     render(<StorageWorkspace />);
     expect(screen.getByText(/was never examined/i)).toBeTruthy();
     expect(screen.getAllByText(/Not scanned \/ system-managed/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Scan stopped at entry limit/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Scan stopped early/i).length).toBeGreaterThan(0);
+  });
+
+  it("names the memory budget when that is what stopped the scan", () => {
+    useStorageStore.setState({
+      scan: {
+        ...scan,
+        truncated: true,
+        truncationReason: "memory budget of 9.4 GB of index space",
+        uninspectedBytes: 796_000_000_000,
+      },
+    });
+    render(<StorageWorkspace />);
+    expect(screen.getAllByText(/memory budget of 9\.4 GB of index space/i).length).toBeGreaterThan(0);
   });
 
   it("switches to cleanup without replacing file-browser state", () => {
