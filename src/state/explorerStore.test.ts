@@ -529,6 +529,7 @@ describe("explorer store tags", () => {
           id: "net-studio",
           name: "Studio",
           address: "smb://studio.local/share",
+          username: null,
           mountPath: null,
           createdAt: 1,
           lastConnectedAt: null,

@@ -840,6 +840,15 @@ function ErrorState({ paneId }: { paneId: PaneId }) {
             : "We can't open this location"}
       </h2>
       <p>{error?.message ?? "The location is unavailable."}</p>
+      {networkPermission ? (
+        <p className="dialog-detail">
+          Local Network and Network Volumes are separate macOS permissions. Full
+          Disk Access does not replace them, and an ad-hoc development build can
+          lose its grants after a rebuild even when the toggle still looks enabled.
+          Remove and re-add MAXplorer in the relevant privacy list, or reset TCC
+          for this bundle.
+        </p>
+      ) : null}
       {error?.path ? <code className="error-path">{error.path}</code> : null}
       <div className="state-actions">
         <button type="button" className="state-button primary" onClick={() => void refresh(paneId)}>

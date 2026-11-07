@@ -2791,10 +2791,15 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
         connection.id !== id &&
         connection.address.toLowerCase() !== address.toLowerCase(),
     );
+    const suppliedUsername = input.username?.trim();
     const connection: NetworkConnection = {
       id,
       name,
       address,
+      username:
+        input.username !== undefined
+          ? suppliedUsername || null
+          : existing?.username ?? null,
       mountPath:
         existing && existing.address.toLowerCase() === address.toLowerCase()
           ? existing.mountPath
@@ -2804,7 +2809,6 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     };
     if (index >= 0) next.splice(Math.min(index, next.length), 0, connection);
     else next.push(connection);
-    const suppliedUsername = input.username?.trim();
     if (suppliedUsername || input.password) {
       networkSessionCredentials.set(id, {
         username: suppliedUsername || undefined,

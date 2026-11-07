@@ -307,6 +307,8 @@ export interface NetworkConnection {
   id: string;
   name: string;
   address: string;
+  /** Optional SMB username; passwords are never persisted. */
+  username: string | null;
   mountPath: string | null;
   createdAt: number;
   lastConnectedAt: number | null;

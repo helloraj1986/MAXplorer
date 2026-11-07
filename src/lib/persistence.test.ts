@@ -107,6 +107,7 @@ describe("persisted network connections", () => {
         id: "net-1",
         name: "Studio",
         address: "smb://user@studio.local/share",
+        username: null,
         mountPath: "/Volumes/share",
         createdAt: 1,
         lastConnectedAt: 2,

@@ -395,6 +395,10 @@ function parseNetworkConnections(value: unknown): NetworkConnection[] {
         address,
       ),
       address,
+      username:
+        typeof raw.username === "string" && raw.username.trim()
+          ? raw.username.trim().slice(0, 128)
+          : null,
       mountPath:
         typeof raw.mountPath === "string" && raw.mountPath.trim()
           ? raw.mountPath
