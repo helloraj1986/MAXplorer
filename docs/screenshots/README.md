@@ -13,6 +13,8 @@ captured on the next interactive pass.
 
 | File | Content |
 | --- | --- |
+| `readme-hero.png` | **Current build** — Details view, sidebar, preview pane showing Markdown (used in the README) |
+| `readme-preview.png` | **Current build** — Large icon view with real thumbnails and an image preview pane |
 | `app-dark-details-1510.png` | Dark Details view, 1510 × 871 |
 | `release-dark.png` | Production release window, dark theme, 21 fixture items |
 | `macos-smoke.png` | Real macOS 14 CI launch, Home view, mounted DMG build |
