@@ -306,6 +306,7 @@ impl StorageCache {
                 format!("could not checkpoint the scan cache: {error}"),
             );
         }
+        self.compact_if_bloated(&connection);
         logging::info(
             "storage.cache",
             format!(
@@ -318,6 +319,37 @@ impl StorageCache {
             ),
         );
         Ok(())
+    }
+
+    /// Reclaims the pages a replaced scan left behind. The cache holds one full
+    /// file list per volume, so every refresh deletes hundreds of thousands of
+    /// rows; without this the file only ever grows (3.6 GB of freelist on a
+    /// 128 MB working set).
+    fn compact_if_bloated(&self, connection: &Connection) {
+        let pages: i64 = connection
+            .query_row("SELECT * FROM pragma_page_count", [], |row| row.get(0))
+            .unwrap_or(0);
+        let free: i64 = connection
+            .query_row("SELECT * FROM pragma_freelist_count", [], |row| row.get(0))
+            .unwrap_or(0);
+        if pages < 20_000 || free < 5_000 || free * 2 < pages {
+            return;
+        }
+        let started = std::time::Instant::now();
+        match connection.execute_batch("VACUUM;") {
+            Ok(()) => logging::info(
+                "storage.cache",
+                format!(
+                    "compacted the scan cache ({} free pages) in {} ms",
+                    free,
+                    started.elapsed().as_millis()
+                ),
+            ),
+            Err(error) => logging::warn(
+                "storage.cache",
+                format!("could not compact the scan cache: {error}"),
+            ),
+        }
     }
 
     pub fn latest(&self, root: Option<&str>) -> Result<Option<CachedStorageScan>, AppError> {
