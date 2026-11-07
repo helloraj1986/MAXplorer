@@ -40,7 +40,7 @@ blocker, not a source compile result for macOS.
 
 `feature/dual-theme` was merged into `main` with `--ff-only` and pushed as `779c6b7`. The
 `macOS build` workflow then succeeded on macOS 14 (run
-[40648095307](https://github.com/helloraj1986/win11-explorer-macos/actions/runs/40648095307),
+[40648095307](https://github.com/helloraj1986/MAXplorer/actions/runs/40648095307),
 5m19s): typecheck, 49 frontend tests, 18 Rust tests, the universal `tauri build`, `hdiutil`
 verification, checksum, and artifact upload all passed. The log contains a Node 20
 deprecation notice for the pinned GitHub actions (the runner forces Node 24); it is
@@ -273,8 +273,8 @@ Bugs found and corrected during this pass:
 
 A genuine universal macOS DMG **was produced on a macOS 14 GitHub Actions runner**:
 
-- Run: https://github.com/helloraj1986/win11-explorer-macos/actions/runs/40490663104
-- Release: https://github.com/helloraj1986/win11-explorer-macos/releases/tag/v0.1.0
+- Run: https://github.com/helloraj1986/MAXplorer/actions/runs/40490663104
+- Release: https://github.com/helloraj1986/MAXplorer/releases/tag/v0.1.0
 - Local file: `dist-macos/Windows 11 Explorer_0.1.0_universal.dmg`
 - Size: 3,310,805 bytes
 - SHA-256: `AE6A6758D2007DDD954E39DAB7B1665CBED8FB3BC49A026F738F4ACC20B845CA`

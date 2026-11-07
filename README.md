@@ -47,7 +47,7 @@ you already have.
 
 ### Download
 
-Grab the latest DMG from [Releases](https://github.com/helloraj1986/win11-explorer-macos/releases),
+Grab the latest DMG from [Releases](https://github.com/helloraj1986/MAXplorer/releases),
 open it, and drag **MAXplorer** to *Applications*.
 
 The build is **ad-hoc signed, not notarized**, so the first launch needs either right-click →
@@ -66,8 +66,8 @@ Requirements: macOS 12 or newer, Xcode Command Line Tools (`xcode-select --insta
 [Rust](https://rustup.rs) 1.88+ and Node.js 22+.
 
 ```bash
-git clone https://github.com/helloraj1986/win11-explorer-macos.git
-cd win11-explorer-macos
+git clone https://github.com/helloraj1986/MAXplorer.git
+cd MAXplorer
 npm install
 
 npm run tauri:dev      # run with hot reload

@@ -5,8 +5,8 @@
 | Document version | 1.2 |
 | Handover date | 2026-10-29 |
 | Project version | 0.1.0 (pre-rebrand release); `main` now includes the MAXplorer identity and icon system |
-| Repository | https://github.com/helloraj1986/win11-explorer-macos (private) |
-| Release | https://github.com/helloraj1986/win11-explorer-macos/releases/tag/v0.1.0 |
+| Repository | https://github.com/helloraj1986/MAXplorer (private) |
+| Release | https://github.com/helloraj1986/MAXplorer/releases/tag/v0.1.0 |
 | Current branch | `main` (premium icon system merged 2026-10-29) |
 
 ---
@@ -131,8 +131,8 @@ Do not assume the published `v0.1.0` DMG reflects `main`: it predates these chan
 ## 2. Five-minute orientation
 
 ```bash
-git clone https://github.com/helloraj1986/win11-explorer-macos.git
-cd win11-explorer-macos
+git clone https://github.com/helloraj1986/MAXplorer.git
+cd MAXplorer
 npm install
 npm run tauri:dev          # dev app against your real home folder
 ```
@@ -349,7 +349,7 @@ asserts the process is alive, screenshots the screen, and uploads evidence.
 2. Run the checks above; commit and push to `main`.
 3. Wait for the `macOS build` run to succeed; download the `windows11-explorer-macos`
    artifact (DMG + `.sha256`).
-4. `gh release create vX.Y.Z --repo helloraj1986/win11-explorer-macos --notes-file NOTES.md --prerelease --target main <dmg> <dmg>.sha256`
+4. `gh release create vX.Y.Z --repo helloraj1986/MAXplorer --notes-file NOTES.md --prerelease --target main <dmg> <dmg>.sha256`
 5. Point `macos-smoke.yml` at the new tag (it currently hardcodes `v0.1.0`) and run it to
    confirm the published artifact launches.
 
@@ -357,8 +357,8 @@ asserts the process is alive, screenshots the screen, and uploads evidence.
 
 | Field | Value |
 | --- | --- |
-| Build run | https://github.com/helloraj1986/win11-explorer-macos/actions/runs/40490663104 |
-| Smoke run | https://github.com/helloraj1986/win11-explorer-macos/actions/runs/40492290652 |
+| Build run | https://github.com/helloraj1986/MAXplorer/actions/runs/40490663104 |
+| Smoke run | https://github.com/helloraj1986/MAXplorer/actions/runs/40492290652 |
 | Asset | `Windows.11.Explorer_0.1.0_universal.dmg` (GitHub replaced spaces with dots) |
 | Size | 3,310,805 bytes |
 | SHA-256 | `AE6A6758D2007DDD954E39DAB7B1665CBED8FB3BC49A026F738F4ACC20B845CA` |
@@ -549,7 +549,7 @@ Honest boundaries of 0.1.0, ordered by importance to a successor:
 
 Whoever takes this over needs:
 
-- [ ] **GitHub repository access** — `helloraj1986/win11-explorer-macos` (private). Transfer
+- [ ] **GitHub repository access** — `helloraj1986/MAXplorer` (private). Transfer
       ownership or add a collaborator; the current owner is `helloraj1986`.
 - [ ] **GitHub Actions enabled** on the repo (required for the DMG build).
 - [ ] **`workflow` OAuth scope** on the local `gh`/git credential, otherwise pushes that

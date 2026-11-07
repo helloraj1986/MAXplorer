@@ -69,12 +69,12 @@
 
 - Wrote README, reference evidence, feature matrix, architecture, validation, and this log.
 - Added macOS CI build workflow and packaging instructions.
-- Pushed the project to the private GitHub repository `helloraj1986/win11-explorer-macos`.
+- Pushed the project to the private GitHub repository `helloraj1986/MAXplorer`.
 - Built a universal macOS app and DMG on a macOS 14 GitHub Actions runner:
   run `40490663104`.
 - Verified the DMG container, HFS contents, universal Mach-O header, Info.plist, and
   ad-hoc CodeSignature; published the DMG and SHA-256 as a pre-release:
-  `https://github.com/helloraj1986/win11-explorer-macos/releases/tag/v0.1.0`.
+  `https://github.com/helloraj1986/MAXplorer/releases/tag/v0.1.0`.
 - Added and ran `macos-smoke.yml`: downloaded the DMG, mounted it, launched the app on
   macOS 14, confirmed the process stayed alive, and captured a real macOS screenshot
   (`docs/screenshots/macos-smoke.png`).

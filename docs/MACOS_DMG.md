@@ -7,8 +7,8 @@ the Rust backend for a macOS target.
 A universal DMG was produced for the pre-rebrand 0.1.0 project on a macOS 14 GitHub
 Actions runner:
 
-- Run: https://github.com/helloraj1986/win11-explorer-macos/actions/runs/40490663104
-- Release: https://github.com/helloraj1986/win11-explorer-macos/releases/tag/v0.1.0
+- Run: https://github.com/helloraj1986/MAXplorer/actions/runs/40490663104
+- Release: https://github.com/helloraj1986/MAXplorer/releases/tag/v0.1.0
 - Local copy: `dist-macos/Windows 11 Explorer_0.1.0_universal.dmg`
 - SHA-256: `AE6A6758D2007DDD954E39DAB7B1665CBED8FB3BC49A026F738F4ACC20B845CA`
 
