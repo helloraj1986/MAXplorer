@@ -37,9 +37,9 @@ function DirectoryRow({ directory, total }: { directory: StorageDirectory; total
       tabIndex={0}
       aria-selected={selected}
       onClick={() => selectDirectory(directory)}
-      onDoubleClick={() => { void openDirectory(directory.path); setView("tree"); }}
+      onDoubleClick={() => { void openDirectory(directory.path); setView("browse"); }}
       onKeyDown={(event) => {
-        if (event.key === "Enter") { void openDirectory(directory.path); setView("tree"); }
+        if (event.key === "Enter") { void openDirectory(directory.path); setView("browse"); }
         if (event.key === " ") {
           event.preventDefault();
           togglePick(pickFromDirectory(directory));
@@ -75,7 +75,7 @@ function DirectoryRow({ directory, total }: { directory: StorageDirectory; total
       <td className="storage-date">{formatDate(directory.modified)}</td>
       <td className="storage-row-actions">
         <span className="storage-percent">{total > 0 ? `${((directory.size / total) * 100).toFixed(1)}%` : ""}</span>
-        <button type="button" className="storage-icon-button" title="Open in folder tree" aria-label={`Open ${directory.name} in folder tree`} onClick={(event) => { event.stopPropagation(); void openDirectory(directory.path); setView("tree"); }}><Icon name="folderOpen" size={12} /></button>
+        <button type="button" className="storage-icon-button" title="Open in folder browser" aria-label={`Open ${directory.name} in folder browser`} onClick={(event) => { event.stopPropagation(); void openDirectory(directory.path); setView("browse"); }}><Icon name="folderOpen" size={12} /></button>
         <button type="button" className="storage-icon-button" title="Reveal in Finder" aria-label={`Reveal ${directory.name} in Finder`} onClick={(event) => { event.stopPropagation(); void revealInFinder(directory.path); }}><Icon name="open" size={12} /></button>
       </td>
     </tr>
@@ -117,7 +117,7 @@ export function StorageFoldersView() {
           </p>
         </div>
         <div className="storage-view-actions">
-          <button type="button" className="storage-toolbar-button" onClick={() => setView("tree")}>
+          <button type="button" className="storage-toolbar-button" onClick={() => setView("browse")}>
             <Icon name="folderGit" size={13} />
             Folder tree
           </button>

@@ -613,6 +613,12 @@ const networkSessionCredentials = new Map<
   { username?: string; password?: string }
 >();
 
+// Selector helpers must return a stable reference when there is nothing to
+// return. A fresh `[]` on every call changes the zustand snapshot identity, so
+// React keeps re-rendering the subtree after any unrelated state change until
+// it aborts with "Maximum update depth exceeded" (React #185).
+const NO_TAG_IDS: string[] = [];
+
 let toastCounter = 0;
 let persistenceStarted = false;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -678,7 +684,7 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     const key = tagPathKey(path);
     return (
       get().tagAssignments.find((assignment) => tagPathKey(assignment.path) === key)
-        ?.tagIds ?? []
+        ?.tagIds ?? NO_TAG_IDS
     );
   },
   tagFilterEntries: (paneId) => {
@@ -2785,10 +2791,15 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
         connection.id !== id &&
         connection.address.toLowerCase() !== address.toLowerCase(),
     );
+    const suppliedUsername = input.username?.trim();
     const connection: NetworkConnection = {
       id,
       name,
       address,
+      username:
+        input.username !== undefined
+          ? suppliedUsername || null
+          : existing?.username ?? null,
       mountPath:
         existing && existing.address.toLowerCase() === address.toLowerCase()
           ? existing.mountPath
@@ -2798,7 +2809,6 @@ export const useExplorerStore = create<ExplorerState>((set, get) => ({
     };
     if (index >= 0) next.splice(Math.min(index, next.length), 0, connection);
     else next.push(connection);
-    const suppliedUsername = input.username?.trim();
     if (suppliedUsername || input.password) {
       networkSessionCredentials.set(id, {
         username: suppliedUsername || undefined,

@@ -2945,6 +2945,27 @@ select:focus-visible,
   line-height: 1.55;
 }
 
+.network-permissions {
+  margin-top: 12px;
+  padding: 12px;
+  max-width: 760px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.network-permissions strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.network-permissions p {
+  margin: 4px 0 10px;
+  color: var(--text-2);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
 .network-dialog-intro {
   margin-top: 0;
 }

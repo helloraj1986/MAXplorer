@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type MouseEvent } from "react";
 import { Icon, type IconName } from "../Icon";
 import { StorageIcon } from "../icons/StorageIcon";
 import { useExplorerStore } from "../../state/explorerStore";
@@ -18,14 +18,16 @@ import { StorageSelectionBar } from "./StorageSelectionBar";
 
 const VIEWS: Array<{ id: StorageView; label: string; icon: IconName }> = [
   { id: "overview", label: "Overview", icon: "drive" },
-  { id: "tree", label: "Folder tree", icon: "folderGit" },
-  { id: "files", label: "Largest files", icon: "file" },
-  { id: "largestFolders", label: "Largest folders", icon: "folder" },
-  { id: "fileTypes", label: "File types", icon: "fileType" },
+  { id: "browse", label: "Browse", icon: "folderGit" },
+  { id: "files", label: "Files", icon: "file" },
   { id: "treemap", label: "Treemap", icon: "grid" },
-  { id: "duplicates", label: "Duplicates", icon: "copy" },
-  { id: "cleanup", label: "Cleanup", icon: "wrench" },
+  { id: "cleanup", label: "Clean up", icon: "wrench" },
 ];
+
+/// Views that hang off another nav entry keep that entry highlighted.
+const NAV_OWNER: Partial<Record<StorageView, StorageView>> = {
+  duplicates: "cleanup",
+};
 
 function ScanProgress() {
   const progress = useStorageStore((state) => state.progress);
@@ -78,6 +80,11 @@ export function StorageWorkspace() {
   }, [initialize]);
 
   const canShowView = view === "overview" || Boolean(scan);
+  const activeNav = NAV_OWNER[view] ?? view;
+
+  const closeScanMenu = (event: MouseEvent<HTMLButtonElement>) => {
+    event.currentTarget.closest("details")?.removeAttribute("open");
+  };
 
   const scanSpecificFolder = () => {
     const explorer = useExplorerStore.getState();
@@ -144,35 +151,48 @@ export function StorageWorkspace() {
             </button>
           ) : (
             <>
-              <button
-                type="button"
-                className="storage-primary-button"
-                onClick={() => void startScan()}
-                disabled={!volume}
-              >
-                <Icon name={scan ? "refresh" : "search"} size={14} />
-                {scan ? "Rescan volume" : "Scan volume"}
-              </button>
-              <button
-                type="button"
-                className="storage-toolbar-button"
-                onClick={() => void startScan(undefined, DEEP_SCAN_MAX_ENTRIES)}
-                disabled={!volume}
-                title="Deep scan allows up to 5,000,000 entries and can take several minutes"
-              >
-                <Icon name="database" size={13} />
-                Deep scan
-              </button>
-              <button
-                type="button"
-                className="storage-toolbar-button"
-                onClick={scanSpecificFolder}
-                disabled={scanning}
-                title="Scan one folder directly instead of the whole volume"
-              >
-                <Icon name="folderOpen" size={13} />
-                Scan folder...
-              </button>
+              <details className="storage-scan-menu">
+                <summary className="storage-primary-button">
+                  <Icon name={scan ? "refresh" : "search"} size={14} />
+                  {scan ? "Rescan" : "Scan"}
+                  <Icon name="chevronDown" size={11} />
+                </summary>
+                <div className="storage-scan-menu-items" role="group" aria-label="Scan scope">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      closeScanMenu(event);
+                      void startScan();
+                    }}
+                    disabled={!volume}
+                  >
+                    <strong>Quick overview</strong>
+                    <span>500,000 entries · seconds to minutes</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      closeScanMenu(event);
+                      void startScan(undefined, DEEP_SCAN_MAX_ENTRIES);
+                    }}
+                    disabled={!volume}
+                  >
+                    <strong>Deep scan</strong>
+                    <span>Runs until the memory budget is reached</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      closeScanMenu(event);
+                      scanSpecificFolder();
+                    }}
+                    disabled={scanning}
+                  >
+                    <strong>Choose folder…</strong>
+                    <span>Analyze one folder instead of a whole volume</span>
+                  </button>
+                </div>
+              </details>
             </>
           )}
           <button
@@ -230,8 +250,8 @@ export function StorageWorkspace() {
             <button
               type="button"
               key={item.id}
-              className={`storage-nav-item ${view === item.id ? "active" : ""}`}
-              aria-current={view === item.id ? "page" : undefined}
+              className={`storage-nav-item ${activeNav === item.id ? "active" : ""}`}
+              aria-current={activeNav === item.id ? "page" : undefined}
               onClick={() => setView(item.id)}
               disabled={!canShowView}
             >
@@ -336,20 +356,40 @@ export function StorageWorkspace() {
             </div>
           ) : view === "overview" ? (
             <StorageOverview />
-          ) : view === "tree" ? (
+          ) : view === "browse" ? (
             <StorageTreeView />
-          ) : view === "files" ? (
-            <StorageFilesView />
+          ) : view === "treemap" ? (
+            <StorageTreemap />
+          ) : view === "duplicates" || view === "cleanup" ? (
+            <div className="storage-tabbed-view">
+              <div className="storage-view-tabs" role="group" aria-label="Clean up">
+                <button
+                  type="button"
+                  aria-pressed={view === "cleanup"}
+                  className={view === "cleanup" ? "active" : ""}
+                  onClick={() => setView("cleanup")}
+                >
+                  <Icon name="wrench" size={13} />
+                  Recommendations
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={view === "duplicates"}
+                  className={view === "duplicates" ? "active" : ""}
+                  onClick={() => setView("duplicates")}
+                >
+                  <Icon name="copy" size={13} />
+                  Duplicates
+                </button>
+              </div>
+              {view === "duplicates" ? <StorageDuplicates /> : <StorageCleanup />}
+            </div>
           ) : view === "largestFolders" ? (
             <StorageFoldersView />
           ) : view === "fileTypes" ? (
             <StorageFileTypesView />
-          ) : view === "treemap" ? (
-            <StorageTreemap />
-          ) : view === "duplicates" ? (
-            <StorageDuplicates />
           ) : (
-            <StorageCleanup />
+            <StorageFilesView />
           )}
         </main>
 

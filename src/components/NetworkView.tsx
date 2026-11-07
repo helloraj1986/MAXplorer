@@ -343,10 +343,57 @@ export function NetworkView({ paneId = "left" }: { paneId?: PaneId }) {
             password is needed, macOS shows its normal sign-in sheet and can remember
             the credential in your Keychain; MAXplorer never stores passwords. Use{" "}
             <strong>Browse Network</strong> for Bonjour and NetBIOS discovery. Saved
-            addresses may use SMB, AFP, NFS, or FTP. If discovery or direct SMB
-            connections fail, allow MAXplorer in System Settings &gt; Privacy &amp;
-            Security &gt; Local Network.
+            addresses may use SMB, AFP, NFS, or FTP.
           </p>
+          <div className="network-permissions">
+            <strong>macOS permissions for network access</strong>
+            <p>
+              Local Network and Files &amp; Folders → Network Volumes are separate
+              controls. Full Disk Access is also separate. Development builds are
+              ad-hoc signed, so after replacing the app macOS can keep a permission
+              toggle enabled while denying the new binary. If access still fails,
+              remove and re-add MAXplorer in the relevant privacy list, or reset TCC
+              after a rebuild.
+            </p>
+            <div className="network-row-actions">
+              <button
+                type="button"
+                className="home-action"
+                onClick={() =>
+                  void api.openSystemSettings("local_network").catch((cause) =>
+                    useExplorerStore.getState().toastError(cause),
+                  )
+                }
+              >
+                <Icon name="network" size={14} />
+                Local Network
+              </button>
+              <button
+                type="button"
+                className="home-action"
+                onClick={() =>
+                  void api.openSystemSettings("network_volumes").catch((cause) =>
+                    useExplorerStore.getState().toastError(cause),
+                  )
+                }
+              >
+                <Icon name="folder" size={14} />
+                Network Volumes
+              </button>
+              <button
+                type="button"
+                className="home-action"
+                onClick={() =>
+                  void api.openSystemSettings("full_disk").catch((cause) =>
+                    useExplorerStore.getState().toastError(cause),
+                  )
+                }
+              >
+                <Icon name="shield" size={14} />
+                Full Disk Access
+              </button>
+            </div>
+          </div>
         </section>
       </div>
     </div>

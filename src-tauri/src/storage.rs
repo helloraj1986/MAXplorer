@@ -19,13 +19,29 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use walkdir::WalkDir;
 
-const DEFAULT_MAX_ENTRIES: usize = 500_000;
-const MAX_ENTRIES_LIMIT: usize = 5_000_000;
+/// Absolute ceiling on entries walked, independent of memory. It exists only so a
+/// pathological tree (or a hostile network mount) cannot keep the walker alive
+/// forever; the real guard is the memory budget below. The Quick overview control
+/// asks for 500,000 entries explicitly; Deep scan sends `0` (auto).
+const MAX_ENTRIES_LIMIT: usize = 50_000_000;
+/// Share of currently-available memory the in-memory index may claim. The rest
+/// is headroom for the webview, the SQLite cache write, and the OS.
+const INDEX_MEMORY_SHARE_PERCENT: u64 = 55;
+/// Never plan an index smaller than this, so small machines still get a usable
+/// 500,000-entry Quick scan instead of an immediately truncated one.
+const MIN_INDEX_BUDGET_BYTES: u64 = 192 * 1024 * 1024;
+/// Used when the platform cannot report available memory (Windows without a
+/// probing crate): a fixed budget that still beats the old 5,000,000 ceiling.
+const FALLBACK_INDEX_BUDGET_BYTES: u64 = 4 * 1024 * 1024 * 1024;
+/// Per-entry bookkeeping the record strings do not cover: the `Vec`/`HashMap` slot,
+/// the `(device, inode)` key, and the allocator header that rounds each small
+/// string allocation up to a 16-byte boundary.
+const ENTRY_INDEX_OVERHEAD: u64 = 160;
 const MAX_SCAN_DEPTH: usize = 96;
 const TOP_RESULT_LIMIT: usize = 500;
 const ONE_GB: u64 = 1024 * 1024 * 1024;
@@ -63,6 +79,8 @@ pub struct StorageVolume {
 pub struct StorageScanRequest {
     pub scan_id: u64,
     pub root: String,
+    /// Entry ceiling. `0` (the Deep scan control) means auto: the backend sizes the
+    /// scan to the machine's available memory.
     #[serde(default)]
     pub max_entries: usize,
 }
@@ -192,6 +210,8 @@ pub struct StorageScanResult {
     pub cleanup_recoverable_bytes: u64,
     pub cancelled: bool,
     pub truncated: bool,
+    /// Prose describing which guard stopped the scan, set only when `truncated`.
+    pub truncation_reason: Option<String>,
     pub max_entries: u64,
     pub categories: Vec<StorageCategory>,
     pub file_types: Vec<StorageFileType>,
@@ -374,7 +394,7 @@ pub struct StorageDeleteProgress {
 
 #[derive(Default)]
 pub struct StorageState {
-    current: Mutex<Option<Arc<ScanIndex>>>,
+    current: Arc<Mutex<Option<Arc<ScanIndex>>>>,
     cancels: Mutex<HashMap<u64, Arc<AtomicBool>>>,
     cache_path: PathBuf,
     cache: Mutex<Option<StorageCache>>,
@@ -392,7 +412,7 @@ impl StorageState {
             ),
         );
         Self {
-            current: Mutex::new(None),
+            current: Arc::new(Mutex::new(None)),
             cancels: Mutex::new(HashMap::new()),
             cache_path,
             cache: Mutex::new(None),
@@ -430,7 +450,7 @@ impl StorageState {
         }
     }
 
-    fn store(&self, index: ScanIndex) -> Arc<ScanIndex> {
+    pub(crate) fn store(&self, index: ScanIndex) -> Arc<ScanIndex> {
         let index = Arc::new(index);
         if let Ok(mut current) = self.current.lock() {
             *current = Some(index.clone());
@@ -438,15 +458,48 @@ impl StorageState {
         index
     }
 
-    fn persist_async(&self, index: Arc<ScanIndex>) {
+    pub(crate) fn persist_async(&self, index: Arc<ScanIndex>) {
         let Some(cache) = self.cache() else {
             logging::warn("storage.cache", "no cache available; scan will not persist");
             return;
         };
+        let slot = self.current.clone();
         std::thread::spawn(move || {
             let directories = index.directories.values().cloned().collect::<Vec<_>>();
             if let Err(error) = cache.store(&index.scan, &index.files, &directories) {
                 logging::error("storage.cache", format!("could not persist scan: {error}"));
+                return;
+            }
+            // The rows are durable, so the multi-hundred-megabyte file index can be
+            // released. Drill-down and paging now read the same rows from SQLite.
+            let freed = index.file_index_bytes();
+            let slim = ScanIndex {
+                scan: index.scan.clone(),
+                files: Vec::new(),
+                directories: index.directories.clone(),
+                persisted: Some(PersistedIndex {
+                    cache: cache.clone(),
+                    scan_id: index.scan.scan_id,
+                }),
+            };
+            let mut guard = match slot.lock() {
+                Ok(guard) => guard,
+                Err(error) => error.into_inner(),
+            };
+            let replace = guard
+                .as_ref()
+                .map(|current| current.scan.scan_id == index.scan.scan_id)
+                .unwrap_or(false);
+            if replace {
+                *guard = Some(Arc::new(slim));
+                logging::info(
+                    "storage.cache",
+                    format!(
+                        "released {} MiB of in-memory file index for scan {}; queries now read sqlite",
+                        freed / (1024 * 1024),
+                        index.scan.scan_id
+                    ),
+                );
             }
         });
     }
@@ -502,7 +555,7 @@ impl StorageState {
         cache.query_files(query)
     }
 
-    fn current(&self) -> Option<Arc<ScanIndex>> {
+    pub(crate) fn current(&self) -> Option<Arc<ScanIndex>> {
         self.current.lock().ok().and_then(|value| value.clone())
     }
 
@@ -1032,80 +1085,134 @@ fn file_type_label(id: &str) -> &'static str {
     }
 }
 
-fn has_component(path_lower: &str, component: &str) -> bool {
-    path_lower.contains(&format!("/{component}/")) || path_lower.ends_with(&format!("/{component}"))
+/// Case-insensitive ASCII substring search that never allocates. Every needle in
+/// this module is lowercase ASCII, so comparing ASCII letters is equivalent to
+/// the `to_lowercase()` copies this replaces.
+fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
+    let hay = haystack.as_bytes();
+    let needle = needle.as_bytes();
+    if needle.is_empty() {
+        return true;
+    }
+    if needle.len() > hay.len() {
+        return false;
+    }
+    hay.windows(needle.len())
+        .any(|window| window.eq_ignore_ascii_case(needle))
+}
+
+fn starts_with_ignore_ascii_case(haystack: &str, prefix: &str) -> bool {
+    let hay = haystack.as_bytes();
+    let prefix = prefix.as_bytes();
+    if prefix.len() > hay.len() {
+        return false;
+    }
+    hay[..prefix.len()].eq_ignore_ascii_case(prefix)
+}
+
+fn ends_with_ignore_ascii_case(haystack: &str, suffix: &str) -> bool {
+    let hay = haystack.as_bytes();
+    let suffix = suffix.as_bytes();
+    if suffix.len() > hay.len() {
+        return false;
+    }
+    hay[hay.len() - suffix.len()..].eq_ignore_ascii_case(suffix)
+}
+
+/// True when `path` contains `component` as a whole path segment, matching either
+/// `/component/` or a trailing `/component`.
+fn has_component(path: &str, component: &str) -> bool {
+    let mut rest = path;
+    loop {
+        match rest.find('/') {
+            Some(index) => {
+                rest = &rest[index + 1..];
+                if rest.len() >= component.len()
+                    && rest.as_bytes()[..component.len()]
+                        .eq_ignore_ascii_case(component.as_bytes())
+                {
+                    let after = &rest[component.len()..];
+                    if after.is_empty() || after.starts_with('/') {
+                        return true;
+                    }
+                }
+            }
+            None => return false,
+        }
+    }
 }
 
 /// Assign exactly one storage category per file. Location categories win over
 /// extension categories so application resources, caches, and developer
 /// artifacts are never double-counted as media or documents.
 pub(crate) fn category_for(path: &Path, extension: Option<&str>) -> &'static str {
-    let lower = path.to_string_lossy().to_lowercase();
+    // `to_string_lossy` borrows for valid UTF-8, so nothing is allocated here.
+    let path = path.to_string_lossy();
     let ext = extension.unwrap_or("");
-    if has_component(&lower, ".trash") || has_component(&lower, ".trashes") {
+    if has_component(&path, ".trash") || has_component(&path, ".trashes") {
         return "trash";
     }
-    if lower.contains("/library/caches/")
-        || lower.contains("/library/logs/")
-        || lower.contains("/var/folders/")
-        || lower.contains("/private/var/folders/")
-        || lower.contains("/private/tmp/")
-        || lower.contains("/var/tmp/")
-        || lower.starts_with("/tmp/")
+    if contains_ignore_ascii_case(&path, "/library/caches/")
+        || contains_ignore_ascii_case(&path, "/library/logs/")
+        || contains_ignore_ascii_case(&path, "/var/folders/")
+        || contains_ignore_ascii_case(&path, "/private/var/folders/")
+        || contains_ignore_ascii_case(&path, "/private/tmp/")
+        || contains_ignore_ascii_case(&path, "/var/tmp/")
+        || starts_with_ignore_ascii_case(&path, "/tmp/")
     {
         return "caches";
     }
-    if lower.contains("/library/developer/")
-        || lower.contains("/deriveddata/")
-        || lower.contains("/.cargo/")
-        || lower.contains("/.rustup/")
-        || lower.contains("/.npm/")
-        || lower.contains("/.pnpm-store/")
-        || lower.contains("/.yarn/")
-        || lower.contains("/.gradle/")
-        || lower.contains("/.m2/")
-        || lower.contains("/node_modules/")
-        || lower.contains("/android/sdk/")
-        || lower.contains("/.docker/")
-        || lower.contains("/.vscode/extensions/")
-        || lower.contains("/pods/")
-        || lower.contains("/target/debug/")
-        || lower.contains("/target/release/")
-        || lower.contains("/.build/")
-        || lower.contains("/.next/")
-        || lower.contains("/.nuxt/")
+    if contains_ignore_ascii_case(&path, "/library/developer/")
+        || contains_ignore_ascii_case(&path, "/deriveddata/")
+        || contains_ignore_ascii_case(&path, "/.cargo/")
+        || contains_ignore_ascii_case(&path, "/.rustup/")
+        || contains_ignore_ascii_case(&path, "/.npm/")
+        || contains_ignore_ascii_case(&path, "/.pnpm-store/")
+        || contains_ignore_ascii_case(&path, "/.yarn/")
+        || contains_ignore_ascii_case(&path, "/.gradle/")
+        || contains_ignore_ascii_case(&path, "/.m2/")
+        || contains_ignore_ascii_case(&path, "/node_modules/")
+        || contains_ignore_ascii_case(&path, "/android/sdk/")
+        || contains_ignore_ascii_case(&path, "/.docker/")
+        || contains_ignore_ascii_case(&path, "/.vscode/extensions/")
+        || contains_ignore_ascii_case(&path, "/pods/")
+        || contains_ignore_ascii_case(&path, "/target/debug/")
+        || contains_ignore_ascii_case(&path, "/target/release/")
+        || contains_ignore_ascii_case(&path, "/.build/")
+        || contains_ignore_ascii_case(&path, "/.next/")
+        || contains_ignore_ascii_case(&path, "/.nuxt/")
     {
         return "developer";
     }
     if matches!(ext, "vmdk" | "vdi" | "qcow2" | "vhd" | "vhdx")
-        || lower.contains("/virtual machines.localized/")
-        || has_component(&lower, ".utm")
-        || has_component(&lower, ".pvm")
+        || contains_ignore_ascii_case(&path, "/virtual machines.localized/")
+        || has_component(&path, ".utm")
+        || has_component(&path, ".pvm")
     {
         return "virtualMachines";
     }
-    if lower.contains("/applications/") || lower.contains(".app/") || lower.contains(".framework/")
+    if contains_ignore_ascii_case(&path, "/applications/") || contains_ignore_ascii_case(&path, ".app/") || contains_ignore_ascii_case(&path, ".framework/")
     {
         return "applications";
     }
-    if lower.contains("/library/mail/")
-        || lower.contains("/library/messages/")
-        || lower.contains("/library/containers/com.apple.mail/")
-        || lower.contains("/library/containers/com.apple.messages/")
+    if contains_ignore_ascii_case(&path, "/library/mail/")
+        || contains_ignore_ascii_case(&path, "/library/messages/")
+        || contains_ignore_ascii_case(&path, "/library/containers/com.apple.mail/")
+        || contains_ignore_ascii_case(&path, "/library/containers/com.apple.messages/")
     {
         return "mail";
     }
-    if lower.starts_with("/system/")
-        || lower.starts_with("/usr/")
-        || lower.starts_with("/bin/")
-        || lower.starts_with("/sbin/")
-        || lower.starts_with("/private/var/db/")
-        || lower.starts_with("/private/var/vm/")
-        || lower.starts_with("/library/")
+    if starts_with_ignore_ascii_case(&path, "/system/")
+        || starts_with_ignore_ascii_case(&path, "/usr/")
+        || starts_with_ignore_ascii_case(&path, "/bin/")
+        || starts_with_ignore_ascii_case(&path, "/sbin/")
+        || starts_with_ignore_ascii_case(&path, "/private/var/db/")
+        || starts_with_ignore_ascii_case(&path, "/private/var/vm/")
+        || starts_with_ignore_ascii_case(&path, "/library/")
     {
         return "system";
     }
-    if has_component(&lower, "downloads") {
+    if has_component(&path, "downloads") {
         return "downloads";
     }
     match ext {
@@ -1127,7 +1234,7 @@ pub(crate) fn category_for(path: &Path, extension: Option<&str>) -> &'static str
 }
 
 pub(crate) fn file_type_for(path: &Path, extension: Option<&str>, category: &str) -> &'static str {
-    let lower = path.to_string_lossy().to_lowercase();
+    let path = path.to_string_lossy();
     let ext = extension.unwrap_or("");
     if category == "virtualMachines" || matches!(ext, "vmdk" | "vdi" | "qcow2" | "vhd" | "vhdx") {
         return "virtualMachines";
@@ -1135,7 +1242,7 @@ pub(crate) fn file_type_for(path: &Path, extension: Option<&str>, category: &str
     if matches!(ext, "dmg" | "iso" | "img" | "sparseimage" | "sparsebundle") {
         return "diskImages";
     }
-    if category == "applications" || lower.contains(".app/") {
+    if category == "applications" || contains_ignore_ascii_case(&path, ".app/") {
         return "applications";
     }
     if matches!(
@@ -1309,22 +1416,672 @@ struct Bucket {
     files: u64,
 }
 
+/// Look up (or create) the bucket for a category/file-type id. The id set is tiny,
+/// so the clone happens once per distinct id, never per file.
+fn bucket_for<'a>(map: &'a mut HashMap<String, Bucket>, key: &str) -> &'a mut Bucket {
+    if !map.contains_key(key) {
+        map.insert(key.to_string(), Bucket::default());
+    }
+    map.get_mut(key).expect("bucket was just inserted")
+}
+
+fn extension_set<'a>(
+    map: &'a mut HashMap<String, HashSet<String>>,
+    key: &str,
+) -> &'a mut HashSet<String> {
+    if !map.contains_key(key) {
+        map.insert(key.to_string(), HashSet::new());
+    }
+    map.get_mut(key).expect("extension set was just inserted")
+}
+
 struct DirWork {
     record: StorageDirectory,
     direct_size: u64,
     direct_allocated: u64,
 }
 
+/// Handle to a scan whose file rows live in the SQLite cache. Once this is set the
+/// in-memory file vector is released, so drill-down and paging are served by the
+/// `files` table (indexed by parent, size, type and category) instead of a full
+/// scan of every entry.
+#[derive(Clone)]
+pub(crate) struct PersistedIndex {
+    pub cache: crate::storage_cache::StorageCache,
+    pub scan_id: u64,
+}
+
 pub(crate) struct ScanIndex {
     pub scan: StorageScanResult,
     pub files: Vec<StorageFile>,
     pub directories: HashMap<String, StorageDirectory>,
+    pub persisted: Option<PersistedIndex>,
 }
 
+impl ScanIndex {
+    /// Approximate bytes held by the in-memory file records.
+    fn file_index_bytes(&self) -> u64 {
+        self.files
+            .iter()
+            .map(|file| {
+                std::mem::size_of::<StorageFile>() as u64
+                    + file.path.len() as u64
+                    + file.name.len() as u64
+                    + file.parent.len() as u64
+                    + file.extension.as_ref().map(|value| value.len()).unwrap_or(0) as u64
+                    + file.category.len() as u64
+                    + file.file_type.len() as u64
+                    + ENTRY_INDEX_OVERHEAD
+            })
+            .sum()
+    }
+}
+
+/// Serve a folder listing from SQLite when the scan has been persisted, and fall
+/// back to the in-memory index while the write is still running.
+pub(crate) fn children_for(
+    index: &ScanIndex,
+    path: &str,
+    limit: usize,
+) -> Result<StorageChildren, AppError> {
+    if let Some(persisted) = index.persisted.as_ref() {
+        // Once the file records are released the cache is the only source, so an
+        // incomplete in-memory fallback would silently drop files.
+        if index.files.is_empty() {
+            return persisted.cache.children(persisted.scan_id, path, limit);
+        }
+        match persisted.cache.children(persisted.scan_id, path, limit) {
+            Ok(children) => return Ok(children),
+            Err(error) => logging::warn(
+                "storage.cache",
+                format!("sqlite children failed; using the in-memory index: {error}"),
+            ),
+        }
+    }
+    children_core(index, path, limit)
+}
+
+pub(crate) fn query_files_for(
+    index: &ScanIndex,
+    query: &StorageFileQuery,
+) -> Result<StorageFilePage, AppError> {
+    if let Some(persisted) = index.persisted.as_ref() {
+        if index.files.is_empty() {
+            return persisted.cache.query_files(query);
+        }
+        match persisted.cache.query_files(query) {
+            Ok(page) => return Ok(page),
+            Err(error) => logging::warn(
+                "storage.cache",
+                format!("sqlite file query failed; using the in-memory index: {error}"),
+            ),
+        }
+    }
+    Ok(query_files_core(index, query))
+}
+
+/// Where a scan is allowed to stop. `max_entries` is a count guard the caller can
+/// request; `max_index_bytes` is the memory guard the backend always applies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ScanBudget {
+    pub max_entries: usize,
+    pub max_index_bytes: u64,
+}
+
+impl ScanBudget {
+    /// Budget for tests and callers that want an explicit byte ceiling.
+    #[cfg(test)]
+    pub(crate) fn with_bytes(max_entries: usize, max_index_bytes: u64) -> Self {
+        Self {
+            max_entries,
+            max_index_bytes,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LimitHit {
+    Entries,
+    Memory,
+}
+
+#[cfg(target_os = "macos")]
+fn sysctl_u64(name: &str) -> Option<u64> {
+    let name = std::ffi::CString::new(name).ok()?;
+    let mut value: u64 = 0;
+    let mut size = std::mem::size_of::<u64>();
+    let status = unsafe {
+        libc::sysctlbyname(
+            name.as_ptr(),
+            &mut value as *mut u64 as *mut libc::c_void,
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if status != 0 {
+        return None;
+    }
+    // Most `vm.*` counters are 32-bit; sysctlbyname writes only the low bytes of
+    // our u64 (little-endian, the only endianness macOS ships on).
+    if size == 4 {
+        Some(value & 0xFFFF_FFFF)
+    } else {
+        Some(value)
+    }
+}
+
+/// Memory the process can grow into without pushing the machine into swap.
+///
+/// `sysctl vm.*` only exposes free/speculative counters, and `_SC_AVPHYS_PAGES`
+/// reports free pages alone; both undercount a warm Mac by gigabytes. The
+/// `host_statistics64` VM statistics are the same numbers `vm_stat` prints, so
+/// free + speculative + inactive + purgeable is used as the reclaimable total.
+#[cfg(target_os = "macos")]
+#[allow(deprecated)] // libc's replacement is the mach2 crate; not worth a new dependency for one call per scan.
+pub(crate) fn available_memory_bytes() -> Option<u64> {
+    use std::mem::MaybeUninit;
+    let mut stats = MaybeUninit::<libc::vm_statistics64>::uninit();
+    let mut count = libc::HOST_VM_INFO64_COUNT;
+    let status = unsafe {
+        libc::host_statistics64(
+            libc::mach_host_self(),
+            libc::HOST_VM_INFO64,
+            stats.as_mut_ptr() as libc::host_info64_t,
+            &mut count,
+        )
+    };
+    if status != 0 {
+        return None;
+    }
+    let stats = unsafe { stats.assume_init() };
+    let page_size = sysctl_u64("vm.pagesize").or_else(|| sysctl_u64("hw.pagesize"))?;
+    let reclaimable = u64::from(stats.free_count)
+        .saturating_add(u64::from(stats.speculative_count))
+        .saturating_add(u64::from(stats.inactive_count))
+        .saturating_add(u64::from(stats.purgeable_count));
+    Some(reclaimable.saturating_mul(page_size))
+}
+
+#[cfg(target_os = "linux")]
+fn available_memory_bytes() -> Option<u64> {
+    let text = std::fs::read_to_string("/proc/meminfo").ok()?;
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("MemAvailable:") {
+            let kilobytes: u64 = rest.split_whitespace().next()?.parse().ok()?;
+            return Some(kilobytes.saturating_mul(1024));
+        }
+    }
+    None
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn available_memory_bytes() -> Option<u64> {
+    None
+}
+
+/* ------------------------------------------------------------------------- */
+/* Parallel directory walk                                                    */
+/* ------------------------------------------------------------------------- */
+
+/// Counters shared by walker threads. They exist for the memory/entry budget and
+/// for progress; per-thread detail (errors, symlink counts) travels in
+/// `WorkerOutput` and is summed once at the end.
+#[derive(Default)]
+struct WalkCounters {
+    entries: AtomicU64,
+    files: AtomicU64,
+    directories: AtomicU64,
+    /// Bytes seen while walking, including hard links that will not be counted twice.
+    /// Progress only; the exact totals are computed after the walk.
+    progress_bytes: AtomicU64,
+    index_bytes: AtomicU64,
+}
+
+impl WalkCounters {
+    fn entries(&self) -> u64 {
+        self.entries.load(Ordering::Relaxed)
+    }
+    fn files(&self) -> u64 {
+        self.files.load(Ordering::Relaxed)
+    }
+    fn directories(&self) -> u64 {
+        self.directories.load(Ordering::Relaxed)
+    }
+    fn progress_bytes(&self) -> u64 {
+        self.progress_bytes.load(Ordering::Relaxed)
+    }
+    fn index_bytes(&self) -> u64 {
+        self.index_bytes.load(Ordering::Relaxed)
+    }
+}
+
+/// First guard that stopped the walk wins, so a cancel cannot overwrite the
+/// memory/entry reason that was already recorded.
+#[derive(Default)]
+struct Stoppage {
+    limit: AtomicU8,
+}
+
+impl Stoppage {
+    fn record(&self, hit: LimitHit) {
+        let value = match hit {
+            LimitHit::Entries => 1,
+            LimitHit::Memory => 2,
+        };
+        let _ = self
+            .limit
+            .compare_exchange(0, value, Ordering::Relaxed, Ordering::Relaxed);
+    }
+    fn hit(&self) -> Option<LimitHit> {
+        match self.limit.load(Ordering::Relaxed) {
+            1 => Some(LimitHit::Entries),
+            2 => Some(LimitHit::Memory),
+            _ => None,
+        }
+    }
+}
+
+struct QueueState {
+    pending: Vec<(PathBuf, u32)>,
+    in_flight: usize,
+}
+
+/// Work-stealing queue of directories. A worker exits only when nothing is
+/// pending *and* no other worker is mid-directory, because that worker may still
+/// discover child directories.
+struct WorkQueue {
+    state: Mutex<QueueState>,
+    ready: Condvar,
+    last_path: Mutex<Option<String>>,
+}
+
+impl WorkQueue {
+    fn new(root: PathBuf) -> Self {
+        Self {
+            state: Mutex::new(QueueState {
+                pending: vec![(root, 0)],
+                in_flight: 0,
+            }),
+            ready: Condvar::new(),
+            last_path: Mutex::new(None),
+        }
+    }
+
+    /// Blocks until a directory is available, or returns `None` when the walk is
+    /// finished (or stopping).
+    fn take(&self, stopping: impl Fn() -> bool) -> Option<(PathBuf, u32)> {
+        let mut guard = self
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        loop {
+            if stopping() {
+                return None;
+            }
+            if let Some(item) = guard.pending.pop() {
+                guard.in_flight += 1;
+                return Some(item);
+            }
+            if guard.in_flight == 0 {
+                return None;
+            }
+            guard = self
+                .ready
+                .wait(guard)
+                .unwrap_or_else(|error| error.into_inner());
+        }
+    }
+
+    fn finish(&self, children: Vec<(PathBuf, u32)>) {
+        let mut guard = self
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        guard.in_flight = guard.in_flight.saturating_sub(1);
+        guard.pending.extend(children);
+        drop(guard);
+        self.ready.notify_all();
+    }
+
+    fn note_path(&self, path: &str) {
+        if let Ok(mut guard) = self.last_path.lock() {
+            *guard = Some(path.to_string());
+        }
+    }
+
+    fn last_path(&self) -> Option<String> {
+        self.last_path.lock().ok().and_then(|guard| guard.clone())
+    }
+}
+
+struct WorkerOutput {
+    files: Vec<StorageFile>,
+    inodes: Vec<Option<(u64, u64, u64)>>,
+    directories: Vec<StorageDirectory>,
+    symbolic_links: u64,
+    permission_errors: u64,
+    read_errors: u64,
+    skipped_mounts: u64,
+    skipped_reserved: u64,
+}
+
+/// Read one directory and produce the records for its direct children. Nothing
+/// shared is mutated here except counters, so workers never contend on the index.
+fn read_directory(
+    directory: &Path,
+    depth: u32,
+    excluded: &[PathBuf],
+    budget: &ScanBudget,
+    counters: &WalkCounters,
+    stoppage: &Stoppage,
+    cancel: &AtomicBool,
+) -> (
+    Vec<StorageFile>,
+    Vec<Option<(u64, u64, u64)>>,
+    Vec<StorageDirectory>,
+    Vec<(PathBuf, u32)>,
+    u64,
+    u64,
+    u64,
+    u64,
+    u64,
+) {
+    let mut files = Vec::new();
+    let mut inodes = Vec::new();
+    let mut directories = Vec::new();
+    let mut children = Vec::new();
+    let mut symbolic_links = 0u64;
+    let mut permission_errors = 0u64;
+    let mut read_errors = 0u64;
+    let mut skipped_mounts = 0u64;
+    let mut skipped_reserved = 0u64;
+
+    let listing = match fs::read_dir(directory) {
+        Ok(listing) => listing,
+        Err(error) => {
+            read_errors += 1;
+            if error.kind() == std::io::ErrorKind::PermissionDenied {
+                permission_errors += 1;
+            }
+            return (
+                files,
+                inodes,
+                directories,
+                children,
+                symbolic_links,
+                permission_errors,
+                read_errors,
+                skipped_mounts,
+                skipped_reserved,
+            );
+        }
+    };
+
+    for entry in listing {
+        if cancel.load(Ordering::Relaxed) || stoppage.hit().is_some() {
+            break;
+        }
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                read_errors += 1;
+                if error.kind() == std::io::ErrorKind::PermissionDenied {
+                    permission_errors += 1;
+                }
+                continue;
+            }
+        };
+        let path = entry.path();
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                read_errors += 1;
+                if error.kind() == std::io::ErrorKind::PermissionDenied {
+                    permission_errors += 1;
+                }
+                continue;
+            }
+        };
+        let path_text = path.to_string_lossy().to_string();
+        let summary = counters.entries.fetch_add(1, Ordering::Relaxed) + 1;
+        if summary as usize > budget.max_entries {
+            stoppage.record(LimitHit::Entries);
+            break;
+        }
+        if counters.index_bytes() >= budget.max_index_bytes {
+            stoppage.record(LimitHit::Memory);
+            break;
+        }
+        let parent_text = path
+            .parent()
+            .map(|value| value.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let name = path
+            .file_name()
+            .map(|value| value.to_string_lossy().to_string())
+            .unwrap_or_else(|| path_text.clone());
+        let is_symlink = metadata.file_type().is_symlink();
+        let child_depth = depth.saturating_add(1);
+        if metadata.is_dir() {
+            if excluded.iter().any(|mount| path == *mount) {
+                skipped_mounts += 1;
+                continue;
+            }
+            if is_reserved_directory(&name) {
+                skipped_reserved += 1;
+                continue;
+            }
+            counters.directories.fetch_add(1, Ordering::Relaxed);
+            directories.push(StorageDirectory {
+                path: path_text.clone(),
+                name: name.clone(),
+                parent: parent_text.clone(),
+                size: 0,
+                allocated: 0,
+                files: 0,
+                folders: 0,
+                direct_files: 0,
+                direct_folders: 0,
+                largest_file_size: 0,
+                largest_file_path: None,
+                modified: system_time_ms(metadata.modified()),
+                depth: child_depth,
+                is_package: is_package_directory(&name),
+                is_protected: system_protected_path(&path_text),
+                is_read_only: metadata.permissions().readonly(),
+            });
+            counters.index_bytes.fetch_add(
+                std::mem::size_of::<StorageDirectory>() as u64
+                    + (path_text.len().saturating_mul(2)) as u64
+                    + name.len() as u64
+                    + parent_text.len() as u64
+                    + ENTRY_INDEX_OVERHEAD,
+                Ordering::Relaxed,
+            );
+            if (child_depth as usize) < MAX_SCAN_DEPTH {
+                children.push((path, child_depth));
+            }
+            continue;
+        }
+
+        counters.files.fetch_add(1, Ordering::Relaxed);
+        if is_symlink {
+            symbolic_links += 1;
+        }
+        let extension = path
+            .extension()
+            .map(|value| value.to_string_lossy().to_lowercase())
+            .filter(|value| !value.is_empty());
+        let category = if is_symlink {
+            "other"
+        } else {
+            category_for(&path, extension.as_deref())
+        };
+        let file_type = if is_symlink {
+            "other"
+        } else {
+            file_type_for(&path, extension.as_deref(), category)
+        };
+        let size = metadata.len();
+        let allocated = if is_symlink {
+            0
+        } else {
+            allocated_size(&metadata)
+        };
+        counters.progress_bytes.fetch_add(size, Ordering::Relaxed);
+        let is_hidden = name.starts_with('.') || metadata_hidden(&metadata);
+        let cloud_placeholder = ends_with_ignore_ascii_case(&name, ".icloud");
+        let file = StorageFile {
+            path: path_text.clone(),
+            name,
+            parent: parent_text,
+            extension,
+            is_symlink,
+            size,
+            allocated,
+            modified: system_time_ms(metadata.modified()),
+            created: system_time_ms(metadata.created()),
+            accessed: system_time_ms(metadata.accessed()),
+            is_hidden,
+            is_package: false,
+            hard_link: false,
+            cloud_placeholder,
+            is_protected: system_protected_path(&path_text),
+            is_read_only: metadata.permissions().readonly(),
+            category: category.to_string(),
+            file_type: file_type.to_string(),
+        };
+        counters.index_bytes.fetch_add(
+            std::mem::size_of::<StorageFile>() as u64
+                + file.path.len() as u64
+                + file.name.len() as u64
+                + file.parent.len() as u64
+                + file
+                    .extension
+                    .as_ref()
+                    .map(|value| value.len())
+                    .unwrap_or(0) as u64
+                + file.category.len() as u64
+                + file.file_type.len() as u64
+                + ENTRY_INDEX_OVERHEAD,
+            Ordering::Relaxed,
+        );
+        inodes.push(if is_symlink {
+            None
+        } else {
+            inode_identity(&metadata)
+        });
+        files.push(file);
+    }
+
+    (
+        files,
+        inodes,
+        directories,
+        children,
+        symbolic_links,
+        permission_errors,
+        read_errors,
+        skipped_mounts,
+        skipped_reserved,
+    )
+}
+
+fn walk_worker(
+    queue: &WorkQueue,
+    excluded: &[PathBuf],
+    budget: &ScanBudget,
+    cancel: &AtomicBool,
+    counters: &WalkCounters,
+    stoppage: &Stoppage,
+) -> WorkerOutput {
+    let mut output = WorkerOutput {
+        files: Vec::new(),
+        inodes: Vec::new(),
+        directories: Vec::new(),
+        symbolic_links: 0,
+        permission_errors: 0,
+        read_errors: 0,
+        skipped_mounts: 0,
+        skipped_reserved: 0,
+    };
+    while let Some((directory, depth)) = queue.take(|| {
+        cancel.load(Ordering::Relaxed) || stoppage.hit().is_some()
+    }) {
+        queue.note_path(&directory.to_string_lossy());
+        let (
+            files,
+            inodes,
+            directories,
+            children,
+            symbolic_links,
+            permission_errors,
+            read_errors,
+            skipped_mounts,
+            skipped_reserved,
+        ) = read_directory(
+            &directory, depth, excluded, budget, counters, stoppage, cancel,
+        );
+        output.files.extend(files);
+        output.inodes.extend(inodes);
+        output.directories.extend(directories);
+        output.symbolic_links += symbolic_links;
+        output.permission_errors += permission_errors;
+        output.read_errors += read_errors;
+        output.skipped_mounts += skipped_mounts;
+        output.skipped_reserved += skipped_reserved;
+        queue.finish(children);
+    }
+    output
+}
+
+/// Turn the caller's entry request into a budget.
+///
+/// `max_entries == 0` means "auto" (the Deep scan control): the ceiling stays wide
+/// open and the memory guard decides where to stop. Any explicit request is
+/// clamped to the absolute ceiling but never silently lowered — the memory guard
+/// still stops the walk, and the scan reports that it did.
+pub(crate) fn resolve_scan_budget(requested_max_entries: usize) -> ScanBudget {
+    let max_index_bytes = match available_memory_bytes() {
+        Some(bytes) => (bytes.saturating_mul(INDEX_MEMORY_SHARE_PERCENT) / 100)
+            .max(MIN_INDEX_BUDGET_BYTES),
+        None => FALLBACK_INDEX_BUDGET_BYTES,
+    };
+    let max_entries = if requested_max_entries == 0 {
+        MAX_ENTRIES_LIMIT
+    } else {
+        requested_max_entries.clamp(1_000, MAX_ENTRIES_LIMIT)
+    };
+    ScanBudget {
+        max_entries,
+        max_index_bytes,
+    }
+}
+
+/// Convenience wrapper used by tests and by any caller that only has an entry
+/// count; the app passes a resolved budget straight to the walker.
+#[cfg(test)]
 pub(crate) fn scan_storage_index(
     root: &Path,
     scan_id: u64,
     max_entries: usize,
+    cancel: &AtomicBool,
+    progress: &dyn Fn(StorageScanProgress),
+) -> Result<ScanIndex, AppError> {
+    scan_storage_index_with_budget(
+        root,
+        scan_id,
+        resolve_scan_budget(max_entries),
+        cancel,
+        progress,
+    )
+}
+
+pub(crate) fn scan_storage_index_with_budget(
+    root: &Path,
+    scan_id: u64,
+    budget: ScanBudget,
     cancel: &AtomicBool,
     progress: &dyn Fn(StorageScanProgress),
 ) -> Result<ScanIndex, AppError> {
@@ -1342,28 +2099,8 @@ pub(crate) fn scan_storage_index(
     let started = Instant::now();
     let started_at = now_ms();
     let root_display = root.to_string_lossy().to_string();
-    let max_entries = max_entries.clamp(1_000, MAX_ENTRIES_LIMIT);
     let excluded = excluded_mounts(root);
     let mut directories: HashMap<String, DirWork> = HashMap::new();
-    let mut files: Vec<StorageFile> = Vec::new();
-    let mut categories: HashMap<&'static str, Bucket> = HashMap::new();
-    let mut file_types: HashMap<&'static str, Bucket> = HashMap::new();
-    let mut type_extensions: HashMap<&'static str, HashSet<String>> = HashMap::new();
-    let mut seen_inodes: HashSet<(u64, u64, u64)> = HashSet::new();
-    let mut scanned_entries = 0u64;
-    let mut scanned_files = 0u64;
-    let mut scanned_directories = 0u64;
-    let mut symbolic_links = 0u64;
-    let mut hard_links = 0u64;
-    let mut permission_errors = 0u64;
-    let mut read_errors = 0u64;
-    let mut skipped_mounts = 0u64;
-    let mut skipped_reserved = 0u64;
-    let mut logical_bytes = 0u64;
-    let mut allocated_bytes = 0u64;
-    let mut truncated = false;
-    let mut cancelled = false;
-    let mut current_path: Option<String> = None;
 
     let root_name = root
         .file_name()
@@ -1407,218 +2144,159 @@ pub(crate) fn scan_storage_index(
         cancelled: false,
     });
 
-    let walker = WalkDir::new(root)
-        .follow_links(false)
-        .max_depth(MAX_SCAN_DEPTH)
-        .into_iter()
-        .filter_entry(|item| {
-            if item.depth() == 0 {
-                return true;
-            }
-            if excluded.iter().any(|mount| item.path() == mount) {
-                skipped_mounts += 1;
-                return false;
-            }
-            if item.file_type().is_dir() {
-                let name = item.file_name().to_string_lossy();
-                if is_reserved_directory(&name) {
-                    skipped_reserved += 1;
-                    return false;
-                }
-            }
-            true
-        });
-
-    for item in walker {
-        if cancel.load(Ordering::Relaxed) {
-            cancelled = true;
-            break;
+    let threads = std::thread::available_parallelism()
+        .map(|value| value.get())
+        .unwrap_or(4)
+        .clamp(2, 8);
+    let queue = WorkQueue::new(root.to_path_buf());
+    let counters = WalkCounters::default();
+    let stoppage = Stoppage::default();
+    let walk_started = Instant::now();
+    let workers: Vec<WorkerOutput> = std::thread::scope(|scope| {
+        let mut handles = Vec::with_capacity(threads);
+        for _ in 0..threads {
+            handles.push(scope.spawn(|| {
+                walk_worker(&queue, &excluded, &budget, cancel, &counters, &stoppage)
+            }));
         }
-        if scanned_entries as usize >= max_entries {
-            truncated = true;
-            break;
-        }
-        let entry = match item {
-            Ok(entry) => entry,
-            Err(error) => {
-                read_errors += 1;
-                if error
-                    .io_error()
-                    .map(|value| value.kind() == std::io::ErrorKind::PermissionDenied)
-                    .unwrap_or(false)
-                {
-                    permission_errors += 1;
-                }
-                continue;
-            }
-        };
-        if entry.depth() == 0 {
-            continue;
-        }
-        scanned_entries += 1;
-        let path = entry.path();
-        let path_text = path.to_string_lossy().to_string();
-        current_path = Some(path_text.clone());
-        let metadata = match fs::symlink_metadata(path) {
-            Ok(metadata) => metadata,
-            Err(error) => {
-                read_errors += 1;
-                if error.kind() == std::io::ErrorKind::PermissionDenied {
-                    permission_errors += 1;
-                }
-                continue;
-            }
-        };
-        let parent_text = path
-            .parent()
-            .map(|value| value.to_string_lossy().to_string())
-            .unwrap_or_default();
-        let name = path
-            .file_name()
-            .map(|value| value.to_string_lossy().to_string())
-            .unwrap_or_else(|| path_text.clone());
-        let depth = entry.depth() as u32;
-        let is_symlink = metadata.file_type().is_symlink();
-        let is_dir = metadata.is_dir();
-        if is_dir {
-            scanned_directories += 1;
-            directories.insert(
-                path_text.clone(),
-                DirWork {
-                    record: StorageDirectory {
-                        path: path_text.clone(),
-                        name: name.clone(),
-                        parent: parent_text.clone(),
-                        size: 0,
-                        allocated: 0,
-                        files: 0,
-                        folders: 0,
-                        direct_files: 0,
-                        direct_folders: 0,
-                        largest_file_size: 0,
-                        largest_file_path: None,
-                        modified: system_time_ms(metadata.modified()),
-                        depth,
-                        is_package: is_package_directory(&name),
-                        is_protected: system_protected_path(&path_text),
-                        is_read_only: metadata.permissions().readonly(),
-                    },
-                    direct_size: 0,
-                    direct_allocated: 0,
-                },
-            );
-            if let Some(parent) = directories.get_mut(&parent_text) {
-                parent.record.direct_folders += 1;
-            }
-        } else {
-            scanned_files += 1;
-            if is_symlink {
-                symbolic_links += 1;
-            }
-            let extension = path
-                .extension()
-                .map(|value| value.to_string_lossy().to_lowercase())
-                .filter(|value| !value.is_empty());
-            let category = if is_symlink {
-                "other"
-            } else {
-                category_for(path, extension.as_deref())
-            };
-            let file_type = if is_symlink {
-                "other"
-            } else {
-                file_type_for(path, extension.as_deref(), category)
-            };
-            let size = if is_symlink {
-                metadata.len()
-            } else {
-                metadata.len()
-            };
-            let allocated = if is_symlink {
-                0
-            } else {
-                allocated_size(&metadata)
-            };
-            let identity = if is_symlink {
-                None
-            } else {
-                inode_identity(&metadata)
-            };
-            let duplicate_hard_link = identity
-                .as_ref()
-                .map(|key| !seen_inodes.insert(*key))
-                .unwrap_or(false);
-            if duplicate_hard_link {
-                hard_links += 1;
-            }
-            let counted = !duplicate_hard_link;
-            if counted {
-                logical_bytes = logical_bytes.saturating_add(size);
-                allocated_bytes = allocated_bytes.saturating_add(allocated);
-                let category_bucket = categories.entry(category).or_default();
-                category_bucket.bytes = category_bucket.bytes.saturating_add(size);
-                category_bucket.allocated = category_bucket.allocated.saturating_add(allocated);
-                category_bucket.files += 1;
-                let type_bucket = file_types.entry(file_type).or_default();
-                type_bucket.bytes = type_bucket.bytes.saturating_add(size);
-                type_bucket.allocated = type_bucket.allocated.saturating_add(allocated);
-                type_bucket.files += 1;
-                if let Some(extension) = extension.as_ref() {
-                    type_extensions
-                        .entry(file_type)
-                        .or_default()
-                        .insert(extension.clone());
-                }
-            }
-            let is_hidden = name.starts_with('.') || metadata_hidden(&metadata);
-            let cloud_placeholder = name.to_lowercase().ends_with(".icloud");
-            let file = StorageFile {
-                path: path_text.clone(),
-                name: name.clone(),
-                parent: parent_text.clone(),
-                extension,
-                is_symlink,
-                size,
-                allocated,
-                modified: system_time_ms(metadata.modified()),
-                created: system_time_ms(metadata.created()),
-                accessed: system_time_ms(metadata.accessed()),
-                is_hidden,
-                is_package: false,
-                hard_link: duplicate_hard_link,
-                cloud_placeholder,
-                is_protected: system_protected_path(&path_text),
-                is_read_only: metadata.permissions().readonly(),
-                category: category.to_string(),
-                file_type: file_type.to_string(),
-            };
-            files.push(file);
-            if let Some(parent) = directories.get_mut(&parent_text) {
-                parent.record.direct_files += 1;
-                if counted {
-                    parent.direct_size = parent.direct_size.saturating_add(size);
-                    parent.direct_allocated = parent.direct_allocated.saturating_add(allocated);
-                }
-                if counted && size > parent.record.largest_file_size {
-                    parent.record.largest_file_size = size;
-                    parent.record.largest_file_path = Some(path_text.clone());
-                }
-            }
-        }
-        if scanned_entries % 1_500 == 0 {
+        // Progress is emitted from the coordinating thread so the callback never
+        // has to cross a thread boundary, and so it is throttled by wall clock
+        // instead of firing every 1,500 entries.
+        while !handles.iter().all(|handle| handle.is_finished()) {
+            std::thread::sleep(std::time::Duration::from_millis(300));
             progress(StorageScanProgress {
                 scan_id,
                 root: root_display.clone(),
-                scanned_entries,
-                scanned_files,
-                scanned_directories,
-                logical_bytes,
-                current_path: current_path.clone(),
-                elapsed_ms: started.elapsed().as_millis() as u64,
-                cancelled: false,
+                scanned_entries: counters.entries(),
+                scanned_files: counters.files(),
+                scanned_directories: counters.directories(),
+                logical_bytes: counters.progress_bytes(),
+                current_path: queue.last_path(),
+                elapsed_ms: walk_started.elapsed().as_millis() as u64,
+                cancelled: cancel.load(Ordering::Relaxed),
             });
         }
+        let mut outputs = Vec::with_capacity(handles.len());
+        for handle in handles {
+            match handle.join() {
+                Ok(output) => outputs.push(output),
+                Err(_) => {
+                    return Err(AppError::new(
+                        "internal",
+                        "A scan worker stopped unexpectedly. Rescan to rebuild the index.",
+                        Some(root_display.clone()),
+                    ))
+                }
+            }
+        }
+        Ok(outputs)
+    })?;
+
+    let cancelled = cancel.load(Ordering::Relaxed);
+    let limit_hit = stoppage.hit();
+    let truncated = limit_hit.is_some();
+    let scanned_entries = counters.entries();
+    let scanned_directories = counters.directories();
+
+    let mut files: Vec<StorageFile> = Vec::with_capacity(scanned_entries as usize / 2);
+    let mut inodes: Vec<Option<(u64, u64, u64)>> = Vec::new();
+    let mut directory_records: Vec<StorageDirectory> = Vec::new();
+    let mut scanned_files = 0u64;
+    let mut symbolic_links = 0u64;
+    let mut permission_errors = 0u64;
+    let mut read_errors = 0u64;
+    let mut skipped_mounts = 0u64;
+    let mut skipped_reserved = 0u64;
+    for output in workers {
+        scanned_files += output.files.len() as u64;
+        symbolic_links += output.symbolic_links;
+        permission_errors += output.permission_errors;
+        read_errors += output.read_errors;
+        skipped_mounts += output.skipped_mounts;
+        skipped_reserved += output.skipped_reserved;
+        files.extend(output.files);
+        inodes.extend(output.inodes);
+        directory_records.extend(output.directories);
     }
+
+    // Directory records arrive in walk order per worker, so parent links are
+    // resolved in a second pass instead of relying on depth-first ordering.
+    let mut parent_links: Vec<String> = Vec::with_capacity(directory_records.len());
+    for record in directory_records {
+        parent_links.push(record.parent.clone());
+        directories.insert(
+            record.path.clone(),
+            DirWork {
+                record,
+                direct_size: 0,
+                direct_allocated: 0,
+            },
+        );
+    }
+    for parent in parent_links {
+        if let Some(parent_work) = directories.get_mut(&parent) {
+            parent_work.record.direct_folders += 1;
+        }
+    }
+
+    // Hard links, per-directory direct totals and category buckets are resolved
+    // once, after the walk. Doing this with the walk would need a global inode set
+    // inside every worker.
+    let mut seen_inodes: HashSet<(u64, u64, u64)> = HashSet::new();
+    let mut categories: HashMap<String, Bucket> = HashMap::new();
+    let mut file_types: HashMap<String, Bucket> = HashMap::new();
+    let mut type_extensions: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut logical_bytes = 0u64;
+    let mut allocated_bytes = 0u64;
+    let mut hard_links = 0u64;
+    for (index, file) in files.iter_mut().enumerate() {
+        let duplicate = inodes
+            .get(index)
+            .and_then(|identity| *identity)
+            .map(|key| !seen_inodes.insert(key))
+            .unwrap_or(false);
+        file.hard_link = duplicate;
+        if duplicate {
+            hard_links += 1;
+        }
+        let counted = !duplicate;
+        if counted {
+            logical_bytes = logical_bytes.saturating_add(file.size);
+            allocated_bytes = allocated_bytes.saturating_add(file.allocated);
+            let category_bucket = bucket_for(&mut categories, &file.category);
+            category_bucket.bytes = category_bucket.bytes.saturating_add(file.size);
+            category_bucket.allocated = category_bucket.allocated.saturating_add(file.allocated);
+            category_bucket.files += 1;
+            let type_bucket = bucket_for(&mut file_types, &file.file_type);
+            type_bucket.bytes = type_bucket.bytes.saturating_add(file.size);
+            type_bucket.allocated = type_bucket.allocated.saturating_add(file.allocated);
+            type_bucket.files += 1;
+            if let Some(extension) = file.extension.as_ref() {
+                extension_set(&mut type_extensions, &file.file_type).insert(extension.clone());
+            }
+        }
+        if let Some(parent) = directories.get_mut(&file.parent) {
+            parent.record.direct_files += 1;
+            if counted {
+                parent.direct_size = parent.direct_size.saturating_add(file.size);
+                parent.direct_allocated = parent.direct_allocated.saturating_add(file.allocated);
+                // Ties resolve by path so the result does not depend on walk order.
+                let larger = file.size > parent.record.largest_file_size
+                    || (file.size == parent.record.largest_file_size
+                        && parent
+                            .record
+                            .largest_file_path
+                            .as_deref()
+                            .map(|current| file.path.as_str() < current)
+                            .unwrap_or(true));
+                if file.size > 0 && larger {
+                    parent.record.largest_file_size = file.size;
+                    parent.record.largest_file_path = Some(file.path.clone());
+                }
+            }
+        }
+    }
+    drop(inodes);
 
     // Seed each directory with its direct-file totals, then propagate aggregate
     // totals bottom-up. A directory contributes to exactly one parent, so no
@@ -1675,8 +2353,8 @@ pub(crate) fn scan_storage_index(
     let mut category_list: Vec<StorageCategory> = categories
         .into_iter()
         .map(|(id, bucket)| StorageCategory {
-            id: id.to_string(),
-            label: category_label(id).to_string(),
+            label: category_label(&id).to_string(),
+            id,
             bytes: bucket.bytes,
             allocated: bucket.allocated,
             files: bucket.files,
@@ -1689,15 +2367,15 @@ pub(crate) fn scan_storage_index(
         .into_iter()
         .map(|(id, bucket)| {
             let mut extensions: Vec<String> = type_extensions
-                .remove(id)
+                .remove(&id)
                 .unwrap_or_default()
                 .into_iter()
                 .collect();
             extensions.sort();
             extensions.truncate(12);
             StorageFileType {
-                id: id.to_string(),
-                label: file_type_label(id).to_string(),
+                label: file_type_label(&id).to_string(),
+                id,
                 bytes: bucket.bytes,
                 allocated: bucket.allocated,
                 files: bucket.files,
@@ -1806,10 +2484,17 @@ pub(crate) fn scan_storage_index(
             format_bytes(allocated_bytes)
         ));
     }
-    if truncated {
+    let truncation_reason = limit_hit.map(|hit| match hit {
+        LimitHit::Entries => format!("entry limit of {} entries", budget.max_entries),
+        LimitHit::Memory => format!(
+            "memory budget of {} of index space",
+            format_bytes(budget.max_index_bytes)
+        ),
+    });
+    if let Some(reason) = truncation_reason.as_deref() {
         notes.push(format!(
-            "The scan stopped at the {} entry safety limit. Increase the limit or scan a narrower folder for complete results.",
-            max_entries
+            "The scan stopped at its {reason} after {} entries were inspected. Scan a narrower folder for complete results.",
+            scanned_entries
         ));
     }
     if cancelled {
@@ -1849,7 +2534,8 @@ pub(crate) fn scan_storage_index(
         cleanup_recoverable_bytes,
         cancelled,
         truncated,
-        max_entries: max_entries as u64,
+        truncation_reason,
+        max_entries: budget.max_entries as u64,
         categories: category_list,
         file_types: file_type_list,
         largest_files,
@@ -1867,13 +2553,14 @@ pub(crate) fn scan_storage_index(
         scanned_files,
         scanned_directories,
         logical_bytes,
-        current_path,
+        current_path: queue.last_path(),
         elapsed_ms: result.elapsed_ms,
         cancelled,
     });
 
     Ok(ScanIndex {
         scan: result,
+        persisted: None,
         files,
         directories: directory_list
             .into_iter()
@@ -1904,7 +2591,10 @@ fn format_bytes(value: u64) -> String {
     }
 }
 
-fn path_within(path: &str, root: &str) -> bool {
+/// Path containment without allocating: `format!` used to build a `root/` needle
+/// here, and this runs once per file in every recursive query and per guarded
+/// prefix in `system_protected_path`.
+pub(crate) fn path_within(path: &str, root: &str) -> bool {
     if path == root {
         return true;
     }
@@ -1912,7 +2602,12 @@ fn path_within(path: &str, root: &str) -> bool {
     if normalized.is_empty() {
         return path.starts_with('/');
     }
-    path.starts_with(&format!("{normalized}/")) || path.starts_with(&format!("{normalized}\\"))
+    let hay = path.as_bytes();
+    let prefix = normalized.as_bytes();
+    if hay.len() <= prefix.len() || !hay[..prefix.len()].eq(prefix) {
+        return false;
+    }
+    matches!(hay[prefix.len()], b'/' | b'\\')
 }
 
 fn path_is_inside(path: &str, parent: &str) -> bool {
@@ -2221,10 +2916,9 @@ pub(crate) fn build_cleanup(
         if file.category == "system" || system_protected_path(&file.path) {
             continue;
         }
-        let lower = file.path.to_lowercase();
         let extension = file.extension.as_deref().unwrap_or("");
         let mut candidate: Option<CleanupCandidate> = None;
-        if lower.contains("/downloads/") && file.size >= 250 * ONE_MB {
+        if contains_ignore_ascii_case(&file.path, "/downloads/") && file.size >= 250 * ONE_MB {
             candidate = Some(CleanupCandidate {
                 kind: "largeDownload".into(),
                 title: "Large download".into(),
@@ -2445,7 +3139,47 @@ pub fn children_core(
     })
 }
 
+/// Allocating comparator for name sorting. ASCII names (the overwhelming
+/// majority) never build a lowercase copy; only non-ASCII names fall back.
+fn compare_names(left: &str, right: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    if left.is_ascii() && right.is_ascii() {
+        let mut left_bytes = left.bytes().map(|value| value.to_ascii_lowercase());
+        let mut right_bytes = right.bytes().map(|value| value.to_ascii_lowercase());
+        loop {
+            match (left_bytes.next(), right_bytes.next()) {
+                (None, None) => return Ordering::Equal,
+                (None, Some(_)) => return Ordering::Less,
+                (Some(_), None) => return Ordering::Greater,
+                (Some(left), Some(right)) => {
+                    let ordering = left.cmp(&right);
+                    if ordering != Ordering::Equal {
+                        return ordering;
+                    }
+                }
+            }
+        }
+    } else {
+        left.to_lowercase().cmp(&right.to_lowercase())
+    }
+}
+
+fn name_contains(name: &str, needle_lower: &str) -> bool {
+    if name.is_ascii() {
+        contains_ignore_ascii_case(name, needle_lower)
+    } else {
+        name.to_lowercase().contains(needle_lower)
+    }
+}
+
 pub fn query_files_core(index: &ScanIndex, query: &StorageFileQuery) -> StorageFilePage {
+    // The needles are prepared once. The previous implementation lowercased every
+    // filename and extension, and rebuilt the directory prefix, for every query.
+    let name_needle = query.name.as_deref().map(|value| value.to_lowercase());
+    let extension_needle = query
+        .extension
+        .as_deref()
+        .map(|value| value.to_ascii_lowercase());
     let mut filtered: Vec<&StorageFile> = index
         .files
         .iter()
@@ -2469,13 +3203,13 @@ pub fn query_files_core(index: &ScanIndex, query: &StorageFileQuery) -> StorageF
                     return false;
                 }
             }
-            if let Some(name) = query.name.as_deref() {
-                if !file.name.to_lowercase().contains(&name.to_lowercase()) {
+            if let Some(name) = name_needle.as_deref() {
+                if !name_contains(&file.name, name) {
                     return false;
                 }
             }
-            if let Some(extension) = query.extension.as_deref() {
-                if file.extension.as_deref() != Some(extension.to_lowercase().as_str()) {
+            if let Some(extension) = extension_needle.as_deref() {
+                if file.extension.as_deref() != Some(extension) {
                     return false;
                 }
             }
@@ -2525,27 +3259,39 @@ pub fn query_files_core(index: &ScanIndex, query: &StorageFileQuery) -> StorageF
     let total_bytes = filtered.iter().map(|file| file.size).sum();
     let total = filtered.len() as u64;
     let ascending = query.direction.eq_ignore_ascii_case("asc");
-    filtered.sort_by(|left, right| {
-        let ordering = match query.sort.as_str() {
-            "name" => left.name.to_lowercase().cmp(&right.name.to_lowercase()),
+    let sort = query.sort.as_str();
+    // The path tiebreak makes the order deterministic, which also lets a partial
+    // selection produce the same page a full sort would.
+    let compare = |left: &&StorageFile, right: &&StorageFile| {
+        let ordering = match sort {
+            "name" => compare_names(&left.name, &right.name),
             "modified" => left.modified.cmp(&right.modified),
             "created" => left.created.cmp(&right.created),
             "type" => left
                 .file_type
                 .cmp(&right.file_type)
-                .then(left.name.cmp(&right.name)),
+                .then_with(|| left.name.cmp(&right.name)),
             "path" => left.path.cmp(&right.path),
             _ => left.size.cmp(&right.size),
-        };
+        }
+        .then_with(|| left.path.cmp(&right.path));
         if ascending {
             ordering
         } else {
             ordering.reverse()
         }
-    });
+    };
     let limit = query.limit.clamp(1, 5_000);
     let offset = query.offset;
     let has_more = filtered.len() > offset.saturating_add(limit);
+    // Sorting the whole index costs seconds on a multi-million-entry scan while a
+    // page only needs the first `offset + limit` rows ordered.
+    let needed = offset.saturating_add(limit);
+    if needed < filtered.len() {
+        filtered.select_nth_unstable_by(needed, compare);
+        filtered.truncate(needed);
+    }
+    filtered.sort_by(compare);
     let files = filtered
         .into_iter()
         .skip(offset)
@@ -2900,7 +3646,14 @@ pub fn delete_core_with_progress(
             ));
             continue;
         }
-        if !known.contains(item.path.as_str()) {
+        let persisted_known = || {
+            index
+                .persisted
+                .as_ref()
+                .and_then(|persisted| persisted.cache.has_path(persisted.scan_id, &item.path).ok())
+                .unwrap_or(false)
+        };
+        if !known.contains(item.path.as_str()) && !persisted_known() {
             results.push(OperationResult::failed(
                 &display,
                 "This item was not part of the verified scan. Rescan before removing it.".into(),
@@ -3066,21 +3819,22 @@ pub async fn scan_storage(
     use tauri::Emitter;
     let root = normalize_path(&request.root)?;
     let scan_id = request.scan_id;
-    let max_entries = if request.max_entries == 0 {
-        DEFAULT_MAX_ENTRIES
-    } else {
-        request.max_entries
-    };
+    // `0` means auto: the Deep scan control lets the memory guard decide where the
+    // walk stops instead of a fixed entry count.
+    let budget = resolve_scan_budget(request.max_entries);
     let root_text = root.to_string_lossy().to_string();
     logging::info(
         "storage.scan",
-        format!("start id={scan_id} root={root_text} max_entries={max_entries}"),
+        format!(
+            "start id={scan_id} root={root_text} max_entries={} index_budget_bytes={}",
+            budget.max_entries, budget.max_index_bytes
+        ),
     );
     let cancel = state.register(scan_id);
     let app_handle = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         logging::catch("storage scan", || {
-            scan_storage_index(&root, scan_id, max_entries, &cancel, &|progress| {
+            scan_storage_index_with_budget(&root, scan_id, budget, &cancel, &|progress| {
                 let _ = app_handle.emit("storage-scan-progress", progress);
             })
         })
@@ -3141,7 +3895,7 @@ pub fn get_storage_children(
 ) -> Result<StorageChildren, AppError> {
     if let Some(index) = state.current() {
         if index.scan.scan_id == scan_id {
-            return children_core(&index, &path, limit.unwrap_or(2_000));
+            return children_for(&index, &path, limit.unwrap_or(2_000));
         }
     }
     state.cached_children(scan_id, &path, limit.unwrap_or(2_000))
@@ -3154,7 +3908,7 @@ pub fn query_storage_files(
 ) -> Result<StorageFilePage, AppError> {
     if let Some(index) = state.current() {
         if index.scan.scan_id == query.scan_id {
-            return Ok(query_files_core(&index, &query));
+            return query_files_for(&index, &query);
         }
     }
     state.cached_query(&query)

@@ -499,3 +499,121 @@
   nine failures are the pre-existing `storageStore.test.ts` and `ThemeCreator.test.tsx`
   suites that read `window.localStorage` under the `node` test environment; neither file
   is touched by this work. `npm run typecheck` clean.
+
+## Phase 22 - Memory-budgeted storage scans (2026-11-07)
+
+- Removed the 5,000,000-entry hard cap that stopped the Storage Space Analyzer mid-volume.
+  Deep scan now sends `maxEntries = 0`, which the backend reads as "auto":
+  `resolve_scan_budget` sizes the walk to 55% of the memory the machine can actually reclaim
+  (macOS `host_statistics64` free + speculative + inactive + purgeable; Linux `MemAvailable`;
+  4 GiB fixed elsewhere), floored at 192 MiB so small machines still get a usable scan. The
+  absolute count ceiling is now 50,000,000 and is only a walker safety valve.
+- The walk measures the live index footprint entry by entry (record size + every heap string +
+  allocator/slot/inode overhead) and stops before the byte budget is exceeded, instead of
+  trusting a bytes-per-entry guess that a real volume can violate.
+- `StorageScanResult.truncationReason` ("entry limit of N entries" / "memory budget of X of
+  index space") now tells the UI which guard stopped a truncated scan; the overview warning,
+  hero note and usage legend use it, and cancelled scans no longer claim to have hit a limit.
+- Verification on this Mac (32 GB, `/System/Volumes/Data` at 855 GB / 11 M inodes): reclaimable
+  14,011 MiB -> 7,706 MiB index budget, i.e. roughly 14 M entries at the measured ~550 B each,
+  against the previous 5 M ceiling. A 35 s real scan of the home folder processed millions of
+  entries with RSS tracking the accounting within a few percent and no truncation.
+- Tests: `cargo test` **81 passed** (new: auto budget beats the old ceiling, absolute ceiling
+  clamp, macOS VM counters readable, a scan stops on a 12 KB byte budget and reports the
+  memory reason); storage component suite **19 passed** including the new memory-budget copy
+  test. `npm run typecheck` clean. `npm test` **341 passed / 9 failed**, the same nine
+  pre-existing `storageStore.test.ts` and `ThemeCreator.test.tsx` failures caused by
+  `window.localStorage` being absent under the `node` test environment.
+- Known limitation: the index is still held in memory for the session, so a whole-volume scan
+  of an 11 M-entry disk costs several GB of RSS while the analyzer is open. The cache schema
+  already stores exactly these rows in SQLite; serving drill-down from the cache instead of a
+  RAM index is the next architectural step if multi-TB volumes matter.
+
+## Phase 23 - Storage analyzer scale pass (2026-11-07)
+
+Four linked pieces of work on `perf/storage-analyzer-scale`, each verified on its own.
+
+1. **Query hot path.** Every file paid for a lowercase copy of its whole path twice (category
+   and file type), two formatted Strings per path-containment test, a lowercase filename for
+   the iCloud probe, and every query rebuilt the directory prefix per row. Containment,
+   component and case-insensitive matching are now allocation-free byte comparisons, and a
+   paged query only orders the window it returns (partial selection) with a path tiebreak for
+   determinism. Filters prepare their needles once per query.
+2. **Parallel walk.** Directories go to a work-stealing pool of 2-8 threads; workers only read,
+   classify and count, and hard links, per-directory totals and category buckets are resolved
+   in one pass after the walk so no thread needs a global inode set. Progress is emitted every
+   300ms from the coordinating thread instead of every 1,500 entries (~7,300 IPC events for a
+   whole-volume scan). Measured on the home folder, release build: **3.85M entries in 50s =
+   76,652 entries/s**, versus 7,300 entries/s single-threaded, a **10.5x** improvement
+   (an 11M-entry volume goes from ~25 minutes to ~2.5).
+3. **Navigation.** Eight analyzer views became five (Overview, Browse, Files, Treemap, Clean
+   up); largest folders, file types and duplicates stay routable from the Overview cards and
+   the Clean up tabs. Scan volume / Deep scan / Scan folder... collapsed into one Scan menu;
+   the duplicated coverage warning in the hero is gone; the pre-scan marketing card became a
+   single action card; four per-row icon buttons became one actions menu.
+4. **SQLite-backed index.** After a scan is persisted, the in-memory file vector is released
+   and `get_storage_children` / `query_storage_files` read the indexed `files` table (parent,
+   size, file_type, category). Directory aggregates and the scan summary stay in RAM (about 2%
+   of entries). Delete verification uses `has_path` against the same rows, so the safety net
+   is unchanged. Cached-scan restore already used this path.
+   - Query plans were the real risk here: `EXPLAIN QUERY PLAN` showed folder listings using
+     `directories_size` (a 435 ms scan and sort of every directory) and the recursive filter
+     using `substr(path, ...)`, which fell back to an unrelated index (1.85 s). Composite
+     `(scan_id, parent, size)` indexes and a range predicate on `path` fixed both, and the
+     cache schema went to v2 with the indexes dropped for the bulk load and rebuilt once at
+     the end (1.2M files + 271k dirs in 13.6 s instead of maintaining five indexes per row).
+   - Measured on a 1.2M-file persisted scan: folder drill-down **0.5 ms** (in-memory path
+     15 ms) and a folder page **0.3 ms** (in-memory 11.7 ms). A recursive "directory contains"
+     query over the whole scan is now 0.9 s because it counts and sums every match; the
+     default views do not issue it.
+
+Verification: `cargo test` **89 passed** (new: parallel walk visits every directory in a wide
+tree, hard-link totals across workers, SQL parity for children and paged queries, delete
+through a persisted index, and the state releasing its file records after persisting); storage component suite **19 passed**; `npm run typecheck` clean;
+`npm test` **341 passed / 9 failed**, the same pre-existing `storageStore.test.ts` and
+`ThemeCreator.test.tsx` failures caused by `window.localStorage` under the node test
+environment. The temporary probes used for the two performance numbers were removed.
+
+## Phase 24 - Search index rescan loop, write amplification and index size (2026-11-07)
+
+Four defects shared one loop: every completed scan was followed by another one within a
+second, each scan rewrote every row, and the resulting lock contention made writes fail.
+
+1. **Rescan storm.** `drain_events` treated a watcher backlog over 4 000 paths by
+   back-dating `last_reconcile` by six hours, which scheduled a full scan immediately. A
+   scan takes minutes; the FSEvents backlog that accumulated while it ran was then read as
+   "the index is stale", so scan -> backlog -> scan repeated forever (8 scans in 2 hours,
+   6-19 min each). An overflow now sets a `reconcile_requested` flag, reconciles are
+   throttled to one per 20 minutes (`RECONCILE_MIN_GAP`), and the backlog collected during
+   a scan is discarded once that scan finishes. A backlog arriving while the indexer is
+   idle is dropped without scheduling anything.
+2. **Write amplification.** `write_batch` upserted every walked entry, so a rescan rewrote
+   128 k rows and fired the `AFTER UPDATE OF name, content` trigger for each one - the
+   entire content index was deleted and re-inserted per scan. `scan_entries` now loads
+   `known_entries(root)` once (size, modified, content state) and writes only rows that
+   changed; files whose extraction failed (`content_state = 'error'`) are exempt so they
+   re-enter the pending queue. `finish_scan` deletes exactly the paths present in the
+   snapshot and absent from the walk.
+3. **Transient lock failures.** `retry_busy` wraps batch writes with two backoff attempts
+   for `locked`/`busy` errors, and connections set `journal_size_limit` so bulk
+   maintenance cannot leave a WAL as large as the database.
+4. **Index size.** Schema 3 makes `files_fts` an external-content table over `files`
+   (`content='files'`, `content_rowid='id'`), removing the second copy of every extracted
+   document (1.9 GB). The migration drops the old table and defers the rebuild to the
+   indexer thread; content search falls back to a live scan until it completes. A
+   `vacuum_requested` flag is consumed by the idle maintenance pass, which VACUUMs and
+   truncates the WAL. `optimize()` and `prune()` rebuild through the same schema.
+
+The storage-scan cache had the same shape of bug: it holds one file list per volume and
+deletes the previous one on every refresh, so its 128 MB working set sat behind 3.6 GB of
+freelist. `StorageCache::store` now VACUUMs when more than half the file is free pages;
+the existing cache was compacted by hand (3.8 GB -> 309 MB).
+
+Verification on the live 128 579-row index: first launch migrated in 31 s, rebuilt the
+content index for 64 926 documents in 141 s, and compacted 7 457 MB -> 5 432 MB (2.7 GB
+after the WAL was truncated, from 7.3 GB). A forced full rescan of the home directory
+completed in **165 s with 1 421 rows written, 171 removed and no write failures**, against
+6.3-18.9 min and 9-57 failures before, and no follow-up scan was scheduled. `cargo test
+--lib` **95 passed** (new: unchanged rescan writes nothing, changed file written once,
+failed extraction retried, backlog overflow requests a reconcile, idle backlog discarded,
+schema-2 index migrated to external content); `cargo check --release` clean.

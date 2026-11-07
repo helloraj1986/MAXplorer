@@ -59,12 +59,10 @@ function CapacityHero({ volume, scan }: { volume: StorageVolume | null; scan: St
         <span><strong>{formatSize(volume.totalBytes)}</strong> capacity</span>
         <span>{volume.filesystem || "Unknown format"}{volume.isApfs ? " · APFS" : ""}</span>
       </div>
-      {scan && scan.uninspectedBytes > 0 ? (
+      {scan && !scan.truncated && !scan.cancelled && scan.uninspectedBytes > 0 ? (
         <p className="storage-hero-note">
           <Icon name="info" size={12} />
-          {scan.truncated || scan.cancelled
-            ? `${formatSize(scan.uninspectedBytes)} was not inspected because the scan stopped at its ${formatCount(scan.maxEntries)} entry limit. This is not a cleanup estimate. Run Deep scan, or scan your Home folder or a narrower folder for complete coverage.`
-            : `${formatSize(scan.uninspectedBytes)} of reported usage is not attributable to inspected files. APFS snapshots, purgeable space, system-protected data, other volumes sharing the container, and unreadable locations can all contribute.`}
+          {`${formatSize(scan.uninspectedBytes)} of reported usage is not attributable to inspected files. APFS snapshots, purgeable space, system-protected data, other volumes sharing the container, and unreadable locations can all contribute.`}
         </p>
       ) : null}
     </section>
@@ -116,12 +114,12 @@ function UsageBar({ scan }: { scan: StorageScanResult }) {
             style={{ width: `${(uninspected / capacity) * 100}%` }}
             title={
               incomplete
-                ? `${formatSize(uninspected)} was not inspected because the scan hit its entry limit`
+                ? `${formatSize(uninspected)} was not inspected because the scan stopped early`
                 : `${formatSize(uninspected)} cannot be attributed to inspected files`
             }
             aria-label={
               incomplete
-                ? `${formatSize(uninspected)} not inspected because the scan hit its entry limit`
+                ? `${formatSize(uninspected)} not inspected because the scan stopped early`
                 : `${formatSize(uninspected)} uninspected or system-managed storage`
             }
           />
@@ -161,7 +159,7 @@ function UsageBar({ scan }: { scan: StorageScanResult }) {
             <span className="storage-legend-size">{formatSize(uninspected)}</span>
             <span className="storage-legend-percent" />
             <span className="storage-legend-files">
-              {incomplete ? "Scan stopped at entry limit" : "Not attributable to files"}
+              {incomplete ? "Scan stopped early" : "Not attributable to files"}
             </span>
             <span />
           </div>
@@ -269,16 +267,12 @@ export function StorageOverview() {
       <div className="storage-overview">
         <CapacityHero volume={volume} scan={null} />
         <section className="storage-card storage-intro-card">
-          <h2>Know exactly what fills this volume</h2>
-          <p>
-            MAXplorer reads filesystem metadata locally, measures allocated blocks, categorizes each file once, and keeps
-            symbolic links out of recursive traversal. System-managed storage is reported separately instead of being guessed.
-          </p>
-          <div className="storage-intro-grid">
-            <div><Icon name="folder" size={18} /><strong>Folder and file drill-down</strong><span>Every readable directory, subdirectory, and file.</span></div>
-            <div><Icon name="grid" size={18} /><strong>Interactive treemap</strong><span>Canvas rendering remains responsive on large trees.</span></div>
-            <div><Icon name="copy" size={18} /><strong>Verified duplicates</strong><span>Same-size candidates are confirmed with SHA-256.</span></div>
-            <div><Icon name="shield" size={18} /><strong>Review before removal</strong><span>Exact paths, risk, and confirmation for every destructive action.</span></div>
+          <div>
+            <h2>Ready to measure {volume?.name ?? "this volume"}</h2>
+            <p>
+              A scan reads filesystem metadata locally, measures allocated blocks, and categorizes each file once. Nothing is
+              uploaded and nothing is deleted automatically.
+            </p>
           </div>
           <div className="storage-view-actions">
             <button type="button" className="storage-primary-button" onClick={() => void startScan()} disabled={!volume || scanning}>
@@ -290,15 +284,12 @@ export function StorageOverview() {
               className="storage-toolbar-button"
               onClick={() => void startScan(undefined, DEEP_SCAN_MAX_ENTRIES)}
               disabled={!volume || scanning}
-              title="Allow up to 5,000,000 entries; this can take several minutes"
+              title="Runs until the available-memory budget is reached (no fixed entry cap)"
             >
               <Icon name="database" size={13} />
               Deep scan
             </button>
           </div>
-          <p className="storage-muted">
-            A full scan can take time on large disks. It runs in the background and can be cancelled; MAXplorer remains usable.
-          </p>
         </section>
       </div>
     );
@@ -325,7 +316,7 @@ export function StorageOverview() {
           <span>
             {scan.cancelled
               ? "This is a partial scan. Totals and categories cover only inspected entries."
-              : `The scan reached its ${formatCount(scan.maxEntries)} entry safety limit, so ${formatSize(scan.uninspectedBytes)} was never examined. This is not a cleanup estimate.`}
+              : `The scan stopped at its ${scan.truncationReason ?? `${formatCount(scan.maxEntries)} entry limit`}, so ${formatSize(scan.uninspectedBytes)} was never examined. This is not a cleanup estimate.`}
           </span>
           <div className="storage-warning-actions">
             {homeFolder ? (

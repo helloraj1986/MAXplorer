@@ -168,14 +168,21 @@ Backend contracts are all camelCase and registered in `src-tauri/src/lib.rs`.
 - Reserved filesystem metadata folders (Spotlight, fseventsd, temporary item stores, etc.)
   are skipped and counted in the scan report.
 - Permission and read errors are counted and the scan continues.
-- Bounded by a configurable entry cap (default 500,000; the Deep scan control raises it to
-  5,000,000; hard ceiling 5,000,000) and can be cancelled by request ID. Partial results are
-  reported honestly. Separate controls cover quick overview, deep scan, deep scan of the Home
+- Bounded by a memory budget rather than a fixed entry ceiling: the Quick overview scan asks
+  for 500,000 entries, the Deep scan control asks for `0` ("auto") and the backend sizes the
+  walk to 55% of the memory the machine can reclaim (macOS `host_statistics64`
+  free + speculative + inactive + purgeable, Linux `MemAvailable`, else a fixed 4 GiB),
+  floored at 192 MiB. The absolute count ceiling is 50,000,000 and is only a walker safety
+  valve. The live index footprint is measured entry by entry (record + every heap string)
+  and the scan stops before the budget is exceeded. Scans can be cancelled by request ID.
+  Partial results are reported honestly, with `truncationReason` naming the guard that
+  stopped them. Separate controls cover quick overview, deep scan, deep scan of the Home
   folder, **Scan folder...** for an arbitrary absolute path, rescan this folder, duplicate
   detection, and cancel.
 - A whole-volume scan traverses system data, caches, application support, and every user
-  folder in one global cap. It can reach the cap before a deeply nested user folder. Scan that
-  folder directly with **Scan folder...** for complete, fast coverage of just those files.
+  folder in one global budget. On a machine without enough free memory for the whole tree it
+  can stop before a deeply nested user folder. Scan that folder directly with
+  **Scan folder...** for complete, fast coverage of just those files.
 - Progress events (`storage-scan-progress`) contain entries/files/folders/bytes/elapsed and
   the current path; no completion percentage is invented.
 - Directory aggregates are computed bottom-up once after traversal. A directory contributes
@@ -186,9 +193,14 @@ Backend contracts are all camelCase and registered in `src-tauri/src/lib.rs`.
 
 ### Index and persistent cache
 
-The full file/directory index is kept **in memory for the current scan**, keyed by scan ID,
-so drill-down, filters, categories, and deletion revalidation are fast. Completed scans are
-also written to a versioned local SQLite cache:
+The scan builds its file records in memory while it walks (bounded by the memory budget
+above) and writes them to a versioned local SQLite cache. Once the rows are durable the
+in-memory file vector is **released**: directory aggregates stay in RAM (about 2% of the
+entries), while `get_storage_children` and `query_storage_files` are served from the `files`
+table, which is indexed by `parent`, `size`, `file_type` and `category`. A whole-volume scan
+therefore drops from several gigabytes of steady-state RSS to the directory map plus the
+scan summary. Deletion revalidation keeps working because path membership is checked against
+the same persisted rows (`has_path`).
 
 ```text
 <app data>/storage/cache.sqlite3
@@ -200,7 +212,13 @@ macOS path:
 ~/Library/Application Support/com.replica.win11explorer/storage/cache.sqlite3
 ```
 
-The cache stores the scan summary JSON plus one row per file and directory. A rolling set of
+The cache stores the scan summary JSON plus one row per file and directory. Schema v2 keeps
+composite indexes (`files(scan_id, parent, size)`, `files(scan_id, category, size)`,
+`files(scan_id, file_type, size)`, `directories(scan_id, parent, size)`) so a folder listing
+filters and sorts without scanning the table, and the indexes are dropped and rebuilt around a
+bulk load instead of being maintained per row: 1.2M files plus 271k directories store in 13.6 s.
+Measured on a 1.2M-file scan, drill-down is 0.5 ms per folder (versus 15 ms scanning the
+in-memory index) and a folder page is 0.3 ms (versus 11.7 ms). A rolling set of
 the eight most recent scans is retained; scans for the same root replace older rows, and a
 stale background write can never overwrite a newer result. On launch or volume switch, the
 analyzer restores the most recent cached scan belonging to that volume, including folder

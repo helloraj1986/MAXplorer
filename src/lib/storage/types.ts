@@ -1,14 +1,19 @@
 import type { FileEntry, OperationResult } from "../types";
 
+/**
+ * Views reachable from the analyzer navigation. `largestFolders`, `fileTypes` and
+ * `duplicates` remain routable from the Overview cards and the Clean up tabs, but
+ * are deliberately not separate navigation entries.
+ */
 export type StorageView =
   | "overview"
-  | "tree"
+  | "browse"
   | "files"
-  | "largestFolders"
-  | "fileTypes"
   | "treemap"
+  | "cleanup"
   | "duplicates"
-  | "cleanup";
+  | "largestFolders"
+  | "fileTypes";
 
 export type StorageRisk = "low" | "review" | "high";
 export type StorageSort = "size" | "name" | "modified" | "created" | "type" | "path";
@@ -145,6 +150,8 @@ export interface StorageScanResult {
   cleanupRecoverableBytes: number;
   cancelled: boolean;
   truncated: boolean;
+  /** Which guard stopped the scan ("entry limit of …" / "memory budget of …"), null when complete. */
+  truncationReason: string | null;
   maxEntries: number;
   categories: StorageCategory[];
   fileTypes: StorageFileType[];
@@ -309,8 +316,11 @@ export interface StorageSelectionSummary {
   lowRisk: number;
 }
 
-/** Deep scan ceiling exposed by the analyzer UI (the backend hard cap is 5M). */
-export const DEEP_SCAN_MAX_ENTRIES = 5_000_000;
+/**
+ * Deep scan asks for `0` entries, which the backend reads as "auto": the scan is
+ * sized to the machine's available memory instead of a fixed entry count.
+ */
+export const DEEP_SCAN_MAX_ENTRIES = 0;
 
 export const DEFAULT_STORAGE_FILE_QUERY: Omit<StorageFileQuery, "scanId"> = {
   directory: null,

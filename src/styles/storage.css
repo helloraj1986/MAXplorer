@@ -2788,3 +2788,113 @@
     forced-color-adjust: none;
   }
 }
+
+/* ------------------------------------------------------------------------- */
+/* Consolidated navigation: scan menu, view tabs and row action menu          */
+/* ------------------------------------------------------------------------- */
+
+.storage-scan-menu {
+  position: relative;
+}
+
+.storage-scan-menu > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.storage-scan-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.storage-scan-menu[open] > summary {
+  border-color: var(--accent-border);
+}
+
+.storage-scan-menu-items,
+.storage-row-menu-items {
+  position: absolute;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 260px;
+  margin-top: 6px;
+  padding: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+  box-shadow: 0 12px 28px var(--shadow);
+  right: 0;
+}
+
+.storage-scan-menu-items button,
+.storage-row-menu-items button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.storage-scan-menu-items button span {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.storage-scan-menu-items button:hover:not(:disabled),
+.storage-row-menu-items button:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.storage-view-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.storage-view-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.storage-view-tabs button.active {
+  border-color: var(--accent-border);
+  background: var(--accent-tint);
+  color: var(--text);
+}
+
+.storage-row-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.storage-row-menu > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.storage-row-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.storage-row-menu-items {
+  min-width: 190px;
+}

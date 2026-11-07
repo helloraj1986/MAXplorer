@@ -18,7 +18,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-const CACHE_VERSION: i64 = 1;
+const CACHE_VERSION: i64 = 2;
 const MAX_CACHED_SCANS: i64 = 8;
 
 #[derive(Clone)]
@@ -66,7 +66,7 @@ impl StorageCache {
                 "DROP TABLE IF EXISTS files;
                  DROP TABLE IF EXISTS directories;
                  DROP TABLE IF EXISTS scans;
-                 PRAGMA user_version = 1;",
+                 PRAGMA user_version = 2;",
             )?;
         }
         connection.execute_batch(
@@ -102,10 +102,13 @@ impl StorageCache {
                 file_type TEXT NOT NULL,
                 PRIMARY KEY(scan_id, path)
              );
-             CREATE INDEX IF NOT EXISTS files_parent ON files(scan_id, parent);
+             -- Composite indexes so a folder listing can filter and sort without
+             -- scanning (and sorting) every row in the scan. They subsume the
+             -- single-column parent/type/category indexes.
              CREATE INDEX IF NOT EXISTS files_size ON files(scan_id, size DESC);
-             CREATE INDEX IF NOT EXISTS files_type ON files(scan_id, file_type);
-             CREATE INDEX IF NOT EXISTS files_category ON files(scan_id, category);
+             CREATE INDEX IF NOT EXISTS files_parent_size ON files(scan_id, parent, size DESC);
+             CREATE INDEX IF NOT EXISTS files_category_size ON files(scan_id, category, size DESC);
+             CREATE INDEX IF NOT EXISTS files_type_size ON files(scan_id, file_type, size DESC);
              CREATE TABLE IF NOT EXISTS directories (
                 scan_id INTEGER NOT NULL,
                 path TEXT NOT NULL,
@@ -126,8 +129,9 @@ impl StorageCache {
                 is_read_only INTEGER NOT NULL,
                 PRIMARY KEY(scan_id, path)
              );
-             CREATE INDEX IF NOT EXISTS directories_parent ON directories(scan_id, parent);
-             CREATE INDEX IF NOT EXISTS directories_size ON directories(scan_id, size DESC);",
+             CREATE INDEX IF NOT EXISTS directories_size ON directories(scan_id, size DESC);
+             CREATE INDEX IF NOT EXISTS directories_parent_size
+                ON directories(scan_id, parent, size DESC);",
         )?;
         Ok(())
     }
@@ -168,6 +172,16 @@ impl StorageCache {
             );
             return Ok(());
         }
+        // Indexes are dropped for the load and rebuilt once afterwards: maintaining
+        // five indexes across millions of INSERTs is far slower than one bulk build.
+        transaction.execute_batch(
+            "DROP INDEX IF EXISTS files_size;
+             DROP INDEX IF EXISTS files_parent_size;
+             DROP INDEX IF EXISTS files_category_size;
+             DROP INDEX IF EXISTS files_type_size;
+             DROP INDEX IF EXISTS directories_size;
+             DROP INDEX IF EXISTS directories_parent_size;",
+        )?;
         transaction.execute(
             "DELETE FROM files WHERE scan_id IN (SELECT scan_id FROM scans WHERE root = ?1)",
             params![root],
@@ -272,7 +286,27 @@ impl StorageCache {
                 (SELECT scan_id FROM scans ORDER BY finished_at DESC LIMIT ?1)",
             params![MAX_CACHED_SCANS],
         )?;
+        transaction.execute_batch(
+            "CREATE INDEX IF NOT EXISTS files_size ON files(scan_id, size DESC);
+             CREATE INDEX IF NOT EXISTS files_parent_size ON files(scan_id, parent, size DESC);
+             CREATE INDEX IF NOT EXISTS files_category_size ON files(scan_id, category, size DESC);
+             CREATE INDEX IF NOT EXISTS files_type_size ON files(scan_id, file_type, size DESC);
+             CREATE INDEX IF NOT EXISTS directories_size ON directories(scan_id, size DESC);
+             CREATE INDEX IF NOT EXISTS directories_parent_size
+                ON directories(scan_id, parent, size DESC);",
+        )?;
         transaction.commit()?;
+        // A multi-million-row transaction leaves a large WAL behind, and every
+        // read afterwards has to walk it. Fold it back into the main database so
+        // drill-down queries stay fast.
+        let checkpoint = connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+        if let Err(error) = checkpoint {
+            logging::warn(
+                "storage.cache",
+                format!("could not checkpoint the scan cache: {error}"),
+            );
+        }
+        self.compact_if_bloated(&connection);
         logging::info(
             "storage.cache",
             format!(
@@ -285,6 +319,37 @@ impl StorageCache {
             ),
         );
         Ok(())
+    }
+
+    /// Reclaims the pages a replaced scan left behind. The cache holds one full
+    /// file list per volume, so every refresh deletes hundreds of thousands of
+    /// rows; without this the file only ever grows (3.6 GB of freelist on a
+    /// 128 MB working set).
+    fn compact_if_bloated(&self, connection: &Connection) {
+        let pages: i64 = connection
+            .query_row("SELECT * FROM pragma_page_count", [], |row| row.get(0))
+            .unwrap_or(0);
+        let free: i64 = connection
+            .query_row("SELECT * FROM pragma_freelist_count", [], |row| row.get(0))
+            .unwrap_or(0);
+        if pages < 20_000 || free < 5_000 || free * 2 < pages {
+            return;
+        }
+        let started = std::time::Instant::now();
+        match connection.execute_batch("VACUUM;") {
+            Ok(()) => logging::info(
+                "storage.cache",
+                format!(
+                    "compacted the scan cache ({} free pages) in {} ms",
+                    free,
+                    started.elapsed().as_millis()
+                ),
+            ),
+            Err(error) => logging::warn(
+                "storage.cache",
+                format!("could not compact the scan cache: {error}"),
+            ),
+        }
     }
 
     pub fn latest(&self, root: Option<&str>) -> Result<Option<CachedStorageScan>, AppError> {
@@ -413,11 +478,20 @@ impl StorageCache {
         let mut values: Vec<Value> = vec![Value::Integer(query.scan_id as i64)];
         if let Some(directory) = query.directory.as_deref() {
             if query.recursive {
-                let prefix = format!("{directory}/");
-                clauses.push("(path = ? OR substr(path, 1, length(?)) = ?)".into());
-                values.push(Value::Text(directory.to_string()));
-                values.push(Value::Text(prefix.clone()));
-                values.push(Value::Text(prefix));
+                // A range on `path` keeps the primary key usable. `substr(path, ...)`
+                // made SQLite fall back to an unrelated index and scan the table.
+                let trimmed = directory.trim_end_matches(['/', '\\']);
+                let separator = if directory.ends_with('\\') { '\\' } else { '/' };
+                if !trimmed.is_empty() {
+                    let upper = if separator == '/' {
+                        format!("{trimmed}0")
+                    } else {
+                        format!("{trimmed}]")
+                    };
+                    clauses.push("path >= ? AND path < ?".into());
+                    values.push(Value::Text(format!("{trimmed}{separator}")));
+                    values.push(Value::Text(upper));
+                }
             } else {
                 clauses.push("parent = ?".into());
                 values.push(Value::Text(directory.to_string()));
@@ -511,6 +585,23 @@ impl StorageCache {
             limit: limit as u64,
             has_more: total > offset.saturating_add(limit),
         })
+    }
+
+    /// Membership check used by the delete path once the in-memory index has been
+    /// released: a path may be removed only if the verified scan recorded it.
+    pub fn has_path(&self, scan_id: u64, path: &str) -> Result<bool, AppError> {
+        let connection = self.connect()?;
+        let found: Option<i64> = connection
+            .query_row(
+                "SELECT 1 FROM files WHERE scan_id = ?1 AND path = ?2
+                 UNION ALL
+                 SELECT 1 FROM directories WHERE scan_id = ?1 AND path = ?2
+                 LIMIT 1",
+                params![scan_id as i64, path],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(found.is_some())
     }
 
     pub fn clear(&self) -> Result<(), AppError> {

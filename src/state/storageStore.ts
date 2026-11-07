@@ -309,7 +309,7 @@ export const useStorageStore = create<StorageState>((set, get) => ({
           treePath: current.root,
           fileScope: { ...DEFAULT_SCOPE },
         });
-        if (get().view === "tree" || get().view === "treemap") {
+        if (get().view === "browse" || get().view === "treemap") {
           await get().loadChildren(current.root);
         }
       } else {
@@ -372,7 +372,7 @@ export const useStorageStore = create<StorageState>((set, get) => ({
         selectedFile: null,
         selectedDirectory: null,
       });
-      if (get().view === "tree" || get().view === "treemap") {
+      if (get().view === "browse" || get().view === "treemap") {
         await get().loadChildren(cached.scan.root);
       }
       if (get().view === "files") {
@@ -393,9 +393,10 @@ export const useStorageStore = create<StorageState>((set, get) => ({
     }
     const target = root ?? volume.mountPoint;
     const scanId = nextId();
+    const budgetLabel = maxEntries === 0 ? "auto (memory-budgeted)" : String(maxEntries ?? 500_000);
     logDiagnostic(
       "info",
-      `Starting storage scan id=${scanId} root=${target} maxEntries=${maxEntries ?? 500_000}`,
+      `Starting storage scan id=${scanId} root=${target} maxEntries=${budgetLabel}`,
       "storage.scan",
     );
     activeScanId = scanId;
@@ -434,7 +435,7 @@ export const useStorageStore = create<StorageState>((set, get) => ({
         selectedFile: null,
         selectedDirectory: null,
       });
-      if (get().view === "tree" || get().view === "treemap") {
+      if (get().view === "browse" || get().view === "treemap") {
         await get().loadChildren(scan.root);
       }
       if (get().view === "files") {
@@ -490,7 +491,7 @@ export const useStorageStore = create<StorageState>((set, get) => ({
 
   setView(view) {
     set({ view });
-    if ((view === "tree" || view === "treemap") && get().treePath) {
+    if ((view === "browse" || view === "treemap") && get().treePath) {
       void get().loadChildren(get().treePath ?? undefined);
     }
     if (view === "files" && !get().filePage) {
