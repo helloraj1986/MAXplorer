@@ -4,9 +4,9 @@
 | --- | --- |
 | Document version | 1.2 |
 | Handover date | 2026-10-29 |
-| Project version | 0.1.0 (pre-rebrand release); `main` now includes the MAXplorer identity and icon system |
+| Project version | 0.2.0 (universal DMG release, includes the MAXplorer identity, storage analyzer and search overhaul) |
 | Repository | https://github.com/helloraj1986/MAXplorer (private) |
-| Release | https://github.com/helloraj1986/MAXplorer/releases/tag/v0.1.0 |
+| Release | https://github.com/helloraj1986/MAXplorer/releases/latest |
 | Current branch | `main` (premium icon system merged 2026-10-29) |
 
 ---
@@ -124,7 +124,7 @@ Start here; everything else in this document is reference.
    `docs/screenshots/`. If anything fails, fix it before starting new features.
 5. Only then move on to the distribution work in [§10](#10-suggested-next-steps-prioritized).
 
-Do not assume the published `v0.1.0` DMG reflects `main`: it predates these changes.
+The published `v0.2.0` DMG is built from `main`; `v0.1.0` predates these changes and should be ignored.
 
 ---
 
@@ -589,7 +589,7 @@ are informed approximations.
 
 This is MAXplorer, a Tauri 2 / Rust / React desktop file manager that runs natively on
 macOS and operates on the real filesystem. It is feature-complete for its scope and
-confirmed working on a Mac, with a universal DMG published as `v0.1.0`. Since that release,
+confirmed working on a Mac, with a universal DMG published as `v0.2.0`. Since the first release,
 `main` adds two interchangeable interface themes (Windows 11 and macOS Finder, each light
 and dark), real `.app` bundle icons, and a premium icon system with Lucide chrome icons, a
 typed file-type registry, theme-aware folder/storage artwork, real transfer-state

@@ -1,7 +1,7 @@
 {
   "name": "maxplorer",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "MAXplorer - More than just a file manager. A powerful, customisable desktop file manager for macOS (Tauri + React + Rust).",
   "scripts": {

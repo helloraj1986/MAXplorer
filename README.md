@@ -57,8 +57,8 @@ The build is **ad-hoc signed, not notarized**, so the first launch needs either 
 xattr -dr com.apple.quarantine /Applications/MAXplorer.app
 ```
 
-> The published `v0.1.0` DMG predates the MAXplorer rebrand and the current dual-theme,
-> preview, search and storage work. Build from `main` for the latest version.
+> Requires macOS 12 or newer. The DMG is universal (Apple silicon + Intel). The app asks
+> for Desktop, Documents, Downloads and Local Network access the first time it needs them.
 
 ### Build from source
 
