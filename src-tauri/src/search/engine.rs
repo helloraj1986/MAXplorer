@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 pub const DEFAULT_MAX_CONTENT_BYTES: u64 = 1_500_000;
 /// Hard ceiling on rows pulled into memory for ranking. The previous value
 /// (50 000) could allocate hundreds of megabytes per keystroke.
@@ -32,6 +32,31 @@ const COUNTS_TTL_MS: i64 = 5 * 60 * 1000;
 
 fn db_error(error: rusqlite::Error) -> AppError {
     AppError::new("search_database", format!("Search index error: {error}"), None)
+}
+
+/// Retries a write that lost the single SQLite writer slot. Connections already
+/// wait 8s before failing, so reaching this point means a maintenance operation
+/// held the lock longer; two extra attempts turn a transient lock into a slow
+/// success instead of a row the user never sees in search results.
+fn retry_busy<T>(mut operation: impl FnMut() -> Result<T, AppError>) -> Result<T, AppError> {
+    let mut last: Option<AppError> = None;
+    for delay in [0u64, 500, 2_000] {
+        if delay > 0 {
+            std::thread::sleep(Duration::from_millis(delay));
+        }
+        match operation() {
+            Ok(value) => return Ok(value),
+            Err(error) => {
+                let retryable =
+                    error.message.contains("locked") || error.message.contains("busy");
+                if !retryable {
+                    return Err(error);
+                }
+                last = Some(error);
+            }
+        }
+    }
+    Err(last.unwrap_or_else(|| AppError::new("search_database", "Search index is busy", None)))
 }
 
 fn current_ms() -> i64 {
@@ -173,6 +198,10 @@ impl SearchEngine {
         conn.busy_timeout(Duration::from_secs(8)).map_err(db_error)?;
         conn.pragma_update(None, "journal_mode", "WAL").ok();
         conn.pragma_update(None, "synchronous", "NORMAL").ok();
+        // Bound the write-ahead log. Bulk maintenance (VACUUM, FTS rebuild,
+        // pruning) can otherwise leave a WAL as large as the database itself.
+        conn.pragma_update(None, "journal_size_limit", 64 * 1024 * 1024)
+            .ok();
         Ok(conn)
     }
 
@@ -263,6 +292,37 @@ impl SearchEngine {
             .map_err(db_error)?;
         }
 
+        // Schema 3 makes files_fts an external-content table over `files`. The
+        // previous table stored its own copy of every extracted document, which
+        // duplicated the 1 GB of text in `files.content` and left a 1.9 GB
+        // shadow table on a 128k-row index. Rebuilding once is cheaper than
+        // carrying that copy forever.
+        if version.unwrap_or(0) < 3 {
+            conn.execute_batch(
+                r#"
+                DROP TRIGGER IF EXISTS files_ai;
+                DROP TRIGGER IF EXISTS files_ad;
+                DROP TRIGGER IF EXISTS files_au;
+                DROP TABLE IF EXISTS files_fts;
+                "#,
+            )
+            .map_err(db_error)?;
+            // The rebuilt table must be repopulated from `files`; a stale
+            // "populated" flag would leave content search silently empty.
+            conn.execute(
+                "INSERT OR REPLACE INTO meta(key, value) VALUES ('fts_populated', '0')",
+                [],
+            )
+            .ok();
+            // Dropping a 1.9 GB table leaves the pages on the freelist; ask the
+            // background maintenance pass to VACUUM once it is idle.
+            conn.execute(
+                "INSERT OR REPLACE INTO meta(key, value) VALUES ('vacuum_requested', '1')",
+                [],
+            )
+            .ok();
+        }
+
         // FTS5 is compiled into the bundled SQLite build. If a future platform
         // build omits it, searches transparently fall back to LIKE/instr scans.
         let fts_exists: Option<String> = conn
@@ -276,12 +336,24 @@ impl SearchEngine {
         if fts_exists.is_none() {
             match conn.execute_batch(
                 r#"
-                CREATE VIRTUAL TABLE files_fts USING fts5(name, content, tokenize='unicode61');
+                CREATE VIRTUAL TABLE files_fts USING fts5(
+                    name, content,
+                    content='files', content_rowid='id',
+                    tokenize='unicode61'
+                );
                 "#,
             ) {
                 Ok(()) => {
-                    conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('fts_available', '1')", [])
-                        .ok();
+                    conn.execute(
+                        "INSERT OR REPLACE INTO meta(key, value) VALUES ('fts_available', '1')",
+                        [],
+                    )
+                    .ok();
+                    conn.execute(
+                        "INSERT OR REPLACE INTO meta(key, value) VALUES ('fts_populated', '0')",
+                        [],
+                    )
+                    .ok();
                 }
                 Err(_) => {
                     conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('fts_available', '0')", [])
@@ -299,16 +371,18 @@ impl SearchEngine {
         if self.fts_available.load(Ordering::Relaxed) {
             // Keep the FTS table in sync without rewriting it manually on every
             // update. Triggers are cheap and transactional with the row write.
+            // External-content tables index `files` rather than a second copy of
+            // the text, so deletes must be reported with the old values.
             conn.execute_batch(
                 r#"
                 CREATE TRIGGER IF NOT EXISTS files_ai AFTER INSERT ON files BEGIN
                     INSERT INTO files_fts(rowid, name, content) VALUES (new.id, new.name, coalesce(new.content, ''));
                 END;
                 CREATE TRIGGER IF NOT EXISTS files_ad AFTER DELETE ON files BEGIN
-                    DELETE FROM files_fts WHERE rowid = old.id;
+                    INSERT INTO files_fts(files_fts, rowid, name, content) VALUES('delete', old.id, old.name, coalesce(old.content, ''));
                 END;
                 CREATE TRIGGER IF NOT EXISTS files_au AFTER UPDATE OF name, content ON files BEGIN
-                    DELETE FROM files_fts WHERE rowid = old.id;
+                    INSERT INTO files_fts(files_fts, rowid, name, content) VALUES('delete', old.id, old.name, coalesce(old.content, ''));
                     INSERT INTO files_fts(rowid, name, content) VALUES (new.id, new.name, coalesce(new.content, ''));
                 END;
                 "#,
@@ -319,10 +393,11 @@ impl SearchEngine {
                 .optional()
                 .map_err(db_error)?;
             if populated.as_deref() != Some("1") {
-                conn.execute("INSERT INTO files_fts(rowid, name, content) SELECT id, name, coalesce(content, '') FROM files", [])
-                    .ok();
-                conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('fts_populated', '1')", [])
-                    .ok();
+                // Rebuilding an index over ~1 GB of extracted text takes minutes.
+                // The indexer thread does it in the background, right after
+                // launch; until then content search is disabled (and falls back
+                // to a live scan) instead of silently returning nothing.
+                self.fts_available.store(false, Ordering::Relaxed);
             }
         }
 
@@ -385,6 +460,26 @@ impl SearchEngine {
                 .store(populated.as_deref() == Some("1"), Ordering::Relaxed);
         }
         Ok(())
+    }
+
+    /// True when the content index exists but has not been populated yet.
+    pub fn content_index_needs_rebuild(&self) -> bool {
+        if self.meta("fts_available").as_deref() != Some("1") {
+            // Build without FTS: there is no content index to populate.
+            return false;
+        }
+        self.meta("fts_populated").as_deref() != Some("1")
+    }
+
+    /// Rebuilds the external-content FTS index from `files`. Called once from
+    /// the indexer thread after a schema migration, never from the startup path.
+    pub fn rebuild_content_index(&self) -> Result<u64, AppError> {
+        let conn = self.write_conn()?;
+        conn.execute("INSERT INTO files_fts(files_fts) VALUES('rebuild')", [])
+            .map_err(db_error)?;
+        self.set_meta("fts_populated", "1")?;
+        self.fts_available.store(true, Ordering::Relaxed);
+        Ok(self.cached_counts().content)
     }
 
     /// Builds the trigram name index if it is missing. Called from the indexer
@@ -850,6 +945,11 @@ impl SearchEngine {
             self.set_meta("name_fts_populated", "0")?;
             self.name_index.store(false, Ordering::Relaxed);
             self.rebuild_name_index()?;
+            // The bulk delete above bypassed the FTS triggers, so the content
+            // index still references removed rows. The indexer thread rebuilds
+            // it from what remains; until then content search falls back.
+            self.set_meta("fts_populated", "0")?;
+            self.fts_available.store(false, Ordering::Relaxed);
             self.refresh_counts(true)?;
         }
         Ok(report)
@@ -881,14 +981,14 @@ impl SearchEngine {
         if self.fts_available.load(Ordering::Relaxed) {
             conn.execute_batch(
                 r#"
-                CREATE TRIGGER IF NOT EXISTS files_ai AFTER INSERT ON files BEGIN
+                CREATE TRIGGER files_ai AFTER INSERT ON files BEGIN
                     INSERT INTO files_fts(rowid, name, content) VALUES (new.id, new.name, coalesce(new.content, ''));
                 END;
-                CREATE TRIGGER IF NOT EXISTS files_ad AFTER DELETE ON files BEGIN
-                    DELETE FROM files_fts WHERE rowid = old.id;
+                CREATE TRIGGER files_ad AFTER DELETE ON files BEGIN
+                    INSERT INTO files_fts(files_fts, rowid, name, content) VALUES('delete', old.id, old.name, coalesce(old.content, ''));
                 END;
-                CREATE TRIGGER IF NOT EXISTS files_au AFTER UPDATE OF name, content ON files BEGIN
-                    DELETE FROM files_fts WHERE rowid = old.id;
+                CREATE TRIGGER files_au AFTER UPDATE OF name, content ON files BEGIN
+                    INSERT INTO files_fts(files_fts, rowid, name, content) VALUES('delete', old.id, old.name, coalesce(old.content, ''));
                     INSERT INTO files_fts(rowid, name, content) VALUES (new.id, new.name, coalesce(new.content, ''));
                 END;
                 "#,
@@ -936,6 +1036,44 @@ impl SearchEngine {
         Ok(true)
     }
 
+    /// Consumes a pending "please reclaim space" flag. The migration that drops
+    /// the old content-carrying FTS table sets it; VACUUM itself runs later, from
+    /// the idle background pass, so launch latency is unaffected.
+    pub fn take_vacuum_request(&self) -> bool {
+        let requested = self
+            .meta("vacuum_requested")
+            .and_then(|value| value.parse::<i64>().ok())
+            .unwrap_or(0);
+        if requested > 0 {
+            let _ = self.set_meta("vacuum_requested", "0");
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Flags the index for compaction by the next idle maintenance pass.
+    pub fn request_vacuum(&self) {
+        let _ = self.set_meta("vacuum_requested", "1");
+    }
+
+    /// Size of the index database including its WAL and shared-memory files.
+    pub fn database_size(&self) -> u64 {
+        db_size(&self.db_path)
+    }
+
+    /// Rewrites the database file without its freelist and dropped pages.
+    pub fn vacuum(&self) -> Result<u64, AppError> {
+        let conn = Connection::open_with_flags(&self.db_path, OpenFlags::SQLITE_OPEN_READ_WRITE)
+            .map_err(db_error)?;
+        conn.busy_timeout(Duration::from_secs(30)).map_err(db_error)?;
+        conn.execute_batch("VACUUM;").map_err(db_error)?;
+        // VACUUM writes the whole file through the WAL; without this the log is
+        // left holding a second copy of the database.
+        let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+        Ok(db_size(&self.db_path))
+    }
+
     /// Compacts the database after a large prune.
     ///
     /// Both FTS tables are rebuilt from the surviving rows rather than updated:
@@ -960,17 +1098,18 @@ impl SearchEngine {
         )
         .map_err(db_error)?;
         conn.execute_batch(
-            "CREATE VIRTUAL TABLE files_fts USING fts5(name, content, tokenize='unicode61');
-             CREATE VIRTUAL TABLE files_name_fts USING fts5(name, path, tokenize='trigram');",
+            r#"CREATE VIRTUAL TABLE files_fts USING fts5(
+                   name, content,
+                   content='files', content_rowid='id',
+                   tokenize='unicode61'
+               );
+               CREATE VIRTUAL TABLE files_name_fts USING fts5(name, path, tokenize='trigram');"#,
         )
         .map_err(db_error)?;
         {
             let tx = conn.transaction().map_err(db_error)?;
-            tx.execute(
-                "INSERT INTO files_fts(rowid, name, content) SELECT id, name, coalesce(content, '') FROM files",
-                [],
-            )
-            .map_err(db_error)?;
+            tx.execute("INSERT INTO files_fts(files_fts) VALUES('rebuild')", [])
+                .map_err(db_error)?;
             tx.execute(
                 "INSERT INTO files_name_fts(rowid, name, path) SELECT id, name, path FROM files",
                 [],
@@ -1099,6 +1238,63 @@ impl SearchEngine {
     /* Index writes                                                           */
     /* --------------------------------------------------------------------- */
 
+    /// Metadata for every row already indexed under `root`. A rescan compares
+    /// against this snapshot and writes only what actually changed, so an
+    /// unchanged tree costs reads instead of a full rewrite of every row (and,
+    /// with it, an FTS delete/insert for every file).
+    ///
+    /// Content state is part of the comparison: a file whose extraction failed
+    /// is rewritten so it re-enters the pending queue. A file that is already
+    /// pending needs no rewrite; the extractor will pick it up anyway.
+    pub fn known_entries(
+        &self,
+        root: &str,
+    ) -> Result<HashMap<String, (Option<i64>, Option<i64>, String)>, AppError> {
+        let conn = self.read_conn()?;
+        let mut statement = conn
+            .prepare("SELECT path, size, modified, content_state FROM files WHERE root = ?1")
+            .map_err(db_error)?;
+        let rows = statement
+            .query_map(params![normalized_root(root)], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    (
+                        row.get::<_, Option<i64>>(1)?,
+                        row.get::<_, Option<i64>>(2)?,
+                        row.get::<_, String>(3)?,
+                    ),
+                ))
+            })
+            .map_err(db_error)?;
+        let mut known = HashMap::new();
+        for row in rows.flatten() {
+            known.insert(row.0, row.1);
+        }
+        Ok(known)
+    }
+
+    /// Deletes a bounded list of paths that a completed scan no longer saw.
+    pub fn remove_paths(&self, paths: &[String]) -> Result<u64, AppError> {
+        if paths.is_empty() {
+            return Ok(0);
+        }
+        let mut removed = 0u64;
+        for chunk in paths.chunks(400) {
+            let mut conn = self.write_conn()?;
+            let tx = conn.transaction().map_err(db_error)?;
+            {
+                let mut statement = tx
+                    .prepare("DELETE FROM files WHERE path = ?1")
+                    .map_err(db_error)?;
+                for path in chunk {
+                    removed += statement.execute(params![path]).unwrap_or(0) as u64;
+                }
+            }
+            tx.commit().map_err(db_error)?;
+        }
+        Ok(removed)
+    }
+
     pub fn begin_scan(&self, root: &str) -> Result<i64, AppError> {
         let generation = current_ms();
         let conn = self.write_conn()?;
@@ -1119,6 +1315,15 @@ impl SearchEngine {
         if entries.is_empty() {
             return Ok(());
         }
+        retry_busy(|| self.write_batch_once(root, generation, entries))
+    }
+
+    fn write_batch_once(
+        &self,
+        root: &str,
+        generation: i64,
+        entries: &[Entry],
+    ) -> Result<(), AppError> {
         let root = normalized_root(root);
         let mut conn = self.write_conn()?;
         let tx = conn.transaction().map_err(db_error)?;
@@ -1219,16 +1424,33 @@ impl SearchEngine {
         generation: i64,
         complete: bool,
         error: Option<String>,
+        vanished: Option<&[String]>,
     ) -> Result<u64, AppError> {
         let root = normalized_root(root);
         let mut conn = self.write_conn()?;
         let tx = conn.transaction().map_err(db_error)?;
         let removed = if complete {
-            tx.execute(
-                "DELETE FROM files WHERE root = ?1 AND seen_generation <> ?2",
-                params![root, generation],
-            )
-            .unwrap_or(0) as u64
+            match vanished {
+                Some(paths) => {
+                    let mut removed = 0u64;
+                    {
+                        let mut statement = tx
+                            .prepare("DELETE FROM files WHERE path = ?1")
+                            .map_err(db_error)?;
+                        for path in paths {
+                            removed += statement.execute(params![path]).unwrap_or(0) as u64;
+                        }
+                    }
+                    removed
+                }
+                // Fallback for callers that did not compare a snapshot.
+                None => tx
+                    .execute(
+                        "DELETE FROM files WHERE root = ?1 AND seen_generation <> ?2",
+                        params![root, generation],
+                    )
+                    .unwrap_or(0) as u64,
+            }
         } else {
             0
         };
@@ -2342,6 +2564,10 @@ mod tests {
     #[test]
     fn schema_and_fts_are_available() {
         let (_directory, engine) = engine();
+        // The content index is populated by the indexer thread, not by launch.
+        assert!(engine.content_index_needs_rebuild());
+        engine.rebuild_content_index().unwrap();
+        assert!(!engine.content_index_needs_rebuild());
         assert!(engine.fts_available());
         let status = engine.status("idle", None);
         assert!(status.fts_available);
@@ -2784,7 +3010,7 @@ mod tests {
             terms: vec!["esum".into()],
             ..base_request(root)
         };
-        let (hits, total, _) =
+        let (_hits, total, _) =
             engine.search(&request, &Arc::new(AtomicBool::new(false)), 50).unwrap();
         assert_eq!(total, 2, "mid-word substring must match through trigram");
 

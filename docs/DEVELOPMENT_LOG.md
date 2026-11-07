@@ -573,3 +573,47 @@ through a persisted index, and the state releasing its file records after persis
 `npm test` **341 passed / 9 failed**, the same pre-existing `storageStore.test.ts` and
 `ThemeCreator.test.tsx` failures caused by `window.localStorage` under the node test
 environment. The temporary probes used for the two performance numbers were removed.
+
+## Phase 24 - Search index rescan loop, write amplification and index size (2026-11-07)
+
+Four defects shared one loop: every completed scan was followed by another one within a
+second, each scan rewrote every row, and the resulting lock contention made writes fail.
+
+1. **Rescan storm.** `drain_events` treated a watcher backlog over 4 000 paths by
+   back-dating `last_reconcile` by six hours, which scheduled a full scan immediately. A
+   scan takes minutes; the FSEvents backlog that accumulated while it ran was then read as
+   "the index is stale", so scan -> backlog -> scan repeated forever (8 scans in 2 hours,
+   6-19 min each). An overflow now sets a `reconcile_requested` flag, reconciles are
+   throttled to one per 20 minutes (`RECONCILE_MIN_GAP`), and the backlog collected during
+   a scan is discarded once that scan finishes. A backlog arriving while the indexer is
+   idle is dropped without scheduling anything.
+2. **Write amplification.** `write_batch` upserted every walked entry, so a rescan rewrote
+   128 k rows and fired the `AFTER UPDATE OF name, content` trigger for each one - the
+   entire content index was deleted and re-inserted per scan. `scan_entries` now loads
+   `known_entries(root)` once (size, modified, content state) and writes only rows that
+   changed; files whose extraction failed (`content_state = 'error'`) are exempt so they
+   re-enter the pending queue. `finish_scan` deletes exactly the paths present in the
+   snapshot and absent from the walk.
+3. **Transient lock failures.** `retry_busy` wraps batch writes with two backoff attempts
+   for `locked`/`busy` errors, and connections set `journal_size_limit` so bulk
+   maintenance cannot leave a WAL as large as the database.
+4. **Index size.** Schema 3 makes `files_fts` an external-content table over `files`
+   (`content='files'`, `content_rowid='id'`), removing the second copy of every extracted
+   document (1.9 GB). The migration drops the old table and defers the rebuild to the
+   indexer thread; content search falls back to a live scan until it completes. A
+   `vacuum_requested` flag is consumed by the idle maintenance pass, which VACUUMs and
+   truncates the WAL. `optimize()` and `prune()` rebuild through the same schema.
+
+The storage-scan cache had the same shape of bug: it holds one file list per volume and
+deletes the previous one on every refresh, so its 128 MB working set sat behind 3.6 GB of
+freelist. `StorageCache::store` now VACUUMs when more than half the file is free pages;
+the existing cache was compacted by hand (3.8 GB -> 309 MB).
+
+Verification on the live 128 579-row index: first launch migrated in 31 s, rebuilt the
+content index for 64 926 documents in 141 s, and compacted 7 457 MB -> 5 432 MB (2.7 GB
+after the WAL was truncated, from 7.3 GB). A forced full rescan of the home directory
+completed in **165 s with 1 421 rows written, 171 removed and no write failures**, against
+6.3-18.9 min and 9-57 failures before, and no follow-up scan was scheduled. `cargo test
+--lib` **95 passed** (new: unchanged rescan writes nothing, changed file written once,
+failed extraction retried, backlog overflow requests a reconcile, idle backlog discarded,
+schema-2 index migrated to external content); `cargo check --release` clean.

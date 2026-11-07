@@ -44,7 +44,9 @@ Three structures support queries:
 - `files` — the metadata table, with indexes on name, path, parent, root, size, kind,
   extension, modified and created.
 - `files_fts` — FTS5 (`unicode61`) over name and extracted content, used for content and
-  whole-token matching.
+  whole-token matching. Since schema 3 it is an *external-content* table over `files`
+  (`content='files'`, `content_rowid='id'`), so the extracted text is stored once, not
+  twice; the delete triggers report the old values with the FTS `delete` command.
 - `files_name_fts` — FTS5 (`trigram`) over name and path. This is what makes
   `%resume%`-style substring search cheap: a leading-wildcard `LIKE` cannot use a B-tree
   index and degrades to a full table scan, while the trigram index answers the same
@@ -75,8 +77,15 @@ pathological tree cannot own the index.
 ### Indexing
 
 - Initial scan on first launch; incremental filesystem events via `notify` (FSEvents on
-  macOS); periodic reconciliation every 6 hours.
-- Deletions are detected by generation-based reconciliation and remove-event handling.
+  macOS); periodic reconciliation every 6 hours, and a full scan never repeats within 20
+  minutes. A watcher backlog that exceeds 4 000 paths queues a reconcile instead of
+  back-dating the clock, and the backlog collected during a scan is discarded once that
+  scan completes — replaying it was what turned one scan into a chain of scans.
+- A rescan compares each entry against the row already stored (size, modified time and
+  content state) and writes only what changed, so an unchanged tree costs a walk instead
+  of rewriting every row and its FTS entry.
+- Deletions are detected by comparing the pre-scan snapshot with what the walk saw (plus
+  remove events); `finish_scan` deletes exactly those paths.
 - Symlinked directories are listed but never traversed; heavy/system directories and app
   bundles are skipped by default.
 - Content extraction runs on a separate worker, bounded to six documents per cycle. It
