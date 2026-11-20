@@ -32,7 +32,7 @@ export interface MediaCatalogResponse {
 }
 
 export const CINEMETA_ADDON_URL = "https://v3-cinemeta.strem.io";
-export const DEFAULT_STREAM_ADDON_URL = "https://torrentio.strem.io";
+export const DEFAULT_STREAM_ADDON_URL = "https://torrentio.strem.fun";
 
 export interface MediaStream {
   url?: string | null;
