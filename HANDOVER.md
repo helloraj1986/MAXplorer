@@ -25,6 +25,7 @@ item per session — never batched.**
 | 3 | `c73a1a0`, `35f05fa` | In-app playback: `PlayerOverlay` (design-matched dark HTML5 video, space/←/→/m/Esc keys, seek bar, volume, buffering spinner, error card) for direct HTTP/HLS URLs; `media_play` command detects external player (IINA > VLC > mpv > default; VLC on this machine, verified with real network stream). Rows: `▶ Play` (in-app) + `↗ External`. |
 | 4 | `dde5c1e` | Debrid integration (`src-tauri/src/debrid.rs`): Real-Debrid + TorBox APIs convert torrent info-hashes to direct stream URLs (`media_debrid_resolve`), config persisted in app data `debrid-config.json` (`save/get/test_key` commands). Torrent rows show `▶ Stream` button. |
 | 4b | `torrent.rs` | Embedded **librqbit** torrent engine (`media_torrent_start`/`media_torrent_status`) + librqbit's built-in HTTP stream server on `127.0.0.1:18081`. `▶ Stream` works with **no debrid key**; range/seek verified live with Sintel. |
+| 4c | `mpv.rs`, `player.rs` | Native **libmpv** playback embedded into the app window (NSView + mpv `wid`), replacing the HTML5 `<video>`. Plays MKV/HEVC/AC3/DTS — what the webview refused. Needs mpv **master** (`brew install mpv --HEAD`); `media_player_diagnostics` reports support. |
 
 ### ⚠️ CRITICAL USER FEEDBACK (why the next session exists)
 

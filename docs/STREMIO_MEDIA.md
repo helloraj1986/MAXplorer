@@ -36,6 +36,28 @@
   honours only the open-ended `bytes=N-` Range form (closed `bytes=0-1023` is
   ignored) — the form media elements use to seek.
 
+### Phase 4c — Native playback engine (libmpv), "runs every file"
+- `src-tauri/src/mpv.rs` (dlopen'd libmpv FFI) + `src-tauri/src/player.rs` (NSView
+  embedding, commands, event loop). Video is rendered by **libmpv into an NSView**
+  added to the Tauri window's content view, addressed via mpv's `wid` option — so
+  playback is no longer bounded by what WKWebView can decode.
+- Why it was needed: the HTML5 `<video>` cannot open **MKV** containers and ships
+  no **AC3/E-AC3/DTS/TrueHD** decoders, which is exactly what torrent releases
+  use. Verified live: a generated MKV/H.264/AC3 fixture decodes in libmpv
+  (`video=h264 audio=ac3`).
+- ⚠️ **Requires an mpv build with the macOS `wid`/NSView path (mpv master).** The
+  Homebrew **0.42.0 release does not have it**; install with
+  `brew install mpv --HEAD` (or point `MAXPLORER_LIBMPV` at a suitable dylib).
+  `media_player_diagnostics` probes `wid` on a throwaway handle and reports
+  `embeddingSupported`, so a missing capability is diagnosable rather than silent.
+- Commands: `media_player_open/close/set_rect/set_pause/seek/seek_relative/
+  set_volume/set_muted/status/diagnostics`; state is pushed to the UI on the
+  `media-player://state` event. The UI reports the stage rect, which the backend
+  converts from top-left CSS points to a bottom-left NSView frame.
+- All of it logs under the `media.player` target (engine load path/version,
+  option and command result codes, mpv's own log stream, end-file reason/error),
+  so a future playback failure is root-causable from `maxplorer.log` alone.
+
 ## ROADMAP (ordered)
 
 1. **Phase 5 — Addon manager UI** — install/remove by manifest URL, pinned-addons rail (from the mock), addon config pages in an iframe/webview tab.
