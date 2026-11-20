@@ -39,6 +39,8 @@ import type {
 import type {
   MediaCatalogResponse,
   MediaManifest,
+  NativePlayerDiagnostics,
+  NativePlayerStatus,
   StreamsResponse,
 } from "../components/media/types";
 import type {
@@ -104,6 +106,26 @@ export const api = {
   getMediaStreams: (url: string, type: string, id: string) =>
     call<StreamsResponse>("media_streams", { url, type, id }),
   playMediaStream: (url: string) => call<{ player: string }>("media_play", { url }),
+  // Native playback engine (libmpv). The video surface is an NSView the backend
+  // places over the rect the UI reports, so playback is not limited by what the
+  // webview can decode (MKV/AC3/DTS all work).
+  playerOpen: (
+    url: string,
+    title: string,
+    rect: { x: number; y: number; width: number; height: number },
+  ) => call<NativePlayerStatus>("media_player_open", { url, title, ...rect }),
+  playerClose: () => call<void>("media_player_close"),
+  playerSetRect: (rect: { x: number; y: number; width: number; height: number }) =>
+    call<void>("media_player_set_rect", { ...rect }),
+  playerSetPause: (paused: boolean) => call<NativePlayerStatus>("media_player_set_pause", { paused }),
+  playerSeek: (seconds: number) => call<NativePlayerStatus>("media_player_seek", { seconds }),
+  playerSeekRelative: (delta: number) =>
+    call<NativePlayerStatus>("media_player_seek_relative", { delta }),
+  playerSetVolume: (volume: number) =>
+    call<NativePlayerStatus>("media_player_set_volume", { volume }),
+  playerSetMuted: (muted: boolean) => call<NativePlayerStatus>("media_player_set_muted", { muted }),
+  playerStatus: () => call<NativePlayerStatus>("media_player_status"),
+  playerDiagnostics: () => call<NativePlayerDiagnostics>("media_player_diagnostics"),
   startTorrent: (infoHash: string) =>
       call<{ baseUrl: string }>("media_torrent_start", { infoHash }),
     torrentStatus: (infoHash: string, baseUrl: string) =>

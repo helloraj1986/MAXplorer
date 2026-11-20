@@ -1,11 +1,14 @@
 import { create } from "zustand";
 import { api, normalizeError } from "../lib/api";
+import { logDiagnostic } from "../lib/diagnostics";
 import {
   CINEMETA_ADDON_URL,
   DEFAULT_MEDIA_CATALOGS,
   DEFAULT_STREAM_ADDON_URL,
   type MediaCatalogMeta,
   type MediaManifest,
+  type NativePlayerDiagnostics,
+  type NativePlayerStatus,
 } from "../components/media/types";
 import { rankStreams } from "../components/media/streams";
 import type { RankedStream } from "../components/media/types";
@@ -31,8 +34,12 @@ export interface MediaState {
   streams: RankedStream[];
   streamsLoading: boolean;
   streamsError: string | null;
-  /** Phase 3: in-app player source. */
+  /** Phase 3/4c: in-app player source (native libmpv surface). */
   playerSource: { url: string; title: string } | null;
+  /** Live state reported by the libmpv engine. */
+  playerStatus: NativePlayerStatus | null;
+  /** Whether the native engine is usable on this machine. */
+  playerDiagnostics: NativePlayerDiagnostics | null;
   /** Phase 4b: torrent engine flow for the selected torrent stream. */
   engine: {
     infoHash: string;
@@ -54,6 +61,8 @@ export interface MediaState {
   loadStreams: (meta: MediaCatalogMeta) => Promise<void>;
   openPlayer: (url: string, title: string) => void;
   closePlayer: () => void;
+  setPlayerStatus: (status: NativePlayerStatus | null) => void;
+  loadPlayerDiagnostics: () => Promise<void>;
   streamTorrent: (infoHash: string, title: string) => Promise<void>;
   loadDebridConfig: () => Promise<void>;
   saveDebridConfig: (config: { provider: "realdebrid" | "torbox"; apiKey: string }) => Promise<void>;
@@ -78,6 +87,8 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   streamsLoading: false,
   streamsError: null,
   playerSource: null,
+  playerStatus: null,
+  playerDiagnostics: null,
   debridConfig: null,
   engine: null,
 
@@ -87,6 +98,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
       await get().loadManifest();
     }
     void get().loadDebridConfig();
+    void get().loadPlayerDiagnostics();
   },
 
   closeWorkspace() {
@@ -163,11 +175,33 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   },
 
   openPlayer(url, title) {
-    set({ playerSource: { url, title } });
+    set({ playerSource: { url, title }, playerStatus: null });
   },
 
   closePlayer() {
-    set({ playerSource: null });
+    set({ playerSource: null, playerStatus: null });
+    void api.playerClose().catch((error) => {
+      logDiagnostic("warn", `closing the player failed: ${String(error)}`, "media.player");
+    });
+  },
+
+  setPlayerStatus(status) {
+    set({ playerStatus: status });
+  },
+
+  async loadPlayerDiagnostics() {
+    try {
+      const diagnostics = await api.playerDiagnostics();
+      set({ playerDiagnostics: diagnostics });
+      logDiagnostic(
+        diagnostics.available && diagnostics.embeddingSupported ? "info" : "warn",
+        `native player: libmpv=${diagnostics.apiVersion ?? "none"} embedding=${diagnostics.embeddingSupported} — ${diagnostics.detail}`,
+        "media.player",
+      );
+    } catch (error) {
+      logDiagnostic("warn", `player diagnostics failed: ${String(error)}`, "media.player");
+      set({ playerDiagnostics: null });
+    }
   },
 
   async streamTorrent(infoHash, title) {

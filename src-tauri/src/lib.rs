@@ -6,10 +6,12 @@ mod listing;
 mod logging;
 mod media;
 mod metadata;
+mod mpv;
 mod network_discovery;
 mod network_mount;
 mod operations;
 mod paths;
+mod player;
 mod preview;
 pub mod search;
 mod storage;
@@ -184,6 +186,16 @@ pub fn run() {
             debrid::media_debrid_test_key,
             torrent::media_torrent_start,
             torrent::media_torrent_status,
+            player::media_player_open,
+            player::media_player_close,
+            player::media_player_set_rect,
+            player::media_player_set_pause,
+            player::media_player_seek,
+            player::media_player_seek_relative,
+            player::media_player_set_volume,
+            player::media_player_set_muted,
+            player::media_player_status,
+            player::media_player_diagnostics,
             commands::get_sidebar_locations,
             commands::eject_volume,
             commands::connect_network_location,

@@ -60,6 +60,30 @@ export interface RankedStream {
   flags: { text: string; tone: "good" | "warn" | "plain" }[];
 }
 
+/** Native (libmpv) player state pushed from the backend. */
+export interface NativePlayerStatus {
+  loaded: boolean;
+  paused: boolean;
+  eof: boolean;
+  idle: boolean;
+  position: number;
+  duration: number;
+  volume: number;
+  muted: boolean;
+  title: string | null;
+  videoFormat: string | null;
+  error: string | null;
+}
+
+/** Whether the in-app player can run, and whether it can embed video. */
+export interface NativePlayerDiagnostics {
+  available: boolean;
+  libraryPath: string | null;
+  apiVersion: string | null;
+  embeddingSupported: boolean;
+  detail: string;
+}
+
 export const DEFAULT_MEDIA_CATALOGS: { type: string; id: string; name: string }[] = [
   { type: "movie", id: "top", name: "Trending movies" },
   { type: "series", id: "top", name: "Popular series" },

@@ -68,7 +68,8 @@ describe("MediaWorkspace", () => {
     render(<MediaWorkspace />);
     expect(screen.getByRole("heading", { name: "Trending movies" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Popular series" })).toBeTruthy();
-    expect(screen.getByText("Thor: Love and Thunder")).toBeTruthy();
+    // The title appears in both the hero and its poster card, by design.
+    expect(screen.getAllByText("Thor: Love and Thunder").length).toBeGreaterThan(0);
     expect((screen.getByAltText("") as HTMLImageElement).src).toContain("metahub");
     expect(screen.getByText("2022 · ★ 6.2")).toBeTruthy();
   });

@@ -93,7 +93,7 @@ describe("MediaWorkspace streams sheet", () => {
     expect(screen.getByRole("button", { name: /Stream .* over torrent engine/ })).toBeTruthy();
   });
 
-  it("opens the in-app player overlay and closes it", () => {
+  it("opens the native player overlay and closes it", () => {
     useMediaStore.setState({
       selected: { id: "tt123", name: "Test Movie", type: "movie" },
       streams: rankStreams([
@@ -106,9 +106,11 @@ describe("MediaWorkspace streams sheet", () => {
     render(<MediaWorkspace />);
     fireEvent.click(screen.getByRole("button", { name: /Play .* in the app/ }));
     const dialog = screen.getByRole("dialog", { name: /Playing Debrid/ });
-    const video = dialog.querySelector("video");
-    expect(video).toBeTruthy();
-    expect((video as HTMLVideoElement).src).toContain("example.com");
+    // Playback is a native libmpv surface the backend composites over the stage
+    // (it plays MKV/AC3/DTS, which an HTML5 <video> cannot), so the shell must
+    // expose a measurable stage rather than a <video> element.
+    expect(dialog.querySelector(".media-player-stage")).toBeTruthy();
+    expect(useMediaStore.getState().playerSource?.url).toBe("https://example.com/d/x");
     fireEvent.click(screen.getByRole("button", { name: "Close player" }));
     expect(screen.queryByRole("dialog")).toBeNull();
   });
