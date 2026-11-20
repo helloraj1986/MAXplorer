@@ -63,7 +63,7 @@ pub struct CatalogMeta {
     pub imdb_rating: Option<String>,
 }
 
-fn client() -> Result<reqwest::Client, crate::error::AppError> {
+pub(crate) fn client() -> Result<reqwest::Client, crate::error::AppError> {
     reqwest::Client::builder()
         .user_agent(DEFAULT_USER_AGENT)
         .timeout(std::time::Duration::from_secs(15))
