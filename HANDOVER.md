@@ -85,6 +85,16 @@ and gets `HTTP 206 Partial Content`, `Content-Range: bytes 5000000-129241751/129
 - `fireEvent.click` required in tests — plain `.click()` does not trigger React synthetic
   events reliably here.
 
+### UI redesign (Stremio-parity) — READ BEFORE ANY MEDIA UI WORK
+
+The media workspace + player are being redesigned to match Stremio's desktop UI
+(user-supplied 3440x1410 screenshots). The complete implementable spec — tokens,
+layout, three screens, component/file inventory, data mapping, keyboard + a11y
+rules, and six work packages — is **`docs/MEDIA_UI_SPEC.md`**. Reference images
+(not in git) live in `~/hermes-workspace/maxplorer-media/ui-reference/`.
+It supersedes `Maxplorer Media UI Concept.html` for the media area only; the
+file-explorer chrome is out of scope. Implement it WP by WP, one per session.
+
 ### Remaining media roadmap (one per session)
 
 5. Addon manager UI (install/remove by manifest URL, pinned-addons rail)
