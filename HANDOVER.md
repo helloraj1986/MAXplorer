@@ -24,38 +24,46 @@ item per session — never batched.**
 | 2 | `7f388d3`, `e8882d4`, `41b4139` | `media_streams` command + ranked streams sheet. Click a poster → ranked rows (quality → direct/debrid → size), HDR/4K flags, size parsed from release titles. **Torrentio moved to `torrentio.strem.fun`** (`.strem.io` no longer resolves) — fixed mid-phase. |
 | 3 | `c73a1a0`, `35f05fa` | In-app playback: `PlayerOverlay` (design-matched dark HTML5 video, space/←/→/m/Esc keys, seek bar, volume, buffering spinner, error card) for direct HTTP/HLS URLs; `media_play` command detects external player (IINA > VLC > mpv > default; VLC on this machine, verified with real network stream). Rows: `▶ Play` (in-app) + `↗ External`. |
 | 4 | `dde5c1e` | Debrid integration (`src-tauri/src/debrid.rs`): Real-Debrid + TorBox APIs convert torrent info-hashes to direct stream URLs (`media_debrid_resolve`), config persisted in app data `debrid-config.json` (`save/get/test_key` commands). Torrent rows show `▶ Stream` button. |
+| 4b | `torrent.rs` | Embedded **librqbit** torrent engine (`media_torrent_start`/`media_torrent_status`) + librqbit's built-in HTTP stream server on `127.0.0.1:18081`. `▶ Stream` works with **no debrid key**; range/seek verified live with Sintel. |
 
 ### ⚠️ CRITICAL USER FEEDBACK (why the next session exists)
 
 **Debrid must be OPTIONAL.** The user rejected "Stream requires a paid debrid key".
-Torrentio without a key returns only torrent hashes, so `▶ Stream` currently does nothing
-without debrid configured. The embedded torrent engine is the missing free path.
+Torrentio without a key returns only torrent hashes, so `▶ Stream` used to do nothing
+without debrid configured. **Phase 4b fixed this**: the embedded librqbit engine is the
+missing free path, and debrid is now a per-row accelerator, never a requirement.
 
-### Phase 4b — torrent engine (NEXT SESSION, already half-learned)
+### Phase 4b — torrent engine (DONE)
 
-**Abandoned attempt is deleted** (`src-tauri/src/torrent.rs` removed at `bdb52d0`) — it
-guessed the librqbit API and hit 14 compile errors. The real librqbit 8.1.1 API was then
-read from the vendored source (`~/.cargo/registry/.../librqbit-8.1.1/`); use these facts:
+`src-tauri/src/torrent.rs` embeds **librqbit 8.1.1** and runs librqbit's **built-in
+`HttpApi`** server on `127.0.0.1:18081` (started lazily on first use). `▶ Stream` on
+a torrent row now resolves to a local, seekable URL with **no debrid key** — the
+free path the user demanded. Debrid stays a per-row accelerator.
 
-- `TorrentIdOrHash` = `{ Id(TorrentId), Hash(Id20) }` — **use `TorrentIdOrHash::parse(&str)`**,
-  it handles 40-char hex hashes directly. There is NO `InfoHash` variant.
-- `Api::api_torrent_list() -> TorrentListResponse`, `api_torrent_details(...) -> Result<TorrentDetailsResponse>`,
-  `api_stream(...) -> Result<FileStream>` — all **synchronous** (no `.await`) in 8.1.1.
-- `Api::api_add_torrent(AddTorrent, Option<AddTorrentOptions>)` **is** async.
-- `TorrentDetailsResponse.files` = `Vec<TorrentDetailsResponseFile { name: String, length: u64, included: bool, .. }>` (no idx field; index = position).
-- **`librqbit::http_api::HttpApi::new(api, Some(HttpApiOptions { read_only: false, basic_auth: None }))`
-  + `make_http_api_and_run(listener, None)`** runs the FULL built-in server on any
-  `TcpListener`, including `GET /torrents/{id_or_infohash}/stream/{file_idx}` with
-  **Range/seek support** — do NOT hand-roll the axum streaming router.
-- `Session::new_with_opts(dir, SessionOptions { .. })` async; `AddTorrent::from_url(magnet)`;
-  magnet needs tracker list (`&tr=` URL-encoded) since Torrentio gives bare hashes.
-- FileStream: `len() -> u64` (line ~387 of streaming.rs) if a custom player fallback is needed.
+API facts that were re-confirmed against the vendored 8.1.1 source:
 
-Flow to implement: command `media_torrent_start(hash)` → start session+HttpApi on
-127.0.0.1:18081, add magnet; frontend polls `GET /torrents/{hash}` for files; pick largest
-file; open PlayerOverlay on `http://127.0.0.1:18081/torrents/{hash}/stream/{idx}`.
-Live-verify with the webtorrent Big Buck Bunny / Sintel hashes (DHT-seeded, legal).
-Debrid then becomes an accelerator chosen per-row, not a requirement.
+- `TorrentIdOrHash::parse(&str)` handles 40-char hex; there is NO `InfoHash` variant.
+- `Api::api_torrent_list/api_torrent_details/api_stats_v1` are **synchronous**;
+  `api_add_torrent` is async. `Api::new(session, rust_log_tx, line_broadcast)` takes
+  **three** args once librqbit's `tracing-subscriber-utils` feature is on (see below).
+- `TorrentDetailsResponse.files = Option<Vec<TorrentDetailsResponseFile { name, length, .. }>>`
+  (index = position, `None` until metadata resolves).
+- **Feature set matters:** `http-api` pulls in handlers that call the
+  `tracing-subscriber-utils`-gated `api_log_lines_stream`, so librqbit must be pulled
+  with `default-features = false, features = ["rust-tls", "http-api",
+  "tracing-subscriber-utils"]` — without the last one librqbit itself fails to build
+  (`no method api_log_lines_stream`).
+- `HttpApi::new(api, Some(HttpApiOptions { read_only: false, basic_auth: None }))`
+  + `make_http_api_and_run(listener, None)` gives the full server, including
+  `GET /torrents/{id_or_hash}/stream/{file_idx}`. **Range caveat:** it honours only
+  the open-ended `bytes=N-` form; a closed `bytes=0-1023` is ignored and returns 200 +
+  the full body. Open-ended is what media elements send to seek, so playback/seeking
+  works; don't "fix" a closed-range 200 as a bug.
+
+Verified live from the Rust test harness (no UI needed):
+`cargo test --lib live_engine -- --ignored --nocapture` boots a real session, adds
+webtorrent **Sintel** (`08ada5a7a6183aae1e09d831df6748d566095a10`), waits for metadata,
+and gets `HTTP 206 Partial Content`, `Content-Range: bytes 5000000-129241751/129241752`.
 
 ### Build & environment quirks learned
 
