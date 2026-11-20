@@ -50,12 +50,12 @@ export function MediaWorkspace() {
   }, [rows]);
 
   const itemCount = rows.reduce((total, row) => total + row.metas.length, 0);
-  const engineOk = Boolean(diagnostics?.ffmpeg);
+  const engineOk = Boolean(diagnostics?.available && diagnostics?.embeddingSupported);
   const engineLabel = !diagnostics
     ? "engine: checking…"
     : engineOk
-      ? "engine: ffmpeg ready"
-      : "engine: ffmpeg missing";
+      ? `engine: libmpv ${diagnostics.apiVersion ?? ""}`.trim()
+      : "engine: unavailable";
 
   return (
     <section className="media-workspace" aria-label="Media">
@@ -170,7 +170,7 @@ export function MediaWorkspace() {
 
           {diagnostics && !engineOk ? (
             <div className="media-error media-error-inline" role="status">
-              <p>In-app playback needs ffmpeg to prepare streams — it wasn't found.</p>
+              <p>In-app playback is unavailable — files the webview cannot decode won't play.</p>
               <p className="media-error-detail">{diagnostics.detail}</p>
             </div>
           ) : null}

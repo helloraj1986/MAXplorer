@@ -60,20 +60,27 @@ export interface RankedStream {
   flags: { text: string; tone: "good" | "warn" | "plain" }[];
 }
 
-/** A stream ffmpeg has prepared for the `<video>` element. */
-export interface PreparedStream {
-  streamUrl: string;
-  title: string;
-  videoMode: string;
-  videoCodec: string;
-  audioNote: string;
+/** Native (libmpv) player state pushed from the backend. */
+export interface NativePlayerStatus {
+  loaded: boolean;
+  paused: boolean;
+  eof: boolean;
+  idle: boolean;
+  position: number;
+  duration: number;
+  volume: number;
+  muted: boolean;
+  title: string | null;
+  videoFormat: string | null;
+  error: string | null;
 }
 
-/** Whether in-app playback can run on this machine. */
+/** Whether the in-app player can run, and whether it can embed video. */
 export interface NativePlayerDiagnostics {
-  ffmpeg: string | null;
-  ffprobe: string | null;
-  serverPort: number;
+  available: boolean;
+  libraryPath: string | null;
+  apiVersion: string | null;
+  embeddingSupported: boolean;
   detail: string;
 }
 
