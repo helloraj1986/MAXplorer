@@ -7,7 +7,7 @@
 | Project version | 0.2.1 (aarch64 DMG) + media feature on `feature/stremio-compat` |
 | Repository | https://github.com/helloraj1986/MAXplorer (private) |
 | Release | https://github.com/helloraj1986/MAXplorer/releases/latest |
-| Current branch | `feature/media-ui-wp1` (branched from `feature/stremio-compat`) — read the head with `git log --oneline -1` (a fixed SHA here goes stale the moment anything is committed). Last installable build: 2026-11-21, installed at `/Applications/MAXplorer.app`. **`feature/stremio-compat` is not yet on origin** (`git push origin feature/stremio-compat`). |
+| Current branch | `feature/media-ui-wp2` (branched from `feature/media-ui-wp1`) — read the head with `git log --oneline -1` (a fixed SHA here goes stale the moment anything is committed). Last installable build: 2026-11-21, installed at `/Applications/MAXplorer.app`. **`feature/stremio-compat`, `feature/media-ui-wp1` and `feature/media-ui-wp2` are not yet on origin** (`git push origin <branch>`). |
 
 ---
 
@@ -22,26 +22,24 @@ item per session — never batched.**
 >    the media workspace + player, derived from the user's screenshots: tokens,
 >    three screens, component/file inventory, data mapping, keyboard/a11y rules and
 >    six work packages (WP1 tokens+shell → WP6 polish). **Implement one WP per
->    session; WP1 is next.** Reference images (not in git):
+>    session; WP1 and WP2 are done, WP3 is next.** Reference images (not in git):
 >    `~/hermes-workspace/maxplorer-media/ui-reference/`.
 > 2. **`docs/MEDIA_PLAYER_HANDOVER.md`** — the player internals: what works, the
 >    three architectures already ruled out **with evidence**, and the as-built
 >    record of the libmpv render API. Read before touching playback.
 >
-> **WP1 is DONE** (tokens + shell: `media-tokens.css`, `MediaShell`,
-> `MediaRail`, `MediaTopBar`, `icons.tsx`; details in `docs/MEDIA_UI_SPEC.md`
-> §10 "WP1 as built"). Gates green: `npx tsc --noEmit`; vitest
-> `src/components/media` → 21 passed.
+> **WP1 (tokens + shell) and WP2 (the board) are DONE** — components and the
+> as-built notes are in `docs/MEDIA_UI_SPEC.md` §10. Gates green: `npx tsc
+> --noEmit`; vitest `src/components/media` → 49 passed.
 >
-> **Next session (exactly one item):** **WP2** of `docs/MEDIA_UI_SPEC.md` —
-> board: `MediaHero`, `MediaCarousel`, `MediaPosterCard` (0.7 posters, hover play
-> overlay, progress stub, loading/error states). That work also moves the board's
-> remaining orange styling in `media.css` onto the `--m-*` tokens, and lets the
-> hero bleed under the floating top bar (`.media-main`'s
-> `padding-top: calc(var(--m-topbar-h) + 16px)` currently clears it). Gate:
-> `npx tsc --noEmit && npx vitest run src/components/media`, then hand the built
-> `.app` to the user for a screenshot check against `crop-hero.png` /
-> `crop-card.png`.
+> **Next session (exactly one item):** **WP3** of `docs/MEDIA_UI_SPEC.md` —
+> detail + `StreamsPanel` + the 7-line `StreamRow`: extract `MediaDetail` from
+> `MediaWorkspace`, replace the carried-over slide-over panel (still on the old
+> palette), render quality/codec/bitrate/language lines from `streams.ts`
+> (bitrate + language regexes are **new**), client-side filter, and the in-row
+> engine states. Gate: `npx tsc --noEmit && npx vitest run src/components/media`,
+> then hand the built `.app` to the user for a screenshot check against
+> `crop-streams-panel.png` / `crop-stream-row.png`.
 
 ### What exists (all verified live in the installed app)
 
@@ -56,6 +54,7 @@ item per session — never batched.**
 | 4d | `render.rs` (new), `player.rs`, `PlayerOverlay.tsx` | **Video now renders inside the app window** via the libmpv **render API** (`MPV_RENDER_API_TYPE_SW` → CGImage on the NSView layer). No second window, no `wid`. Buffering pill (cache % + MB/s) + buffered span on the seek bar. Headless proof: `cargo test --lib live_sw_render_paints_pixels -- --ignored --nocapture` → `non_black_pixels=67769/76800`. |
 | 4e | `torrent.rs`, `player.rs`, `PlayerOverlay.tsx` | **Blank-player fixes + live stats.** The stream URL is now Range-probed before it reaches mpv (librqbit answered HTTP 500 while a torrent was still setting up, and mpv's own "couldn't resolve" retry made it look random). The native surface starts hidden and is revealed on `file-loaded`, so the spinner/error card is never covered by a black rectangle. Header shows `↓ speed · Ns buffered · N peers`; stream rows show speed + peers while resolving; `framedrop=vo` keeps A/V in sync on a slow SW render; render fps is logged every 5 s. |
 | UI WP1 | (this branch) | Media app shell per `docs/MEDIA_UI_SPEC.md` §1–2: `media-tokens.css` (violet `#7051F3` token set scoped to `.media-app`), `MediaShell`/`MediaRail`/`MediaTopBar`/`icons.tsx`; the old title bar and 216 px side nav are gone, the status strip moved into the board, and the store gained `screen` + `searchQuery`. |
+| UI WP2 | `feature/media-ui-wp2` | The board per §3: `MediaHero` (full-bleed Cinemeta art upgraded to the `large` metahub variant, logo art with text fallback, meta line + gold IMDb pill, 2-line synopsis, accent Watch pill + library/episodes circles), `MediaCarousel` + `MediaPosterCard` (0.7 posters, in-art progress, NEW badges, snap scroll with edge fade, hover play overlay, skeletons, per-row Retry), a 57 %-height hero that bleeds under the floating top bar, Continue watching first from the progress stub store, the pinned-addons panel folded into quiet footer chips, and `media.rs` now passing `genres`/`runtime`/`cast`/`director`/`released` through `CatalogMeta`. |
 
 ### ⚠️ CRITICAL USER FEEDBACK (why the next session exists)
 

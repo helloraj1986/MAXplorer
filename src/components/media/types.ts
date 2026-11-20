@@ -25,6 +25,24 @@ export interface MediaCatalogMeta {
   description?: string | null;
   releaseInfo?: string | null;
   imdbRating?: string | null;
+  /** Cinemeta ships these in catalog responses too (spec §7). */
+  genres?: string[] | null;
+  cast?: string[] | null;
+  director?: string[] | null;
+  /** e.g. `173 min` — the board renders `2h53min`. */
+  runtime?: string | null;
+  /** ISO date; drives the card's `NEW` badge. */
+  released?: string | null;
+}
+
+/** In-memory watch progress (WP2 stub store; WP5 persists it to library.json). */
+export interface WatchProgress {
+  position: number;
+  duration: number;
+  /** Epoch millis of the last update — Continue watching sorts on it. */
+  updatedAt: number;
+  season?: number;
+  episode?: number;
 }
 
 export interface MediaCatalogResponse {

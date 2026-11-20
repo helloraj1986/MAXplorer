@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Compass,
   Download,
+  Film,
   Gauge,
   Home,
   Languages,
@@ -56,6 +57,7 @@ export type MediaIconName =
   | "chevron-right"
   | "chevron-down"
   | "check"
+  | "episodes"
   // player + stream rows
   | "play"
   | "pause"
@@ -96,6 +98,7 @@ const GLYPHS: Record<MediaIconName, (props: GlyphProps) => ReactElement> = {
   "chevron-right": (p) => <ChevronRight {...p} />,
   "chevron-down": (p) => <ChevronDown {...p} />,
   check: (p) => <Check {...p} />,
+  episodes: (p) => <Film {...p} />,
   play: (p) => <Play {...p} />,
   pause: (p) => <Pause {...p} />,
   prev: (p) => <SkipBack {...p} />,

@@ -25,9 +25,17 @@ export function PlayerOverlay() {
   const refreshEngineStats = useMediaStore((state) => state.refreshEngineStats);
   const closePlayer = useMediaStore((state) => state.closePlayer);
   const setPlayerStatus = useMediaStore((state) => state.setPlayerStatus);
+  const recordProgress = useMediaStore((state) => state.recordProgress);
 
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Watch progress (docs/MEDIA_UI_SPEC.md §3.2): mpv reports the real position,
+  // so Continue watching is fed from actual playback. WP2 keeps it in memory;
+  // WP5 throttles the same numbers into `library.json`.
+  const lastWriteRef = useRef(0);
+  const latestRef = useRef<{ position: number; duration: number } | null>(null);
+  const metaId = playerSource?.metaId;
 
   const status: NativePlayerStatus | null = playerStatus;
   const position = status?.position ?? 0;
@@ -108,6 +116,31 @@ export function PlayerOverlay() {
       unlisten?.();
     };
   }, [playerSource, setPlayerStatus]);
+
+  // Watch progress: write the position on the first report and then every 5 s
+  // while the file plays, plus a final write when the player closes, so a short
+  // viewing still lands in Continue watching.
+  useEffect(() => {
+    if (!metaId || !status || status.duration <= 0) return;
+    latestRef.current = { position: status.position, duration: status.duration };
+    const now = Date.now();
+    if (status.position <= 0) return;
+    if (now - lastWriteRef.current < 5000) return;
+    lastWriteRef.current = now;
+    recordProgress(metaId, status.position, status.duration);
+  }, [metaId, status?.position, status?.duration, recordProgress, status]);
+
+  // The last known position of the title that just closed.
+  useEffect(() => {
+    const id = metaId;
+    if (!id) return;
+    return () => {
+      const latest = latestRef.current;
+      if (latest) recordProgress(id, latest.position, latest.duration);
+      latestRef.current = null;
+      lastWriteRef.current = 0;
+    };
+  }, [metaId, recordProgress]);
 
   // Torrent swarm stats (speed / peers) while a torrent-backed stream plays.
   useEffect(() => {

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Icon } from "../Icon";
 import { api, normalizeError } from "../../lib/api";
 import { logDiagnostic } from "../../lib/diagnostics";
 import { useExplorerStore } from "../../state/explorerStore";
@@ -7,15 +6,27 @@ import { useMediaStore } from "../../state/mediaStore";
 import { streamRowLabel } from "./streams";
 import { PlayerOverlay } from "./PlayerOverlay";
 import { MediaShell } from "./MediaShell";
-import { DEFAULT_MEDIA_CATALOGS, type MediaCatalogMeta, type RankedStream } from "./types";
+import { MediaHero } from "./MediaHero";
+import { MediaCarousel } from "./MediaCarousel";
+import { allMetas, continueWatching } from "./board";
+import { MediaIcon } from "./icons";
+import {
+  CINEMETA_ADDON_URL,
+  DEFAULT_MEDIA_CATALOGS,
+  DEFAULT_STREAM_ADDON_URL,
+  type MediaCatalogMeta,
+  type RankedStream,
+} from "./types";
 
 /**
- * Media workspace — the board content (hero, addon rail, poster rows) plus the
- * streams panel and the native player.
+ * Media workspace — the board (hero + poster rows) plus the streams panel and
+ * the native player.
  *
  * Chrome comes from `MediaShell` (rail + top bar, docs/MEDIA_UI_SPEC.md §2);
- * this component is the content slot. The board itself is restyled in WP2 —
- * today's hero/rows are carried over unchanged.
+ * this component is the content slot, implemented to spec §3 (WP2): a full-bleed
+ * hero that bleeds under the floating top bar, `MediaCarousel` rows of
+ * `MediaPosterCard`s, and Continue watching first, fed by the progress stub
+ * store. The detail screen is still a slide-over until WP3 extracts it.
  *
  * Playback is handled by the native libmpv engine (see `PlayerOverlay`), so
  * torrent rows play the MKV/AC3/DTS releases the webview cannot decode.
@@ -34,6 +45,9 @@ export function MediaWorkspace() {
   const clearSelection = useMediaStore((state) => state.clearSelection);
   const debridConfig = useMediaStore((state) => state.debridConfig);
   const diagnostics = useMediaStore((state) => state.playerDiagnostics);
+  const watchProgress = useMediaStore((state) => state.watchProgress);
+  const searchQuery = useMediaStore((state) => state.searchQuery);
+  const toast = useExplorerStore((state) => state.toast);
 
   const rows = useMemo(() => {
     const wanted = DEFAULT_MEDIA_CATALOGS.map((entry) => `${entry.type}:${entry.id}`);
@@ -42,6 +56,8 @@ export function MediaWorkspace() {
       .map((key) => live.find((catalog) => `${catalog.type}:${catalog.id}` === key))
       .filter((catalog) => catalog !== undefined);
   }, [catalogs]);
+
+  const metas = useMemo(() => allMetas(rows), [rows]);
 
   // Hero item: the first poster-bearing meta across the loaded rows.
   const featured = useMemo(() => {
@@ -52,6 +68,19 @@ export function MediaWorkspace() {
     return null;
   }, [rows]);
 
+  // Continue watching comes first (spec §3.2), most recent first, and is hidden
+  // while it is empty.
+  const continueItems = useMemo(
+    () => continueWatching(metas, watchProgress),
+    [metas, watchProgress],
+  );
+
+  const query = searchQuery.trim().toLowerCase();
+  const matches = useMemo(
+    () => (query ? metas.filter((meta) => (meta.name ?? meta.id).toLowerCase().includes(query)) : []),
+    [query, metas],
+  );
+
   const engineOk = Boolean(diagnostics?.available && diagnostics?.embeddingSupported);
   const engineLabel = !diagnostics
     ? "engine: checking…"
@@ -59,164 +88,115 @@ export function MediaWorkspace() {
       ? `engine: libmpv ${diagnostics.apiVersion ?? ""}`.trim()
       : "engine: unavailable";
 
+  const retryAll = () => {
+    for (const catalog of DEFAULT_MEDIA_CATALOGS) {
+      void loadCatalog(catalog.type, catalog.id, catalog.name);
+    }
+  };
+
+  const streamAddonHost = hostOf(DEFAULT_STREAM_ADDON_URL);
+
   return (
     <MediaShell>
       <PlayerOverlay />
-      <div className="media-body">
-        <main className="media-main">
-          <div className="media-crumb">
-            <b>Discover</b> › {manifest?.name ?? "Cinemeta"}
+      <main className="media-main media-main-board">
+        {manifestError ? (
+          <div className="media-error media-board-banner" role="alert">
+            <p>Couldn't reach the catalog addon.</p>
+            <p className="media-error-detail">{manifestError}</p>
+            <button type="button" className="media-retry" onClick={retryAll}>
+              Retry
+            </button>
           </div>
+        ) : null}
 
-          {manifestError ? (
-            <div className="media-error" role="alert">
-              <p>Couldn't reach the catalog addon.</p>
-              <p className="media-error-detail">{manifestError}</p>
-              <button
-                type="button"
-                className="media-retry"
-                onClick={() => {
-                  for (const catalog of DEFAULT_MEDIA_CATALOGS) {
-                    void loadCatalog(catalog.type, catalog.id, catalog.name);
-                  }
-                }}
-              >
-                Retry
-              </button>
-            </div>
-          ) : null}
+        {diagnostics && !engineOk ? (
+          <div className="media-error media-error-inline media-board-banner" role="status">
+            <p>In-app playback is unavailable — files the webview cannot decode won't play.</p>
+            <p className="media-error-detail">{diagnostics.detail}</p>
+          </div>
+        ) : null}
 
-          {diagnostics && !engineOk ? (
-            <div className="media-error media-error-inline" role="status">
-              <p>In-app playback is unavailable — files the webview cannot decode won't play.</p>
-              <p className="media-error-detail">{diagnostics.detail}</p>
-            </div>
-          ) : null}
-
-          <section className="media-featured">
+        {query ? (
+          <div className="media-board-rows">
+            <MediaCarousel
+              heading={`Results for “${searchQuery.trim()}”`}
+              items={matches}
+              progress={watchProgress}
+              onSelect={selectMeta}
+            />
+          </div>
+        ) : (
+          <>
             {featured ? (
-              <article
-                className="media-hero"
-                style={
-                  featured.background || featured.poster
-                    ? {
-                        backgroundImage: `linear-gradient(180deg, rgba(6,7,8,.30) 20%, rgba(6,7,8,.88) 100%), url(${featured.background ?? featured.poster})`,
-                        backgroundSize: "cover",
-                        backgroundPosition: "center",
-                      }
-                    : undefined
+              <MediaHero
+                meta={featured}
+                onWatch={() => selectMeta(featured)}
+                onLibrary={() =>
+                  toast({
+                    title: "My Library is on the roadmap",
+                    detail: `It arrives with the library item — nothing was saved for ${
+                      featured.name ?? featured.id
+                    }.`,
+                    tone: "info",
+                  })
                 }
-              >
-                <div className="media-hero-tags">
-                  <span className="media-tag">Featured</span>
-                  {featured.type ? <span className="media-tag ghost">{featured.type}</span> : null}
-                  {featured.releaseInfo ? (
-                    <span className="media-tag ghost">{featured.releaseInfo}</span>
-                  ) : null}
-                </div>
-                <h1>{featured.name ?? featured.id}</h1>
-                <div className="media-hero-meta">
-                  {featured.imdbRating ? (
-                    <span className="media-star">★ {featured.imdbRating}</span>
-                  ) : null}
-                  <span>via {manifest?.name ?? "Cinemeta"} · Torrentio streams</span>
-                </div>
-                <div className="media-btnrow">
-                  <button
-                    type="button"
-                    className="media-btn primary"
-                    onClick={() => selectMeta(featured)}
-                  >
-                    ▶ Streams
-                  </button>
-                </div>
-              </article>
+              />
             ) : (
-              <article className="media-hero media-hero-empty">
-                <h1>Discover</h1>
-                <div className="media-hero-meta">
-                  <span>Loading catalogs from {manifest?.name ?? "Cinemeta"}…</span>
+              <section className="media-hero media-hero-empty" aria-label="Discover">
+                <div className="media-hero-body">
+                  <h1 className="media-hero-title">Discover</h1>
+                  <p className="media-hero-synopsis">
+                    Loading catalogs from {manifest?.name ?? "Cinemeta"}…
+                  </p>
                 </div>
-              </article>
+              </section>
             )}
 
-            <aside className="media-addonrail">
-              <h4>Pinned addons</h4>
-              <div className="media-addon">
-                <span className="media-addon-logo" style={{ background: "#8fb8f5" }}>Ci</span>
-                <div>
-                  <div className="media-addon-t">Cinemeta</div>
-                  <div className="media-addon-s">Metadata · posters · catalogs</div>
-                </div>
-                <span className={`media-addon-n ${manifest ? "ok" : "off"}`}>
-                  {manifest ? "READY" : "OFF"}
-                </span>
-              </div>
-              <div className="media-addon">
-                <span className="media-addon-logo" style={{ background: "#7bd389" }}>T</span>
-                <div>
-                  <div className="media-addon-t">Torrentio</div>
-                  <div className="media-addon-s">Torrents &amp; debrid streams</div>
-                </div>
-                <span className="media-addon-n ok">READY</span>
-              </div>
-              <div className="media-addon">
-                <span className="media-addon-logo" style={{ background: "#f0b6c8" }}>OS</span>
-                <div>
-                  <div className="media-addon-t">OpenSubtitles</div>
-                  <div className="media-addon-s">Subtitles · later phase</div>
-                </div>
-                <span className="media-addon-n off">OFF</span>
-              </div>
-              <div className="media-addon">
-                <span className="media-addon-logo" style={{ background: "#ffd479" }}>TX</span>
-                <div>
-                  <div className="media-addon-t">Trakt</div>
-                  <div className="media-addon-s">Scrobbling · later phase</div>
-                </div>
-                <span className="media-addon-n off">OFF</span>
-              </div>
-            </aside>
-          </section>
+            <div className="media-board-rows">
+              {continueItems.length > 0 ? (
+                <MediaCarousel
+                  heading="Continue watching"
+                  items={continueItems}
+                  progress={watchProgress}
+                  onSelect={selectMeta}
+                />
+              ) : null}
 
-          {rows.map((catalog) => (
-            <section className="media-row" key={`${catalog.type}:${catalog.id}`}>
-              <div className="media-row-head">
-                <h3>{catalog.name}</h3>
-                <span className="media-row-sub">
-                  {manifest?.name ?? "Cinemeta"} · catalog {catalog.id}
-                </span>
-              </div>
-              {catalog.loading && catalog.metas.length === 0 ? (
-                <div className="media-strip" aria-busy="true">
-                  {Array.from({ length: 6 }, (_, index) => (
-                    <div className="media-card" key={index}>
-                      <div className="media-poster media-poster-skeleton" />
-                      <div className="media-skeleton-line" />
-                    </div>
-                  ))}
-                </div>
-              ) : catalog.error ? (
-                <p className="media-row-error">{catalog.error}</p>
-              ) : (
-                <div className="media-strip">
-                  {catalog.metas.map((meta) => (
-                    <MediaCard key={meta.id} meta={meta} onSelect={() => selectMeta(meta)} />
-                  ))}
-                </div>
-              )}
-            </section>
-          ))}
+              {rows.map((catalog) => (
+                <MediaCarousel
+                  key={`${catalog.type}:${catalog.id}`}
+                  heading={catalog.name}
+                  items={catalog.metas}
+                  progress={watchProgress}
+                  loading={catalog.loading}
+                  error={catalog.error}
+                  onRetry={() => void loadCatalog(catalog.type, catalog.id, catalog.name)}
+                  onSelect={selectMeta}
+                />
+              ))}
 
-          {rows.length === 0 && !manifestError ? (
-            <p className="media-empty">Loading catalogs…</p>
-          ) : null}
+              {rows.length === 0 && !manifestError ? (
+                <p className="media-empty">Loading catalogs…</p>
+              ) : null}
+            </div>
+          </>
+        )}
 
-          <footer className="media-statusline" aria-label="Media engine status">
-            <span>
-              <span className={`media-dot ${manifest ? "ok" : "warn"}`} /> catalog:{" "}
-              {manifest ? "connected" : manifestLoading ? "connecting" : "offline"}
+        <div className="media-board-footer">
+          <div className="media-addons" aria-label="Active addons">
+            <span className={`media-addon-chip ${manifest ? "ok" : "off"}`}>
+              <span className={`media-dot ${manifest ? "ok" : "warn"}`} />
+              {manifest?.name ?? "Cinemeta"}
+              {manifest ? " · metadata" : manifestLoading ? " · connecting" : " · offline"}
             </span>
+            <span className="media-addon-chip ok">
+              <span className="media-dot ok" />
+              {streamAddonHost} · streams
+            </span>
+          </div>
+
+          <div className="media-statusline" aria-label="Media engine status">
             <span>
               <span className={`media-dot ${engineOk ? "ok" : "warn"}`} /> {engineLabel}
             </span>
@@ -224,9 +204,11 @@ export function MediaWorkspace() {
               <span className={`media-dot ${debridConfig ? "ok" : "warn"}`} /> debrid:{" "}
               {debridConfig ? debridConfig.provider : "off (optional)"}
             </span>
-          </footer>
+          </div>
+        </div>
 
-          {selected ? (
+        {selected ? (
+          <div className="media-board-rows">
             <StreamsPanel
               meta={selected}
               streams={streams}
@@ -234,57 +216,19 @@ export function MediaWorkspace() {
               error={streamsError}
               onClose={clearSelection}
             />
-          ) : null}
-        </main>
-      </div>
+          </div>
+        ) : null}
+      </main>
     </MediaShell>
   );
 }
 
-function MediaCard({ meta, onSelect }: { meta: MediaCatalogMeta; onSelect: () => void }) {
-  const title = meta.name ?? meta.id;
-  const metaBits = [meta.releaseInfo, meta.imdbRating ? `★ ${meta.imdbRating}` : null]
-    .filter((bit): bit is string => Boolean(bit))
-    .join(" · ");
-  return (
-    <article
-      className="media-card"
-      tabIndex={0}
-      role="button"
-      aria-label={`Show streams for ${title}`}
-      onClick={onSelect}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onSelect();
-        }
-      }}
-    >
-      {meta.poster ? (
-        <div className="media-poster-wrap">
-          <img
-            className="media-poster"
-            src={meta.poster}
-            alt=""
-            loading="lazy"
-            draggable={false}
-          />
-          {meta.imdbRating || meta.releaseInfo ? (
-            <span className="media-poster-badges">
-              {meta.imdbRating ? <span className="media-badge">★{meta.imdbRating}</span> : null}
-              {meta.releaseInfo ? <span className="media-badge hd">{meta.releaseInfo}</span> : null}
-            </span>
-          ) : null}
-        </div>
-      ) : (
-        <div className="media-poster media-poster-fallback">
-          <span>{title}</span>
-        </div>
-      )}
-      <p className="media-card-title">{title}</p>
-      {metaBits ? <p className="media-card-meta">{metaBits}</p> : null}
-    </article>
-  );
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
 }
 
 function StreamsPanel({
@@ -316,7 +260,7 @@ function StreamsPanel({
           <span className="media-detail-year">{subtitle}</span>
         </h2>
         <button type="button" className="media-close" onClick={onClose} aria-label="Close streams">
-          <Icon name="close" size={14} />
+          <MediaIcon name="close" size={14} />
         </button>
       </div>
       {meta.description ? <p className="media-detail-desc">{meta.description}</p> : null}
@@ -333,7 +277,11 @@ function StreamsPanel({
       ) : (
         <ol className="media-stream-list">
           {streams.map((ranked, index) => (
-            <StreamRow key={`${ranked.label}-${index}`} ranked={ranked} />
+            <StreamRow
+              key={`${ranked.label}-${index}`}
+              ranked={ranked}
+              metaId={meta.id}
+            />
           ))}
         </ol>
       )}
@@ -346,7 +294,7 @@ function StreamsPanel({
   );
 }
 
-function StreamRow({ ranked }: { ranked: RankedStream }) {
+function StreamRow({ ranked, metaId }: { ranked: RankedStream; metaId: string }) {
   const toast = useExplorerStore((state) => state.toast);
   const openPlayer = useMediaStore((state) => state.openPlayer);
   const streamTorrent = useMediaStore((state) => state.streamTorrent);
@@ -417,7 +365,7 @@ function StreamRow({ ranked }: { ranked: RankedStream }) {
             <button
               type="button"
               className="media-play"
-              onClick={() => openPlayer(ranked.stream.url as string, ranked.label)}
+              onClick={() => openPlayer(ranked.stream.url as string, ranked.label, metaId)}
               aria-label={`Play ${ranked.label} in the app`}
             >
               ▶ Play
@@ -438,7 +386,7 @@ function StreamRow({ ranked }: { ranked: RankedStream }) {
             type="button"
             className="media-play"
             disabled={resolving}
-            onClick={() => void streamTorrent(hash, ranked.label)}
+            onClick={() => void streamTorrent(hash, ranked.label, metaId)}
             aria-label={`Stream ${ranked.label} over torrent engine`}
             title="Streams over the embedded torrent engine (local-first, no debrid needed)"
           >
@@ -467,3 +415,6 @@ export function formatSize(bytes: number): string {
 export function logMediaDiagnostic(message: string): void {
   logDiagnostic("info", message, "media.workspace");
 }
+
+/** Re-exported so the board's addon chips and the manifest agree on the source. */
+export const MEDIA_SOURCES = { metadata: CINEMETA_ADDON_URL, streams: DEFAULT_STREAM_ADDON_URL };

@@ -61,6 +61,21 @@ pub struct CatalogMeta {
     pub release_info: Option<String>,
     #[serde(default)]
     pub imdb_rating: Option<String>,
+    /// Cinemeta ships the full metadata block in catalog responses, which is what
+    /// makes the board hero possible without a second round-trip
+    /// (docs/MEDIA_UI_SPEC.md §7). Kept as `Vec`/`Option` — the addon protocol
+    /// allows any of them to be absent.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub genres: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cast: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub director: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<String>,
+    /// ISO release date — the board derives its `NEW` badge from it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub released: Option<String>,
 }
 
 pub(crate) fn client() -> Result<reqwest::Client, crate::error::AppError> {

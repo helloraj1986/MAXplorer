@@ -9,6 +9,7 @@ import {
   type MediaManifest,
   type NativePlayerDiagnostics,
   type NativePlayerStatus,
+  type WatchProgress,
 } from "../components/media/types";
 import { rankStreams } from "../components/media/streams";
 import type { RankedStream } from "../components/media/types";
@@ -30,6 +31,12 @@ export interface MediaState {
   screen: MediaScreen;
   /** Top-bar search text. WP2 wires it to the loaded catalogs (spec §12.5). */
   searchQuery: string;
+  /**
+   * Watch progress keyed by meta id. WP2 stub store: the positions are real
+   * (they come from mpv through `playerStatus`) but they live in memory only —
+   * WP5 writes them to `library.json` and resumes from them.
+   */
+  watchProgress: Record<string, WatchProgress>;
   manifest: MediaManifest | null;
   manifestLoading: boolean;
   manifestError: string | null;
@@ -41,7 +48,7 @@ export interface MediaState {
   streamsLoading: boolean;
   streamsError: string | null;
   /** Phase 3/4c: in-app player source (native libmpv surface). */
-  playerSource: { url: string; title: string } | null;
+  playerSource: { url: string; title: string; metaId?: string } | null;
   /** Live state reported by the libmpv engine. */
   playerStatus: NativePlayerStatus | null;
   /** Whether the native engine is usable on this machine. */
@@ -68,17 +75,19 @@ export interface MediaState {
   openWorkspace: () => Promise<void>;
   setScreen: (screen: MediaScreen) => void;
   setSearchQuery: (query: string) => void;
+  /** Records a playback position (WP2 stub store; WP5 persists it). */
+  recordProgress: (metaId: string, position: number, duration: number) => void;
   closeWorkspace: () => void;
   loadManifest: () => Promise<void>;
   loadCatalog: (type: string, id: string, name: string) => Promise<void>;
   selectMeta: (meta: MediaCatalogMeta) => void;
   clearSelection: () => void;
   loadStreams: (meta: MediaCatalogMeta) => Promise<void>;
-  openPlayer: (url: string, title: string) => void;
+  openPlayer: (url: string, title: string, metaId?: string) => void;
   closePlayer: () => void;
   setPlayerStatus: (status: NativePlayerStatus | null) => void;
   loadPlayerDiagnostics: () => Promise<void>;
-  streamTorrent: (infoHash: string, title: string) => Promise<void>;
+  streamTorrent: (infoHash: string, title: string, metaId?: string) => Promise<void>;
   refreshEngineStats: () => Promise<void>;
   loadDebridConfig: () => Promise<void>;
   saveDebridConfig: (config: { provider: "realdebrid" | "torbox"; apiKey: string }) => Promise<void>;
@@ -95,6 +104,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   workspaceOpen: false,
   screen: "board",
   searchQuery: "",
+  watchProgress: {},
   manifest: null,
   manifestLoading: false,
   manifestError: null,
@@ -129,6 +139,27 @@ export const useMediaStore = create<MediaState>((set, get) => ({
 
   setSearchQuery(query) {
     set({ searchQuery: query });
+  },
+
+  /**
+   * Stores a playback position. Nothing is written for a zero-length or
+   * nonsense position: a half-open stream must not create a Continue-watching
+   * entry that can never be resumed.
+   */
+  recordProgress(metaId, position, duration) {
+    if (!metaId || !(duration > 0) || !(position > 0) || !Number.isFinite(position)) return;
+    set((state) => ({
+      watchProgress: {
+        ...state.watchProgress,
+        [metaId]: {
+          position: Math.min(position, duration),
+          duration,
+          updatedAt: Date.now(),
+          season: state.watchProgress[metaId]?.season,
+          episode: state.watchProgress[metaId]?.episode,
+        },
+      },
+    }));
   },
 
   async loadManifest() {
@@ -207,8 +238,8 @@ export const useMediaStore = create<MediaState>((set, get) => ({
     }
   },
 
-  openPlayer(url, title) {
-    set({ playerSource: { url, title }, playerStatus: null, screen: "player" });
+  openPlayer(url, title, metaId) {
+    set({ playerSource: { url, title, metaId }, playerStatus: null, screen: "player" });
   },
 
   closePlayer() {
@@ -239,7 +270,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
     }
   },
 
-  async streamTorrent(infoHash, title) {
+  async streamTorrent(infoHash, title, metaId) {
     set({ engine: { infoHash, baseUrl: "", phase: "resolving" } });
     let baseUrl = "";
     try {
@@ -281,7 +312,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
               speed: status.downloadSpeed,
               state: status.state,
             },
-            playerSource: { url: status.streamUrl, title: label },
+            playerSource: { url: status.streamUrl, title: label, metaId },
           });
           return;
         }

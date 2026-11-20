@@ -433,7 +433,7 @@ with the patch tool (see the skill). Media CSS files are LF and safe.
 
 | UI element | Source of truth | Status |
 |---|---|---|
-| Hero art, logo, meta, synopsis, genres, cast, director | Cinemeta catalog/meta response via `media_catalog`/`media_addon_manifest` | available; `media.rs` must pass the extra fields through |
+| Hero art, logo, meta, synopsis, genres, cast, director | Cinemeta catalog/meta response via `media_catalog`/`media_addon_manifest` | available — Cinemeta returns the **full** meta block (logo, background, genres, runtime, cast, director, released) in its *catalog* responses too, and `media.rs` passes those fields through, so the board hero needs no extra round-trip. For the hero itself the `background` URL's `medium` variant must be upgraded to `large` (`board.ts#heroBackdrop`). |
 | Poster, rating, release info | same | available |
 | Continue watching | new `library.json` progress store + mpv `time-pos`/`duration` from `PlayerStatus` | **new** |
 | Stream rows (quality, source, codec, audio, size, HDR) | `src/components/media/streams.ts` parsing of Torrentio `title`/`description` | partially available (quality/codec/size/HDR) |
@@ -516,6 +516,48 @@ Later (separate, only if the user asks): **WP7** centre-title/overlay compositin
 into the frame buffer; scrub thumbnails; downloads screen behind the top-bar tray;
 episode strip for series; TV/D-pad layout (roadmap 7).
 
+### WP2 as built (2026-11-21, branch `feature/media-ui-wp2`)
+
+- `src/components/media/MediaHero.tsx` — full-bleed backdrop, logo art with a text
+  fallback (and an `onError` fallback), meta line + gold IMDb pill + genres, 2-line
+  synopsis clamp, accent `▶ Watch` pill and the library/episodes circles.
+- `src/components/media/MediaCarousel.tsx` + `MediaPosterCard.tsx` — 0.7-ratio
+  posters at `clamp(150px, 8.5vw, 300px)`, in-art progress, quality/`NEW` badges,
+  `S3` chip, snap scrolling with a 48 px edge fade, hover chevrons when the strip
+  overflows, skeletons, per-row error + `Retry`, roving tabindex (one tab stop per
+  row, ↑/↓-style arrow keys move within it).
+- `src/components/media/board.ts` — pure helpers: `formatRuntime` (`173 min` →
+  `2h53min`), `isNew` (30-day window), `heroMetaLine`, `continueWatching`
+  (> 2 % / < 95 %, most recent first), `heroBackdrop`.
+- `MediaWorkspace.tsx` — board rewritten around those components; Continue
+  watching renders first and hides when empty; the top-bar search now filters the
+  loaded catalogs and hides the hero while a query is active; the pinned-addons
+  panel is gone and its information lives in quiet footer chips next to the
+  engine status.
+- `mediaStore.ts` — `watchProgress` + `recordProgress`, and `playerSource.metaId`.
+  `PlayerOverlay` writes mpv's real `time-pos`/`duration` every 5 s (and once more
+  when the player closes), so "Continue watching" is fed by actual playback; the
+  store is in-memory only until WP5 persists it to `library.json`.
+- `src-tauri/src/media.rs` — `CatalogMeta` now carries `genres`, `cast`,
+  `director`, `runtime` and `released`, all optional. Cinemeta ships them in
+  **catalog** responses, so the hero needs no second round-trip.
+- `media.css` — the board's remaining orange (`#f2a33c` hero/addon accents) is
+  gone; the board draws only `--m-*` tokens. The player chrome and the streams
+  panel are deliberately still on the old palette (WP4 / WP3).
+- Deviations from §3, both measured off the reference rather than read from the
+  spec's prose: the hero is **57 %** of the content column (the reference's first
+  row heading sits at 57.5 % of the window height; §3.1 said 46 %), and its logo
+  art renders up to 140 px tall (the reference logo is ~134 px for two lines).
+  Cinemeta's `medium` background is a 1280×720 crop and is often very dark, so
+  `heroBackdrop` upgrades `images.metahub.space/background/medium/…` to `large`
+  — with `medium` the hero read as an empty dark slab.
+- Gates: `npx tsc --noEmit` clean; `npx vitest run src/components/media` → **49
+  passed** (21 before, 28 new across `board.test.ts`, `MediaHero.test.tsx`,
+  `MediaCarousel.test.tsx`, `MediaWorkspace.test.tsx`). No eslint config exists in
+  this repo, so lint is not part of the gate. The 9 failures in
+  `ThemeCreator.test.tsx` / `storageStore.test.ts` in the full suite are
+  **pre-existing** (reproduced on a pristine `HEAD` worktree).
+
 ---
 
 ## 11. Do-not list (invariants that already cost us cycles)
@@ -533,6 +575,13 @@ episode strip for series; TV/D-pad layout (roadmap 7).
    — they collide with the app's global CSS. Prefix `media-`.
 8. Keep the file-explorer theme, sidebar and Settings visuals unchanged: this is a
    Media-workspace redesign only.
+9. **Never** serve the hero Cinemeta's `background/medium` art: it is a 1280×720
+   crop and is often near-black, so a full-bleed hero at 3000+ px reads as an empty
+   slab. `board.ts#heroBackdrop` upgrades that URL to the `large` variant.
+10. **Never** trust this document's measured numbers over the reference PNGs: the
+    hero height (57 %, not 46 %) and the logo height were both wrong here and were
+    caught by measuring `stremio-01-board.png` directly. The reference is 3440×1410
+    at 1×, so pixel ratios on it are directly usable.
 
 ---
 
