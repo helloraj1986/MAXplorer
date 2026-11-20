@@ -399,9 +399,14 @@ restart — has files long before that moment.
    it never opens extra streams while playing.
 2. **State gate.** `streamUrl` also requires librqbit state `live`/`paused`
    (`can_stream`), because its `streams()` rejects other states outright.
-3. **The native surface starts hidden.** It is revealed only on `file-loaded`
-   (and hidden again on error). Previously it covered the spinner and the error
-   card, so a failed stream looked exactly like "blank video" with no message.
+3. **The native surface starts hidden.** It is revealed when mpv reports the
+   file loaded, and hidden again on playback error. Previously it covered the
+   spinner and the error card, so a failed stream looked exactly like "blank
+   video" with no message.
+   *Important:* set `file_loaded` from the **`MPV_EVENT_FILE_LOADED` event**, not
+   only from the observed `file-loaded` property. Symptom of getting this wrong:
+   audio plays with the spinner still spinning and no picture (observed in the
+   packaged app on 2026-11-21) because the surface never became visible.
 4. **`framedrop=vo`** so a renderer that cannot keep up drops frames instead of
    freezing the picture (SW scaling a 4K source is the known cost, §1).
 5. **Render fps is logged every 5 s** (`media.render: 23.9 fps at 3024x1458 px`),

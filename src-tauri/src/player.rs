@@ -498,6 +498,12 @@ fn spawn_event_loop(
                         logging::info(LOG_TARGET, "file loaded; decoding started");
                         if let Ok(mut status) = shared.lock() {
                             status.loaded = true;
+                            // Set from the EVENT, not only from the observed
+                            // `file-loaded` property: the event is the
+                            // authoritative signal, and the UI reveals the
+                            // native video surface from this flag. Missing it
+                            // leaves audio playing behind a hidden surface.
+                            status.file_loaded = true;
                             status.error = None;
                         }
                         emit_state(&app, &shared);
@@ -525,6 +531,9 @@ fn spawn_event_loop(
                                     format!("playback ended ({reason}): {detail}"),
                                 );
                                 if let Ok(mut status) = shared.lock() {
+                                    // Hide the surface too: the UI then shows the
+                                    // error card, which the native view would cover.
+                                    status.file_loaded = false;
                                     status.error = Some(format!(
                                         "Playback failed: {detail}. The file may be corrupt, \
                                          or the stream is unreachable."

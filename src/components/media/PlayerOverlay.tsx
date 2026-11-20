@@ -120,7 +120,10 @@ export function PlayerOverlay() {
   // The native surface sits above the webview, so it must stay hidden until a
   // file is actually loaded — otherwise it covers the spinner and the error card
   // and a failed stream just looks like a blank player.
-  const surfaceVisible = Boolean(status?.fileLoaded) && error === null;
+  // Reveal the native surface once mpv reports the file loaded. `loaded` comes
+  // from the FILE_LOADED event, `fileLoaded` from the observed property — accept
+  // either, because missing both leaves audio playing behind a hidden surface.
+  const surfaceVisible = Boolean(status?.fileLoaded || status?.loaded) && error === null;
   useEffect(() => {
     if (!playerSource || !isTauri) return;
     void api.playerSetSurfaceVisible(surfaceVisible).catch(() => undefined);
