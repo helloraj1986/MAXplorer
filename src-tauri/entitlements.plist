@@ -15,5 +15,17 @@
        have different TeamIdentifiers. Required for the embedded libmpv engine. -->
   <key>com.apple.security.cs.disable-library-validation</key>
   <true/>
+
+  <!-- mpv embeds LuaJIT, whose JIT writes and executes machine code. Under the
+       hardened runtime that is forbidden and the kernel kills the process with
+       SIGKILL (Code Signature Invalid / "Invalid Page") as soon as mpv starts
+       one of its built-in Lua scripts (stats.lua on a background thread, seen
+       in the 2026-11-21 crash report). Both keys are required: allow-jit for the
+       modern W^X JIT protocol, allow-unsigned-executable-memory for the older
+       mapping-based one LuaJIT may use. -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
 </dict>
 </plist>

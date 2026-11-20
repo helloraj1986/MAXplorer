@@ -307,7 +307,6 @@ fn create_mpv(api: &'static MpvApi, viewer_view: *mut AnyObject) -> Result<MpvHa
 
     // Predictable, self-contained instance: no user config, no terminal, no OSD.
     set_option(api, handle, "config", "no");
-    set_option(api, handle, "load-scripts", "no");
     set_option(api, handle, "terminal", "no");
     set_option(api, handle, "osc", "no");
     set_option(api, handle, "input-default-bindings", "no");
@@ -322,6 +321,21 @@ fn create_mpv(api: &'static MpvApi, viewer_view: *mut AnyObject) -> Result<MpvHa
     // Network/torrent streams: keep a modest forward buffer.
     set_option(api, handle, "cache", "yes");
     set_option(api, handle, "demuxer-max-bytes", "256MiB");
+    // Do NOT start mpv's built-in Lua scripts. They are LuaJIT, and a JIT in a
+    // hardened process without the JIT entitlement gets the app killed by the
+    // kernel (SIGKILL, "Code Signature Invalid / Invalid Page"). We need none of
+    // them: stats overlay, console, select and auto-profiles are all cosmetic
+    // and the OSD/OSC are already off.
+    for option in [
+        "load-scripts",       // config-dir scripts
+        "load-stats-overlay", // stats.lua — this is the one that crashed
+        "load-console",       // console.lua
+        "load-select",        // select.lua
+        "load-positioning",   // positioning.lua
+        "load-auto-profiles", // auto_profiles.lua
+    ] {
+        set_option(api, handle, option, "no");
+    }
 
     // Embed into our NSView. On macOS this is the `wid` NSView path.
     let code = set_option_i64(api, handle, "wid", viewer_view as i64);
@@ -854,6 +868,16 @@ pub fn dev_probe_embed(url: &str, seconds: u64) -> Result<String, AppError> {
         set_option(api, handle, "config", "no");
         set_option(api, handle, "terminal", "no");
         set_option(api, handle, "ao", "null");
+        for option in [
+            "load-scripts",
+            "load-stats-overlay",
+            "load-console",
+            "load-select",
+            "load-positioning",
+            "load-auto-profiles",
+        ] {
+            set_option(api, handle, option, "no");
+        }
         let wid_code = set_option_i64(api, handle, "wid", view as i64);
         let init_code = (api.mpv_initialize)(handle);
         if init_code < 0 {
