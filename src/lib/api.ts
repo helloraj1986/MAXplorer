@@ -37,6 +37,10 @@ import type {
   SearchSuggestion,
 } from "./search/types";
 import type {
+  MediaCatalogResponse,
+  MediaManifest,
+} from "../components/media/types";
+import type {
   CachedStorageScan,
   StorageChildren,
   StorageDeleteOutcome,
@@ -92,6 +96,10 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
 
 export const api = {
   getPlatformInfo: () => call<PlatformInfo>("get_platform_info"),
+  getAddonManifest: (url: string) =>
+    call<MediaManifest>("media_addon_manifest", { url }),
+  getMediaCatalog: (url: string, type: string, catalogId: string) =>
+    call<MediaCatalogResponse>("media_catalog", { url, type, catalogId }),
   getSidebarLocations: () => call<Location[]>("get_sidebar_locations"),
   ejectVolume: (path: string) => call<void>("eject_volume", { path }),
   connectNetworkLocation: (

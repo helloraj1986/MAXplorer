@@ -10,6 +10,7 @@ import "./styles/finder.css";
 import "./styles/search.css";
 import "./styles/storage.css";
 import "./styles/appearance.css";
+import "./styles/media.css";
 import { loadPersisted, loadThemePreferences } from "./lib/persistence";
 import { applyDisplayAttributes, applyThemeAttributes, themeAttributes } from "./lib/theme";
 import { activeThemeFor, iconPackForTheme, useAppearanceStore } from "./state/appearanceStore";

@@ -19,9 +19,11 @@ import { Icon } from "./components/Icon";
 import { SearchOverlay } from "./components/search/SearchOverlay";
 import { SearchWorkspace } from "./components/search/SearchWorkspace";
 import { StorageWorkspace } from "./components/storage/StorageWorkspace";
+import { MediaWorkspace } from "./components/media/MediaWorkspace";
 import { useExplorerStore } from "./state/explorerStore";
 import { useSearchStore } from "./state/searchStore";
 import { useStorageStore } from "./state/storageStore";
+import { useMediaStore } from "./state/mediaStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useTheme } from "./hooks/useTheme";
 import { useWindowPersistence } from "./hooks/useWindowPersistence";
@@ -44,6 +46,7 @@ export default function App() {
   const interfaceTheme = useExplorerStore((state) => state.interfaceTheme);
   const searchWorkspaceOpen = useSearchStore((state) => state.workspaceOpen);
   const storageWorkspaceOpen = useStorageStore((state) => state.workspaceOpen);
+  const mediaWorkspaceOpen = useMediaStore((state) => state.workspaceOpen);
   const initializeSearch = useSearchStore((state) => state.initialize);
   const refreshLocations = useExplorerStore((state) => state.refreshLocations);
   const [osDropActive, setOsDropActive] = useState(false);
@@ -130,6 +133,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (mediaWorkspaceOpen) {
+      document.title = `Media - ${PRODUCT_NAME}`;
+      return;
+    }
     if (storageWorkspaceOpen) {
       document.title = `Storage Analyzer - ${PRODUCT_NAME}`;
       return;
@@ -191,7 +198,7 @@ export default function App() {
       <div className="chrome">
         <CommandBar />
       </div>
-      {!dualPane && !searchWorkspaceOpen && !storageWorkspaceOpen ? (
+      {!dualPane && !searchWorkspaceOpen && !storageWorkspaceOpen && !mediaWorkspaceOpen ? (
         <div className="single-pane-layers">
           <NavigationBar showSearch />
           <TabBar paneId="left" />
@@ -199,7 +206,9 @@ export default function App() {
       ) : null}
       <div className="main-area">
         {sidebarVisible ? <Sidebar /> : null}
-        {storageWorkspaceOpen ? (
+        {mediaWorkspaceOpen ? (
+          <MediaWorkspace />
+        ) : storageWorkspaceOpen ? (
           <StorageWorkspace />
         ) : searchWorkspaceOpen ? (
           <SearchWorkspace />

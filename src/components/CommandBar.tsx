@@ -6,6 +6,7 @@ import { api } from "../lib/api";
 import { useExplorerStore } from "../state/explorerStore";
 import { useSearchStore } from "../state/searchStore";
 import { useStorageStore } from "../state/storageStore";
+import { useMediaStore } from "../state/mediaStore";
 import { useElementSize } from "../hooks/useElementSize";
 import { acceleratorToDisplay, DEFAULT_SHORTCUTS, normalizeAccelerator } from "../lib/panes";
 import { HOME_LOCATION, type GroupBy, type ViewMode } from "../lib/types";
@@ -63,6 +64,8 @@ export function CommandBar() {
   const sidebarVisible = useExplorerStore((state) => state.sidebarVisible);
   const comparison = useExplorerStore((state) => state.comparison);
   const openStorageWorkspace = useStorageStore((state) => state.openWorkspace);
+  const openMediaWorkspace = useMediaStore((state) => state.openWorkspace);
+  const mediaWorkspaceOpen = useMediaStore((state) => state.workspaceOpen);
   const storageWorkspaceOpen = useStorageStore((state) => state.workspaceOpen);
   const shortcuts = useExplorerStore((state) => state.shortcuts);
   const commandBarLabels = useExplorerStore((state) => state.commandBarLabels);
@@ -307,6 +310,12 @@ export function CommandBar() {
       checked: storageWorkspaceOpen,
       onClick: () => void openStorageWorkspace(),
     },
+    {
+      label: "Media",
+      icon: "play",
+      checked: mediaWorkspaceOpen,
+      onClick: () => void openMediaWorkspace(),
+    },
     { label: "Open in Terminal", icon: "terminal", onClick: () => void openTerminalHere(activePane) },
     {
       label: "Reveal diagnostic log",
@@ -532,6 +541,16 @@ export function CommandBar() {
         onClick={() => void openStorageWorkspace()}
       >
         <Icon name="drive" size={16} />
+      </button>
+      <button
+        type="button"
+        className={`cmd-btn cmd-workspace ${mediaWorkspaceOpen ? "active-toggle" : ""}`}
+        data-tooltip="Media"
+        aria-label="Media"
+        aria-pressed={mediaWorkspaceOpen}
+        onClick={() => void openMediaWorkspace()}
+      >
+        <Icon name="play" size={16} />
       </button>
       <div className="cmd-split">
         <button

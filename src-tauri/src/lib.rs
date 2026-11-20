@@ -4,6 +4,7 @@ mod compare;
 mod error;
 mod listing;
 mod logging;
+mod media;
 mod metadata;
 mod network_discovery;
 mod network_mount;
@@ -171,6 +172,8 @@ pub fn run() {
         .manage(preview::PreviewState::default())
         .invoke_handler(tauri::generate_handler![
             commands::get_platform_info,
+            media::media_addon_manifest,
+            media::media_catalog,
             commands::get_sidebar_locations,
             commands::eject_volume,
             commands::connect_network_location,
