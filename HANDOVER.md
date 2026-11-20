@@ -2,12 +2,81 @@
 
 | Field | Value |
 | --- | --- |
-| Document version | 1.2 |
-| Handover date | 2026-10-29 |
-| Project version | 0.2.0 (universal DMG release, includes the MAXplorer identity, storage analyzer and search overhaul) |
+| Document version | 1.3 |
+| Handover date | 2026-11-20 |
+| Project version | 0.2.1 (aarch64 DMG) + media feature on `feature/stremio-compat` |
 | Repository | https://github.com/helloraj1986/MAXplorer (private) |
 | Release | https://github.com/helloraj1986/MAXplorer/releases/latest |
-| Current branch | `main` (premium icon system merged 2026-10-29) |
+| Current branch | `feature/stremio-compat` @ `bdb52d0` (media feature, 9 commits ahead of main) |
+
+---
+
+## 0. ACTIVE WORK — Media feature (Stremio-compatible) — READ FIRST
+
+**This is the live workstream. Canonical roadmap: `docs/STREMIO_MEDIA.md`. One roadmap
+item per session — never batched.**
+
+### What exists (all verified live in the installed app)
+
+| Phase | Commit | What ships |
+| --- | --- | --- |
+| 1 | `67c7cc2` | Stremio addon protocol client (`src-tauri/src/media.rs`: `media_addon_manifest`, `media_catalog` via reqwest) + `MediaWorkspace` discover UI rendering **live Cinemeta** catalogs with real posters. Opened via CommandBar Media toggle (play icon). |
+| 2 | `7f388d3`, `e8882d4`, `41b4139` | `media_streams` command + ranked streams sheet. Click a poster → ranked rows (quality → direct/debrid → size), HDR/4K flags, size parsed from release titles. **Torrentio moved to `torrentio.strem.fun`** (`.strem.io` no longer resolves) — fixed mid-phase. |
+| 3 | `c73a1a0`, `35f05fa` | In-app playback: `PlayerOverlay` (design-matched dark HTML5 video, space/←/→/m/Esc keys, seek bar, volume, buffering spinner, error card) for direct HTTP/HLS URLs; `media_play` command detects external player (IINA > VLC > mpv > default; VLC on this machine, verified with real network stream). Rows: `▶ Play` (in-app) + `↗ External`. |
+| 4 | `dde5c1e` | Debrid integration (`src-tauri/src/debrid.rs`): Real-Debrid + TorBox APIs convert torrent info-hashes to direct stream URLs (`media_debrid_resolve`), config persisted in app data `debrid-config.json` (`save/get/test_key` commands). Torrent rows show `▶ Stream` button. |
+
+### ⚠️ CRITICAL USER FEEDBACK (why the next session exists)
+
+**Debrid must be OPTIONAL.** The user rejected "Stream requires a paid debrid key".
+Torrentio without a key returns only torrent hashes, so `▶ Stream` currently does nothing
+without debrid configured. The embedded torrent engine is the missing free path.
+
+### Phase 4b — torrent engine (NEXT SESSION, already half-learned)
+
+**Abandoned attempt is deleted** (`src-tauri/src/torrent.rs` removed at `bdb52d0`) — it
+guessed the librqbit API and hit 14 compile errors. The real librqbit 8.1.1 API was then
+read from the vendored source (`~/.cargo/registry/.../librqbit-8.1.1/`); use these facts:
+
+- `TorrentIdOrHash` = `{ Id(TorrentId), Hash(Id20) }` — **use `TorrentIdOrHash::parse(&str)`**,
+  it handles 40-char hex hashes directly. There is NO `InfoHash` variant.
+- `Api::api_torrent_list() -> TorrentListResponse`, `api_torrent_details(...) -> Result<TorrentDetailsResponse>`,
+  `api_stream(...) -> Result<FileStream>` — all **synchronous** (no `.await`) in 8.1.1.
+- `Api::api_add_torrent(AddTorrent, Option<AddTorrentOptions>)` **is** async.
+- `TorrentDetailsResponse.files` = `Vec<TorrentDetailsResponseFile { name: String, length: u64, included: bool, .. }>` (no idx field; index = position).
+- **`librqbit::http_api::HttpApi::new(api, Some(HttpApiOptions { read_only: false, basic_auth: None }))`
+  + `make_http_api_and_run(listener, None)`** runs the FULL built-in server on any
+  `TcpListener`, including `GET /torrents/{id_or_infohash}/stream/{file_idx}` with
+  **Range/seek support** — do NOT hand-roll the axum streaming router.
+- `Session::new_with_opts(dir, SessionOptions { .. })` async; `AddTorrent::from_url(magnet)`;
+  magnet needs tracker list (`&tr=` URL-encoded) since Torrentio gives bare hashes.
+- FileStream: `len() -> u64` (line ~387 of streaming.rs) if a custom player fallback is needed.
+
+Flow to implement: command `media_torrent_start(hash)` → start session+HttpApi on
+127.0.0.1:18081, add magnet; frontend polls `GET /torrents/{hash}` for files; pick largest
+file; open PlayerOverlay on `http://127.0.0.1:18081/torrents/{hash}/stream/{idx}`.
+Live-verify with the webtorrent Big Buck Bunny / Sintel hashes (DHT-seeded, legal).
+Debrid then becomes an accelerator chosen per-row, not a requirement.
+
+### Build & environment quirks learned
+
+- DMG bundling fails with `hdiutil: couldn't unmount diskN - Resource busy` when stale
+  `rw.*` DMG mounts linger → `hdiutil detach /Volumes/dmg.* -force`, rerun
+  `npm run tauri build -- --bundles dmg`.
+- App requires macOS 12+, Tauri 2; frontend gates: `npx tsc --noEmit` +
+  `npx vitest run src/components/media` (10 tests); Rust gates: `cargo test --lib media` (5)
+  + debrid tests.
+- Media test files need `// @vitest-environment jsdom` header (default env is node).
+- `fireEvent.click` required in tests — plain `.click()` does not trigger React synthetic
+  events reliably here.
+
+### Remaining media roadmap (one per session)
+
+5. Addon manager UI (install/remove by manifest URL, pinned-addons rail)
+6. Library & sync (My Library, progress, Trakt; self-hostable sync)
+7. ⭐ VERY IMPORTANT — TV/mobile remote-friendly (Android TV via Tauri 2 Android,
+   iOS/Apple TV via Tauri 2 iOS or RN/web client; prerequisite: media-core exposed as a
+   local HTTP JSON API so TV/mobile stream from the desktop/LAN box, never P2P on TV;
+   D-pad + TV-safe UI are acceptance criteria)
 
 ---
 
@@ -314,28 +383,28 @@ npm run build         # tsc -b && vite build
 ### Build the macOS app and DMG locally (on a Mac)
 
 ```bash
-bash scripts/build-macos-dmg.sh
+bash scripts/build-macos-dmg.sh        # alias: npm run build:mac
 ```
 
-This script refuses to run on non-macOS, checks for Xcode CLT/Node/Rust, installs deps,
-runs all checks, builds `universal-apple-darwin`, verifies the DMG with `hdiutil`, and
-writes a `.sha256`. Artifacts land in
+This is the single build entry point — there is no separate `tauri build` step to remember,
+and CI runs the same script. It refuses to run on non-macOS, checks Xcode CLT/Node/Rust,
+resolves the signing identity from `tauri.conf.json` (and verifies the certificate is in the
+keychain), installs deps, runs all checks, builds `universal-apple-darwin`, produces the
+`.dmg` and `.app.zip`, verifies signature and disk image, then stages everything into
+`dist-macos/` with `SHA256SUMS.txt`.
+
+Faster loops: `--native`, `--skip-tests`, `--skip-install`, `--no-zip`, `--out <dir>`.
+Raw bundler output stays in
 `src-tauri/target/universal-apple-darwin/release/bundle/{macos,dmg}/`.
-
-Manual equivalent:
-
-```bash
-rustup target add aarch64-apple-darwin x86_64-apple-darwin
-npm run tauri build -- --target universal-apple-darwin
-```
 
 ### CI
 
-`.github/workflows/macos-build.yml` runs on `macos-14` for pushes/PRs to `main` that touch
-code or build configuration (docs-only and `reference/`-only changes are ignored), and on
-demand. Steps: checkout → Node 22 → Rust stable with both Apple targets → `npm ci` →
-typecheck → frontend tests → Rust tests → universal `tauri build` → `hdiutil verify` →
-SHA-256 → upload artifacts (`windows11-explorer-macos`, `windows11-explorer-app`).
+`.github/workflows/macos-build.yml` runs on `macos-latest` for pushes/PRs to `main` that
+touch code or build configuration (docs-only and `reference/`-only changes are ignored), and
+on demand. Steps: checkout → Node 22 → Rust stable with both Apple targets →
+`bash scripts/build-macos-dmg.sh` with `APPLE_SIGNING_IDENTITY="-"` (CI holds no certificate,
+so it signs ad-hoc) → upload `dist-macos/*.dmg` + `SHA256SUMS.txt` and `dist-macos/*.app.zip`
+as artifacts (`maxplorer-macos`, `maxplorer-app`).
 Typical duration ~6 minutes; macOS runners can queue.
 
 `.github/workflows/macos-smoke.yml` is manual (`workflow_dispatch`). It downloads the
