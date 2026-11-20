@@ -1632,196 +1632,490 @@
 }
 
 /* ------------------------------------------------------------------ *
- * Player overlay — carried over, restyled in WP4
+ * Player (screen C) — WP4a chrome on --m-* tokens
+ *
+ * The video is a native NSView composited ABOVE the webview, so every piece of
+ * chrome lives in strips OUTSIDE `.media-player-stage`: showing the chrome
+ * shrinks the stage (the native rect follows it), hiding it hands the full
+ * window to the video — which is exactly what the reference shows. Nothing here
+ * may be positioned over the stage.
  * ------------------------------------------------------------------ */
 
-.media-player-overlay {
+.media-player {
   position: absolute;
   inset: 0;
   z-index: 20;
   display: flex;
   flex-direction: column;
-  background: #0b0d10;
-  border-radius: inherit;
-}
-
-.media-player-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 18px;
-  border-bottom: 1px solid #232830;
-  flex: 0 0 auto;
-}
-
-.media-player-title {
-  font-weight: 700;
-  font-size: 13.5px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  background: #000;
+  color: var(--m-text);
+  font-family: var(--m-font);
 }
 
-.media-player-head .media-close {
-  margin-left: auto;
+/* Idle: the cursor leaves with the chrome. */
+.media-player.is-idle,
+.media-player.is-idle * {
+  cursor: none;
 }
 
 .media-player-stage {
   position: relative;
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   display: grid;
   place-items: center;
-  background: #07080a;
-  min-height: 0;
   overflow: hidden;
+  background: #000;
 }
 
-.media-player-spinner {
-  position: absolute;
-  width: 34px;
-  height: 34px;
+/* ── strips ── */
+
+.media-player-top {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 72px;
+  padding: 0 20px;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0));
+}
+
+.media-player-close {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
   border-radius: 50%;
-  border: 3px solid #232830;
-  border-top-color: #f2a33c;
-  animation: media-spin 0.9s linear infinite;
-  pointer-events: none;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--m-text);
+  font-size: 14px;
+  cursor: pointer;
 }
 
-@keyframes media-spin {
-  to {
-    transform: rotate(360deg);
-  }
+.media-player-close:hover {
+  background: rgba(255, 255, 255, 0.16);
 }
 
-.media-player-error {
-  max-width: 480px;
-  padding: 18px 20px;
-  border: 1px solid rgba(255, 143, 143, 0.35);
-  border-radius: 10px;
-  background: #12151a;
-  color: #ff8f8f;
-  font-size: 13px;
-  text-align: center;
+.media-player-title {
+  margin: 0;
+  max-width: 46ch;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.media-player-error .media-error-detail {
-  color: #8b93a0;
-  font-size: 11.5px;
-  margin-top: 6px;
+.media-player-chip {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border: 1px solid var(--m-hairline);
+  border-radius: var(--m-radius-sm);
+  color: var(--m-text-dim);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
-.media-player-controls {
+.media-player-top-right {
+  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 16px;
-  border-top: 1px solid #232830;
-  flex: 0 0 auto;
 }
 
-.media-player-controls .media-play {
-  width: 34px;
-  height: 34px;
-  padding: 0;
+.media-player-stats {
+  color: var(--m-text-dim);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── bottom region: state row (40 px) + bar (88 px) + 2 px hairline ── */
+
+.media-player-bottom {
+  flex: 0 0 auto;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0));
+}
+
+.media-player.is-idle .media-player-bottom {
+  background: transparent;
+}
+
+.media-player-state-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 20px;
+}
+
+.media-player-pill,
+.media-player-curtain {
+  padding: 6px 14px;
+  border: 1px solid var(--m-hairline);
+  border-radius: var(--m-radius-pill);
+  background: rgba(20, 18, 25, 0.85);
+  color: var(--m-text);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  animation: media-player-fade 160ms var(--m-ease-chrome);
+}
+
+.media-player-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 88px;
+  padding: 0 20px;
+}
+
+/* Idle removes the chrome from the layout (the stage grows to full window) and
+   from the tab order. `display: none` rather than a height transition: a
+   transition would re-send the native surface rect every frame. */
+.media-player.is-idle .media-player-state-slot,
+.media-player.is-idle .media-player-bar {
+  display: none;
+}
+
+.media-player.is-idle .media-player-top {
+  display: none;
+}
+
+.media-player-transport {
+  flex: 0 0 auto;
   display: grid;
   place-items: center;
-  font-size: 13px;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
   border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--m-text);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.media-player-transport:hover {
+  background: var(--m-accent);
+}
+
+.media-player-transport:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .media-player-time {
-  font-family: var(--font-family-mono, ui-monospace, monospace);
-  font-size: 10.5px;
-  color: #8b93a0;
   flex: 0 0 auto;
+  min-width: 52px;
+  color: var(--m-text-dim);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
-.media-player-track {
-  flex: 1;
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.14);
-  cursor: pointer;
+/* ── seek bar ── */
+
+.media-player-seek {
   position: relative;
-  min-width: 60px;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 120px;
+  height: 22px;
+  cursor: pointer;
+  outline: none;
+  touch-action: none;
 }
 
-.media-player-track-fill {
-  position: absolute;
-  inset: 0 auto 0 0;
-  border-radius: 2px;
-  background: #f2a33c;
+.media-player-seek:focus-visible {
+  outline: 2px solid var(--m-accent);
+  outline-offset: 4px;
+  border-radius: var(--m-radius-sm);
 }
 
-.media-player-track:hover .media-player-track-fill {
-  background: #ffb35c;
-}
-
-/* Buffered-ahead portion of the seek bar, behind the played portion. */
-.media-player-track-buffer {
-  position: absolute;
-  inset: 0 auto 0 0;
+.media-player-seek-track {
+  position: relative;
+  width: 100%;
+  height: 4px;
+  overflow: hidden;
   border-radius: 2px;
   background: rgba(255, 255, 255, 0.22);
+  transition: height 140ms var(--m-ease-chrome);
 }
 
-.media-player-icon {
-  border: 1px solid #232830;
-  background: transparent;
-  color: #8b93a0;
-  border-radius: 6px;
-  padding: 4px 8px;
+.media-player-seek:hover .media-player-seek-track,
+.media-player-seek:focus-visible .media-player-seek-track {
+  height: 7px;
+}
+
+.media-player-seek-buffer,
+.media-player-seek-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+}
+
+.media-player-seek-buffer {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.media-player-seek-fill {
+  background: var(--m-accent);
+}
+
+.media-player-seek-knob {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--m-text);
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0);
+  transition: transform 140ms var(--m-ease-chrome);
+}
+
+.media-player-seek:hover .media-player-seek-knob,
+.media-player-seek:focus-visible .media-player-seek-knob {
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.media-player-seek-tip {
+  position: absolute;
+  bottom: 24px;
+  padding: 3px 7px;
+  border: 1px solid var(--m-hairline);
+  border-radius: var(--m-radius-sm);
+  background: var(--m-bg-elevated);
+  color: var(--m-text);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+/* −10s / +10s feedback for keyboard seeks. */
+.media-player-ripple {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  padding: 2px 10px;
+  border-radius: var(--m-radius-pill);
+  background: rgba(0, 0, 0, 0.6);
+  color: var(--m-text);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+  pointer-events: none;
+  animation: media-player-ripple 700ms var(--m-ease-chrome) forwards;
+}
+
+@keyframes media-player-ripple {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.92);
+  }
+  25% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.06);
+  }
+}
+
+@keyframes media-player-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ── volume ── */
+
+.media-player-volume {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.media-player-volume-slider {
+  display: flex;
+  align-items: center;
+  width: 0;
+  overflow: hidden;
+  transition: width 160ms var(--m-ease-chrome);
+}
+
+.media-player-volume:hover .media-player-volume-slider,
+.media-player-volume:focus-within .media-player-volume-slider {
+  width: 90px;
+}
+
+.media-player-volume-slider input {
+  width: 90px;
+  accent-color: var(--m-accent);
+  cursor: pointer;
+}
+
+/* ── buttons ── */
+
+.media-player-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--m-hairline);
+  border-radius: var(--m-radius-sm);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--m-text-dim);
   font-size: 12px;
   cursor: pointer;
 }
 
-.media-player-icon:hover {
-  color: #e8ecf1;
-  background: #171b21;
+.media-player-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--m-text);
 }
 
-.media-player-volume {
-  width: 88px;
-  accent-color: #f2a33c;
+.media-player-btn.is-icon {
+  width: 32px;
+  padding: 0;
+  justify-content: center;
+  font-size: 14px;
 }
 
-.media-player-badge {
-  font-family: var(--media-mono, "SF Mono", Menlo, monospace);
-  font-size: 10px;
-  color: #ffb35c;
-  border: 1px solid rgba(242, 163, 60, 0.4);
-  border-radius: 4px;
-  padding: 2px 6px;
+.media-player-btn.is-primary {
+  border-color: var(--m-accent);
+  background: var(--m-accent);
+  color: var(--m-text);
 }
 
-.media-player-badge.subtle {
-  color: #8b93a0;
-  border-color: #232830;
+.media-player-btn.is-primary:hover {
+  background: var(--m-accent-hover);
 }
 
-/* Live stream stats: speed, buffered span, peer count. */
-.media-player-badge.stats {
-  color: #8b93a0;
-  border-color: #232830;
-  background: rgba(255, 255, 255, 0.02);
+.media-player-close:focus-visible,
+.media-player-btn:focus-visible,
+.media-player-transport:focus-visible {
+  outline: 2px solid var(--m-accent);
+  outline-offset: 2px;
 }
 
-/* Torrent stream stalled: cache fill + arrival rate, in the player chrome. */
-.media-player-badge.buffering {
-  color: #f2a33c;
-  border-color: rgba(242, 163, 60, 0.35);
-  background: rgba(242, 163, 60, 0.08);
+/* ── 2 px position hairline: the only chrome left while idle ── */
+
+.media-player-hairline {
+  height: 2px;
+  background: rgba(255, 255, 255, 0.08);
 }
 
-/* Status line inside the stage while a torrent loads (surface is hidden then). */
+.media-player-hairline span {
+  display: block;
+  height: 100%;
+  background: var(--m-accent);
+  transition: width 250ms linear;
+}
+
+/* ── stage content (only ever visible while the surface is hidden) ── */
+
+.media-player-loading {
+  display: grid;
+  place-items: center;
+  gap: 16px;
+}
+
+.media-player-spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid rgba(255, 255, 255, 0.14);
+  border-top-color: var(--m-accent);
+  border-radius: 50%;
+  animation: media-spin 0.9s linear infinite;
+}
+
 .media-player-stage-note {
-  position: absolute;
-  bottom: 22px;
   margin: 0;
+  color: var(--m-text-dim);
+  font-family: ui-monospace, Menlo, monospace;
   font-size: 12px;
-  color: #8b93a0;
-  font-family: var(--media-mono, "SF Mono", Menlo, monospace);
+}
+
+/* Audio-only source: no native frame exists, so the stage carries the art. */
+.media-player-art {
+  display: grid;
+  place-items: center;
+  gap: 18px;
+  width: 100%;
+  height: 100%;
+  background: var(--m-bg);
+}
+
+.media-player-art-img {
+  max-width: 38%;
+  max-height: 62%;
+  border-radius: var(--m-radius-card);
+  box-shadow: var(--m-shadow-panel);
+}
+
+.media-player-art-title {
+  color: var(--m-text-dim);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.media-player-error {
+  display: grid;
+  gap: 8px;
+  max-width: 520px;
+  padding: 22px 24px;
+  border: 1px solid rgba(255, 107, 107, 0.35);
+  border-radius: var(--m-radius-panel);
+  background: var(--m-bg-elevated);
+  text-align: center;
+}
+
+.media-player-error-title {
+  margin: 0;
+  color: var(--m-error);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.media-player-error-reason {
+  margin: 0;
+  color: var(--m-text-dim);
+  font-size: 13px;
+  word-break: break-word;
+}
+
+.media-player-error-note {
+  margin: 0;
+  color: var(--m-text-muted);
+  font-size: 11.5px;
+}
+
+.media-player-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 6px;
 }
 
 /* ------------------------------------------------------------------ *
@@ -1851,6 +2145,16 @@
   .media-card:hover .media-card-poster,
   .media-card:focus-visible .media-card-poster {
     transform: none;
+  }
+  .media-player-seek-track,
+  .media-player-seek-knob,
+  .media-player-seek-knob,
+  .media-player-volume-slider,
+  .media-player-hairline span {
+    transition: none;
+  }
+  .media-player-ripple {
+    animation-duration: 1ms;
   }
   .media-hero-backdrop {
     transform: none;

@@ -56,10 +56,10 @@ export function StreamRow({ ranked, metaId }: { ranked: RankedStream; metaId: st
       lastError.current = null;
     }
     if (direct && ranked.stream.url) {
-      openPlayer(ranked.stream.url, title, metaId);
+      openPlayer(ranked.stream.url, title, metaId, ranked.qualityBadge);
       return;
     }
-    if (hash) void streamTorrent(hash, title, metaId);
+    if (hash) void streamTorrent(hash, title, metaId, ranked.qualityBadge);
   };
 
   const playExternal = async () => {

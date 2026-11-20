@@ -50,7 +50,15 @@ export interface MediaState {
   /** Streams-panel filter (spec §4.3) — client-side, never a refetch. */
   streamFilter: StreamFilter;
   /** Phase 3/4c: in-app player source (native libmpv surface). */
-  playerSource: { url: string; title: string; metaId?: string } | null;
+  playerSource: {
+    url: string;
+    title: string;
+    metaId?: string;
+    /** Poster for the audio-only stage art (WP4a). */
+    poster?: string | null;
+    /** Stream quality badge (`4K`, `1080p`) for the player's codec chip. */
+    quality?: string | null;
+  } | null;
   /** Live state reported by the libmpv engine. */
   playerStatus: NativePlayerStatus | null;
   /** Whether the native engine is usable on this machine. */
@@ -86,11 +94,16 @@ export interface MediaState {
   selectMeta: (meta: MediaCatalogMeta) => void;
   clearSelection: () => void;
   loadStreams: (meta: MediaCatalogMeta) => Promise<void>;
-  openPlayer: (url: string, title: string, metaId?: string) => void;
+  openPlayer: (url: string, title: string, metaId?: string, quality?: string | null) => void;
   closePlayer: () => void;
   setPlayerStatus: (status: NativePlayerStatus | null) => void;
   loadPlayerDiagnostics: () => Promise<void>;
-  streamTorrent: (infoHash: string, title: string, metaId?: string) => Promise<void>;
+  streamTorrent: (
+    infoHash: string,
+    title: string,
+    metaId?: string,
+    quality?: string | null,
+  ) => Promise<void>;
   refreshEngineStats: () => Promise<void>;
   loadDebridConfig: () => Promise<void>;
   saveDebridConfig: (config: { provider: "realdebrid" | "torbox"; apiKey: string }) => Promise<void>;
@@ -248,8 +261,20 @@ export const useMediaStore = create<MediaState>((set, get) => ({
     }
   },
 
-  openPlayer(url, title, metaId) {
-    set({ playerSource: { url, title, metaId }, playerStatus: null, screen: "player" });
+  openPlayer(url, title, metaId, quality) {
+    set({
+      playerSource: {
+        url,
+        title,
+        metaId,
+        // Poster rides along so the stage can show title art for an audio-only
+        // source, where no native frame ever appears (spec §5.3).
+        poster: get().selected?.poster ?? null,
+        quality: quality ?? null,
+      },
+      playerStatus: null,
+      screen: "player",
+    });
   },
 
   closePlayer() {
@@ -280,7 +305,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
     }
   },
 
-  async streamTorrent(infoHash, title, metaId) {
+  async streamTorrent(infoHash, title, metaId, quality) {
     set({ engine: { infoHash, baseUrl: "", phase: "resolving" } });
     let baseUrl = "";
     try {
@@ -322,7 +347,13 @@ export const useMediaStore = create<MediaState>((set, get) => ({
               speed: status.downloadSpeed,
               state: status.state,
             },
-            playerSource: { url: status.streamUrl, title: label, metaId },
+            playerSource: {
+              url: status.streamUrl,
+              title: label,
+              metaId,
+              poster: get().selected?.poster ?? null,
+              quality: quality ?? null,
+            },
           });
           return;
         }

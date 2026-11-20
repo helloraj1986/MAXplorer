@@ -495,7 +495,7 @@ Card width = `clamp(150px, 8.5vw, 300px)`; poster height derives from the 0.7 ra
 | **WP1** ✅ | Tokens + shell: `media-tokens.css`, `MediaShell`, `MediaRail`, `MediaTopBar`, icons | Board renders inside the new shell at 3440 and 1440; rail keyboard-navigable; `tsc` + vitest green; screenshots from the user match the reference chrome |
 | **WP2** | Board: `MediaHero`, `MediaCarousel`, `MediaPosterCard` | Cinemeta rows render with 0.7 posters, hover play overlay, progress bars drawn from a stub store; loading + error states |
 | **WP3** | Detail + `StreamsPanel` + new `StreamRow` (7-line anatomy, filter, in-row engine states) | Torrentio rows show quality/codec/size/bitrate/langs; filter works; selecting a row plays; the previous `StreamsSheet` is gone |
-| **WP4a** | Player chrome: autohide strips, transport, seek with buffered span (+ optimistic drag), volume, state pill, error card, keyboard map, 2 px hairline when idle | Plays a 4K HEVC MKV; chrome hides after 3 s; buffered span tracks `cacheSeconds`; error card visible (surface hidden); seek drag = one commit, not a seek queue |
+| **WP4a** ✅ | Player chrome: autohide strips, transport, seek with buffered span (+ optimistic drag), volume, state pill, error card, keyboard map, 2 px hairline when idle | Plays a 4K HEVC MKV; chrome hides after 3 s; buffered span tracks `cacheSeconds`; error card visible (surface hidden); seek drag = one commit, not a seek queue |
 | **WP4b** | Player **engine performance** (backend): coalesced state events, zero-copy frame present, SW scaler/target tuning, session prewarm, per-source cache policy, drop telemetry | Webview CPU and `media.player.perf` drop counts measured before/after; existing headless proofs still green. Backlog: `HANDOVER.md` §0 "WP4b backlog". |
 | **WP5** | Track menus + watch progress: `media_player_tracks`/`media_player_set_track`, `TrackMenu`, `library.json` writes, "Continue watching" fed by real progress | Switch audio to English on the 6-track test release; subtitles off/on/forced; quit and resume at the same position; Continue watching appears on the board |
 | **WP6** | Polish: responsiveness table, a11y pass, reduced motion, skeletons, `Show all` cap | Keyboard-only walkthrough of A→B→C; contrast checks; `prefers-reduced-motion` honoured |
@@ -613,6 +613,61 @@ episode strip for series; TV/D-pad layout (roadmap 7).
 - Gates: `npx tsc --noEmit` clean; `npx vitest run src/components/media` → **74
   passed** (49 before; new: `MediaDetail.test.tsx`, `StreamsPanel.test.tsx`,
   `StreamRow.test.tsx`, and parsing/filter cases in `streams.test.tsx`).
+
+### WP4a as built (2026-11-21, branch `feature/media-ui-wp4a`)
+
+- **Layout consequence of the native surface.** The chrome is a flex sibling of
+  `.media-player-stage`, never positioned over it: showing the chrome shrinks the
+  stage (the stage's `ResizeObserver` pushes the new rect to
+  `media_player_set_rect`), hiding it hands the whole window to the video. Idle
+  therefore drops the strips with `display: none` and leaves only the 2 px
+  hairline — which is exactly `crop-player-bottom.png`: no chrome at all while
+  playing. No height transition on the strips: animating the height would re-send
+  the native rect every frame (that is WP4b's coalescing territory), so the
+  geometry change is instant and only the non-geometric bits fade.
+- `PlayerOverlay.tsx` rewritten: 72 px top strip (32 px ghost close, 15/600 title,
+  `quality · CODEC` chip from the stream badge + mpv `video-format`, stats pill
+  `↓ speed · Ns buffered · N peers` + fullscreen), 40 px state row
+  (`Buffering 42% · 1.5 MB/s` from `cacheSummary`, or
+  `Connecting to the swarm… 37% · 12 peers`), 88 px bottom bar (40 px play/pause,
+  elapsed, seek, total, mute + 90 px hover-expanding slider, fullscreen), 2 px
+  hairline carrying the played percentage.
+- Autohide: visible on mousemove / pause / eof / `Tab`; hides 3 s after the last
+  input while playing; `cursor: none` while idle; `Tab` when hidden also focuses
+  the play button; `Esc` hides the chrome first and closes the player on the
+  second press. Paused and ended playback pin the chrome (spec §5.3).
+- Seek: optimistic drag — the local scrub position renders immediately and
+  `player_seek` fires **once**, on release (`seekSecondsFromPointer` is the pure
+  drag math). Buffered span from `cacheSeconds`, played span `--m-accent`, hover →
+  7 px track + 14 px knob + a **text** time tooltip. `role="slider"` with
+  `aria-valuetext="12:34 of 1:44:59"`, arrows ±5 s, Home/End to the ends; keyboard
+  seeks show a `−10s`/`+10s` ripple inside the bar.
+- Volume: icon mutes, slider expands to 90 px on hover/focus, `↑/↓` ±5, `M`
+  mutes, and the ephemeral `Volume 40%` readout renders in the state row — the
+  stage centre would be covered by the surface.
+- Error card replaces the stage content (`role="alert"`, reason, `↗ Open in
+  external player`, `Retry` re-opens the player via a nonce) and the
+  `fileLoaded` → `set_surface_visible` gate is unchanged, so a failure is never a
+  black rectangle. Ended → play icon, chrome pinned. Audio-only (file loaded, no
+  `video-format`) → poster + title art on `--m-bg`.
+- **Deliberately absent, not stubbed:** `⏮`/`⏭` need an episode playlist, and the
+  audio/subtitle/speed menus need WP5's `media_player_tracks` — the bar ships no
+  dead buttons, its right cluster ends at fullscreen.
+- `src/state/mediaStore.ts` — `playerSource` gained `poster` (audio-only art) and
+  `quality` (codec chip); `openPlayer(url, title, metaId?, quality?)` and
+  `streamTorrent(…, quality?)` take it, and the poster comes from the selected
+  meta, so `StreamRow` stays the only call site that changes.
+- **Known gap (backend, deferred):** the NSView has no
+  `ignoresMouseEvents`/`hitTest` override, so pointer events over the video may
+  never reach the webview; the mousemove wake-up is then only reliable over the
+  strips and the 2 px hairline, and `Tab` is the guaranteed path. `PlayerOverlay`
+  already listens for a future `media-player://pointer` emit from the NSView's
+  `mouseMoved`.
+- Gates: `npx tsc --noEmit` clean; `npx vitest run src/components/media` → **91
+  passed** (74 before; `PlayerOverlay.test.tsx` 4 → 21 cases (now jsdom, mocked `../../lib/api`)
+  with a mocked `../../lib/api`: autohide on fake timers, paused pin, `Tab`
+  reveal, key map → `api.*`, one-seek-per-gesture, buffered-span width, error
+  card, slider `aria-valuetext`, audio-only art).
 
 ---
 

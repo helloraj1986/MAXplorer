@@ -7,7 +7,7 @@
 | Project version | 0.2.1 (aarch64 DMG) + media feature on `feature/stremio-compat` |
 | Repository | https://github.com/helloraj1986/MAXplorer (private) |
 | Release | https://github.com/helloraj1986/MAXplorer/releases/latest |
-| Current branch | `feature/media-ui-wp2` (branched from `feature/media-ui-wp1`) — read the head with `git log --oneline -1` (a fixed SHA here goes stale the moment anything is committed). Last installable build: 2026-11-21, installed at `/Applications/MAXplorer.app`. **`feature/stremio-compat`, `feature/media-ui-wp1` and `feature/media-ui-wp2` are not yet on origin** (`git push origin <branch>`). |
+| Current branch | `feature/media-ui-wp4a` (branched from `feature/media-ui-wp3`) — read the head with `git log --oneline -1` (a fixed SHA here goes stale the moment anything is committed). Last installable build: 2026-11-21, installed at `/Applications/MAXplorer.app`. **`feature/stremio-compat`, `feature/media-ui-wp1`, `-wp2`, `-wp3` and `-wp4a` are not yet on origin** (`git push origin <branch>`). |
 
 ---
 
@@ -23,99 +23,83 @@ item per session — never batched.**
 >    three screens, component/file inventory, data mapping, keyboard/a11y rules and
 >    six work packages (WP1 tokens+shell → WP6 polish; WP4 is split into WP4a
 >    chrome / WP4b engine performance). **Implement one WP per session; WP1, WP2,
->    WP3 done, WP4a is next.** Reference images (not in git):
+>    WP3 and WP4a are done, WP4b is next.** Reference images (not in git):
 >    `~/hermes-workspace/maxplorer-media/ui-reference/`.
 > 2. **`docs/MEDIA_PLAYER_HANDOVER.md`** — the player internals: what works, the
 >    three architectures already ruled out **with evidence**, and the as-built
 >    record of the libmpv render API. Read before touching playback.
 >
-> **WP1 (tokens + shell), WP2 (the board) and WP3 (detail + streams panel) are
-> DONE** — components and the as-built notes are in `docs/MEDIA_UI_SPEC.md` §10.
-> Gates green: `npx tsc --noEmit`; vitest `src/components/media` → 74 passed.
-> WP3 lives on `feature/media-ui-wp3` @ `cb138ae` (pushed).
+> **WP1 (tokens + shell), WP2 (the board), WP3 (detail + streams panel) and WP4a
+> (player chrome) are DONE** — components and the as-built notes are in
+> `docs/MEDIA_UI_SPEC.md` §10. Gates green: `npx tsc --noEmit`; vitest
+> `src/components/media` → 91 passed. WP3 lives on `feature/media-ui-wp3` @
+> `cb138ae` (pushed); WP4a lives on `feature/media-ui-wp4a`.
 
 ---
 
-## ▶ NEXT SESSION — UI WP4a: player chrome (exactly this, nothing else)
+## ✅ UI WP4a DONE — player chrome (branch `feature/media-ui-wp4a`, off `feature/media-ui-wp3`)
 
-**Branch:** `feature/media-ui-wp4a` off `feature/media-ui-wp3`.
-**Read first:** `docs/MEDIA_UI_SPEC.md` §5 (screen C) + §10 WP4a, then
-`docs/MEDIA_PLAYER_HANDOVER.md` §4.6 (as-built render path) and §8 (blank-video RCA).
-Reference crop: `~/hermes-workspace/maxplorer-media/ui-reference/crop-player-bottom.png`
-(plus `stremio-03-player.png`). Load the crop before writing CSS.
+Frontend only: `src-tauri/src/player.rs` and `render.rs` were **not** touched, so
+`framedrop=vo`, the `fileLoaded` → `set_surface_visible` gate and the torrent
+readiness Range-probe are all unchanged. As-built detail lives in
+`docs/MEDIA_UI_SPEC.md` §10 "WP4a as built"; the load-bearing points:
 
-### Scope (frontend only — do NOT touch `render.rs` / `player.rs` in this WP)
+- **Three strips, no overlay on the stage.** Top strip 72 px (close, title, codec ·
+  resolution chip, right cluster = stats pill + fullscreen), bottom region
+  = 40 px state row + 88 px bar (transport, elapsed, seek, total, volume,
+  fullscreen) + the 2 px hairline. Chrome is a flex sibling of
+  `.media-player-stage`, **never** absolutely positioned over it.
+- **The stage is what the native surface covers**, so the chrome collapsing is
+  what gives the video the full window: idle → strips `display:none`, stage grows,
+  the ResizeObserver pushes the new rect to `media_player_set_rect`, and only the
+  2 px hairline (progress width) stays. Deliberately **no height transition** —
+  animating the height would re-send the native rect every frame (that is WP4b
+  item 1 territory).
+- **Autohide contract:** visible on mousemove / pause / eof / `Tab`, hides 3 s
+  after the last input while playing; `cursor: none` while idle; reduced motion
+  drops the seek/volume transitions.
+- **Seek:** optimistic drag (local scrub, `player_seek` only on release — one per
+  gesture), buffered span from `cacheSeconds`, hover → 7 px track + 14 px knob +
+  text time tooltip, `role="slider"` with `aria-valuetext="12:34 of 1:44:59"`,
+  arrows ±5 s, Home/End. `−10s`/`+10s` ripple for keyboard seeks.
+- **Volume:** icon mutes, slider expands to 90 px on hover/focus, `↑/↓` ±5, `M`
+  mute, ephemeral "Volume 40%" readout in the **state row** (not the stage).
+- **States:** buffering pill `Buffering 42% · 1.5 MB/s` (from `cacheSummary`),
+  `Connecting to the swarm… 37% · 12 peers` while the engine resolves, error card
+  (`role="alert"`, reason, `↗ Open in external player`, `Retry` → re-opens the
+  player), ended → play icon + chrome pinned, audio-only → poster + title art on
+  `--m-bg`.
+- **No dead buttons:** `⏮`/`⏭` need an episode playlist and the audio/subtitle/
+  speed menus need WP5's `media_player_tracks`, so the bar ships play/pause only
+  and its right cluster ends at fullscreen.
+- **Store:** `playerSource` gained `poster` (audio-only art) and `quality` (codec
+  chip); `openPlayer`/`streamTorrent` take an optional quality and read the poster
+  from the selected meta, so no call site fabricates either.
+- **Known gap (needs backend, deferred):** the native NSView has no
+  `ignoresMouseEvents`/`hitTest` override, so a pointer over the video may never
+  reach the webview — the mousemove wake-up is then only reliable over the strips
+  and the 2 px hairline, and `Tab` is the guaranteed path. `PlayerOverlay` already
+  listens for `media-player://pointer`; emitting it from the NSView's
+  `mouseMoved` is a one-line backend change for WP4b/WP5. Confirm behaviour on the
+  installed build before deciding.
+- Gates: `npx tsc --noEmit` clean; `npx vitest run src/components/media` → **91
+  passed** (74 before; `PlayerOverlay.test.tsx` grew 17 cases: autohide with fake
+  timers, key map → `api.*` calls, seek ratio math, buffered-span width, error
+  card, slider `aria-valuetext`, single-seek-per-gesture, audio-only art).
+- Handover path used: build (background) → `grep -c "media-player-hairline"
+  dist/assets/*.js` → install `/Applications/MAXplorer.app` → user compares to
+  `crop-player-bottom.png` (which shows **no chrome at all** while playing — the
+  idle state is the acceptance shot).
 
-Rewrite `src/components/media/PlayerOverlay.tsx` chrome to §5 on `--m-*` tokens,
-plus a new `.media-player-*` block in `src/styles/media.css` (replace the
-carried-over orange chrome entirely). Keep the `media-` class prefix.
+---
 
-1. **Three strips, no overlays on the stage.** Top strip (72 px, gradient from
-   black 70%): close `✕` (32 px ghost), title 15/600, optional `S/E`, codec +
-   resolution chip, right cluster = stats pill + fullscreen. Bottom bar (88 px,
-   gradient): `⏮ ⏯ ⏭` 40 px, elapsed, seek (flex), total, volume icon + 90 px
-   slider that expands on hover, fullscreen. Everything outside
-   `.media-player-stage` — the native `NSView` composites **above** the webview,
-   so nothing drawn on the stage can ever be seen (spec §5.2, skill do-not list).
-2. **Autohide contract.** Visible on mousemove / pause / `Tab`; hides 3 s after
-   the last input while playing (`.is-idle` fade, `prefers-reduced-motion` →
-   fade only). Cursor hides with the chrome. When hidden, keep a **2 px progress
-   hairline** at the very bottom so position stays readable.
-3. **State pill** 40 px above the bar, `role="status"`: `Buffering 42 % · 1.5 MB/s`
-   from `cacheSummary`, or `Connecting to the swarm… 37 % · 12 peers` while the
-   engine resolves. Error card instead of the stage content (`role="alert"`, reason,
-   `↗ Open in external player`, `Retry`) — resume the hidden-surface rule in the
-   same breath: `fileLoaded` gate stays, surface stays hidden on error.
-4. **Seek bar.** 4 px track `rgba(255,255,255,.22)`, buffered span
-   `rgba(255,255,255,.4)` from `cacheSeconds`, played span `--m-accent`, hover →
-   7 px + 14 px knob + a **text** time tooltip. Dragging is optimistic: render the
-   local scrub position immediately and only call `player_seek` on release (one
-   seek per gesture, no seek queue). Slider semantics: `role="slider"`,
-   `aria-valuetext="12:34 of 1:44:59"`, arrow keys scrub ±5 s, Home/End to ends.
-5. **Volume.** Icon toggles mute, slider expands on hover, `↑/↓` ±5, `M` mute,
-   ephemeral "Volume 40 %" curtain when it changes.
-6. **Keyboard map (§5), bound on `window`** — the native surface has focus:
-   `Space`/`K` play-pause · `←/→` ±10 s · `Shift+←/→` ±60 s · `↑/↓` volume ±5 ·
-   `M` mute · `F` fullscreen (Tauri window fullscreen) · `Tab` show chrome and
-   move focus into it · `Esc` hide chrome, then close the player. Seek keys show a
-   `−10s / +10s` ripple inside the bar.
-7. **Ended state**: play icon resets, `⏭` only when a next episode is known.
-   Audio-only source: stage shows the title art on `--m-bg` (poster comes from the
-   selected meta; `playerSource` carries only `metaId` today — either thread a
-   `poster` field through `openPlayer`, or render the title art and note it).
+## ▶ NEXT SESSION — UI WP4b: engine performance (exactly this, nothing else)
 
-**Deliberately NOT in 4a** (they need backend commands that belong to WP5):
-audio/subtitle **menus**, speed menu, and `media_player_tracks` /
-`media_player_set_track`. Do not ship dead buttons for them — the bar's right
-cluster simply ends at fullscreen. (Optional only if it costs <15 min:
-`media_player_set_speed` + a 0.5–2× speed menu, mpv `speed` property.)
-
-### Constraints that already cost cycles
-- Chrome class prefix `media-`; the old `.media-player-head/controls/track/badge`
-  names are yours to replace, but `PlayerOverlay.test.tsx` and
-  `src/state/mediaStore.ts` must keep working (`playerSource`, `closePlayer`).
-- Keep `framedrop=vo`, the `fileLoaded`→`set_surface_visible` gate, and the
-  Range-probe before a torrent URL reaches mpv (never bypass).
-- No faked seeder counts; peers only.
-- jsdom cannot assert layout — visual acceptance is the user looking at the
-  installed `.app` against `crop-player-bottom.png`.
-
-### Gate + handover
-```
-npx tsc --noEmit && npx vitest run src/components/media
-```
-Add `PlayerOverlay.test.tsx` cases: autohide with `vi.useFakeTimers`, key map
-dispatches the right `api.*` calls (mock `../../lib/api`), seek ratio math,
-buffered-span width from `cacheSeconds`, error card replaces the stage, slider
-`aria-valuetext`. No jest-dom (use `toBeTruthy()`/`textContent`).
-
-Then: build (background, `notify=true`, finish edits first), grep the new string
-in `dist/assets/*.js`, install to `/Applications`, verify with the user's click
-path, compare against `crop-player-bottom.png`.
-
-**After 4a ships, the next item is WP4b (engine performance) — read the backlog
-below before starting it.**
-
+**Branch:** `feature/media-ui-wp4b` off `feature/media-ui-wp4a`.
+**Read first:** the backlog below, then `docs/MEDIA_PLAYER_HANDOVER.md` §4.6 and
+`src-tauri/src/player.rs` / `render.rs`. This WP is backend + measurement: every
+item is one measurable change, one per session, before/after numbers in the
+commit message.
 
 ### WP4b backlog — player engine performance (measured from the code, not guessed)
 
