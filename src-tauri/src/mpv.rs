@@ -50,6 +50,8 @@ pub const MPV_EVENT_SEEK: c_int = 20;
 pub const MPV_EVENT_PLAYBACK_RESTART: c_int = 21;
 #[allow(dead_code)]
 pub const MPV_EVENT_PROPERTY_CHANGE: c_int = 22;
+#[allow(dead_code)]
+pub const MPV_EVENT_VIDEO_RECONFIG: c_int = 17;
 
 // ── mpv_end_file_reason ─────────────────────────────────────────────────────
 pub const MPV_END_FILE_REASON_EOF: c_int = 0;
@@ -165,12 +167,16 @@ fn candidate_paths() -> Vec<PathBuf> {
 }
 
 fn load_libmpv() -> Result<LibMpv, String> {
-    let mut last_error = String::from("libmpv was not found in any known location");
+    // Collect every attempt so a failure names each path and its real reason —
+    // macOS reports different errors per path (missing file, wrong arch, or the
+    // hardened runtime's library-validation refusal), and the last one alone is
+    // misleading when an earlier path exists but is blocked.
+    let mut attempts: Vec<String> = Vec::new();
     for path in candidate_paths() {
         let library = match unsafe { libloading::Library::new(&path) } {
             Ok(library) => library,
             Err(error) => {
-                last_error = format!("could not load {}: {error}", path.display());
+                attempts.push(format!("{}: {error}", path.display()));
                 continue;
             }
         };
@@ -212,11 +218,16 @@ fn load_libmpv() -> Result<LibMpv, String> {
                 });
             }
             Err(error) => {
-                last_error = format!("{} is not a usable libmpv: {error}", path.display());
+                attempts.push(format!("{}: {error}", path.display()));
             }
         }
     }
-    Err(last_error)
+    Err(format!(
+        "libmpv could not be loaded. Tried:\n  {}\n\
+         If a path exists but was refused, the app's hardened runtime is \
+         blocking it (needs com.apple.security.cs.disable-library-validation).",
+        attempts.join("\n  ")
+    ))
 }
 
 /// Human-readable description of a libmpv error code.

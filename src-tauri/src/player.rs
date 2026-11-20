@@ -812,6 +812,88 @@ pub async fn media_player_close(app: tauri::AppHandle) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Development probe (used by `examples/embed_probe.rs`): creates a real AppKit
+/// window, embeds mpv into an NSView inside it via `wid`, loads `url`, and
+/// reports what mpv actually did. **Must be called from the main thread** —
+/// that is why it lives in an example binary rather than a `#[test]`, since the
+/// test harness runs tests on worker threads and AppKit aborts there.
+#[doc(hidden)]
+pub fn dev_probe_embed(url: &str, seconds: u64) -> Result<String, AppError> {
+    use std::time::{Duration, Instant};
+
+    let lib = mpv::libmpv().map_err(|error| perr(error))?;
+    let api: &'static MpvApi = &lib.api;
+
+    unsafe {
+        let app: *mut AnyObject = msg_send![objc2::class!(NSApplication), sharedApplication];
+        let _: () = msg_send![app, setActivationPolicy: 1i64]; // Accessory
+        let window: *mut AnyObject = msg_send![objc2::class!(NSWindow), alloc];
+        let window: *mut AnyObject = msg_send![
+            window,
+            initWithContentRect: NSRect::from_points(0.0, 0.0, 640.0, 360.0),
+            styleMask: 0u64,
+            backing: 2u64, // NSBackingStoreBuffered
+            defer: Bool::NO
+        ];
+        if window.is_null() {
+            return Err(perr("could not create a probe window"));
+        }
+        // NOTE: deliberately no makeKeyAndOrderFront — the production path never
+        // orders a window (it only adds a subview to the existing Tauri window),
+        // and ordering blocks on a headless/disconnected display.
+
+        let view = create_view(window, NSRect::from_points(0.0, 0.0, 640.0, 360.0));
+        if view.is_null() {
+            return Err(perr("could not create the probe video surface"));
+        }
+
+        let handle = (api.mpv_create)();
+        if handle.is_null() {
+            return Err(perr("libmpv could not create a player instance"));
+        }
+        set_option(api, handle, "config", "no");
+        set_option(api, handle, "terminal", "no");
+        set_option(api, handle, "ao", "null");
+        let wid_code = set_option_i64(api, handle, "wid", view as i64);
+        let init_code = (api.mpv_initialize)(handle);
+        if init_code < 0 {
+            return Err(perr(format!(
+                "mpv_initialize failed: {}",
+                mpv::error_string(api, init_code)
+            )));
+        }
+        observe(api, handle);
+        let vo_before = get_property_string(api, handle, "vo");
+
+        command(api, handle, &["loadfile", url, "replace"])?;
+
+        let deadline = Instant::now() + Duration::from_secs(seconds);
+        let (mut loaded, mut reconfig) = (false, false);
+        while Instant::now() < deadline && !(loaded && reconfig) {
+            let event = (api.mpv_wait_event)(handle, 0.25);
+            if event.is_null() {
+                break;
+            }
+            match (*event).event_id {
+                mpv::MPV_EVENT_FILE_LOADED => loaded = true,
+                mpv::MPV_EVENT_VIDEO_RECONFIG => reconfig = true,
+                _ => {}
+            }
+        }
+
+        let vo_after = get_property_string(api, handle, "vo");
+        let video = get_property_string(api, handle, "video-format");
+        let audio = get_property_string(api, handle, "audio-codec-name");
+        (api.mpv_terminate_destroy)(handle);
+
+        Ok(format!(
+            "libmpv={} wid_rc={wid_code} init_rc={init_code} vo={vo_before:?}->{vo_after:?} \
+             video={video:?} audio={audio:?} file_loaded={loaded} vo_reconfig={reconfig}",
+            lib.version
+        ))
+    }
+}
+
 /// Run `work` against the live session, or fail if nothing is playing.
 fn with_session<T>(
     work: impl FnOnce(&MpvApi, MpvHandle, &Arc<Mutex<PlayerStatus>>) -> Result<T, AppError>,
