@@ -104,6 +104,18 @@ export const api = {
   getMediaStreams: (url: string, type: string, id: string) =>
     call<StreamsResponse>("media_streams", { url, type, id }),
   playMediaStream: (url: string) => call<{ player: string }>("media_play", { url }),
+  startTorrent: (infoHash: string) =>
+      call<{ baseUrl: string }>("media_torrent_start", { infoHash }),
+    torrentStatus: (infoHash: string, baseUrl: string) =>
+      call<{ registered: boolean; metadataReady: boolean; name: string | null; files: { idx: number; name: string; length: number }[] }>(
+        "media_torrent_status",
+        { infoHash, baseUrl },
+      ),
+    debridResolve: (infoHash: string) => call<string>("media_debrid_resolve", { infoHash }),
+    debridSaveConfig: (config: { provider: "realdebrid" | "torbox"; apiKey: string }) =>
+      call<void>("media_debrid_save_config", { config }),
+    debridGetConfig: () => call<{ provider: "realdebrid" | "torbox"; apiKey: string } | null>("media_debrid_get_config"),
+    debridTestKey: (provider: "realdebrid" | "torbox", apiKey: string) => call<boolean>("media_debrid_test_key", { provider, apiKey }),
   getSidebarLocations: () => call<Location[]>("get_sidebar_locations"),
   ejectVolume: (path: string) => call<void>("eject_volume", { path }),
   connectNetworkLocation: (

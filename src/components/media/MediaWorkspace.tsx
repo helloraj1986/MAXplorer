@@ -218,8 +218,8 @@ function StreamsSheet({
         </ol>
       )}
       <p className="media-detail-hint">
-        Streams are ranked by quality, direct/debrid links, then size. Torrent links need the
-        stream engine (Phase 4) before they can play.
+        ▶ Play streams in-app · ↗ External opens VLC/IINA/mpv · ▶ Stream runs the embedded torrent
+        engine (files download locally). Ranked by quality, direct links, then size.
       </p>
     </section>
   );
@@ -228,8 +228,12 @@ function StreamsSheet({
 function StreamRow({ ranked }: { ranked: RankedStream }) {
   const toast = useExplorerStore((state) => state.toast);
   const openPlayer = useMediaStore((state) => state.openPlayer);
+  const streamTorrent = useMediaStore((state) => state.streamTorrent);
+  const engine = useMediaStore((state) => state.engine);
   const [playing, setPlaying] = useState(false);
   const direct = Boolean(ranked.stream.url && !ranked.stream.infoHash);
+  const hash = ranked.stream.infoHash ?? null;
+  const resolving = engine?.phase === "resolving" && engine.infoHash === hash;
   const playExternal = async () => {
     if (!direct || playing) return;
     setPlaying(true);
@@ -284,15 +288,18 @@ function StreamRow({ ranked }: { ranked: RankedStream }) {
             {playing ? "…" : "↗ External"}
           </button>
         </>
-      ) : (
-        <span
-          className="media-flag"
-          title="Torrent streams need the Phase 4 stream engine"
-          aria-label="Torrent stream, playback requires the Phase 4 engine"
+      ) : hash ? (
+        <button
+          type="button"
+          className="media-play"
+          disabled={resolving}
+          onClick={() => void streamTorrent(hash, ranked.label)}
+          aria-label={`Stream ${ranked.label} over torrent engine`}
+          title="Streams over the embedded torrent engine (local-first, no debrid needed)"
         >
-          🔒 Engine
-        </span>
-      )}
+          {resolving ? "…" : "▶ Stream"}
+        </button>
+      ) : null}
     </li>
   );
 }

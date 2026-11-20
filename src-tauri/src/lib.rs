@@ -15,6 +15,7 @@ pub mod search;
 mod storage;
 mod storage_cache;
 mod storage_maintenance;
+mod debrid;
 mod transfer;
 mod types;
 
@@ -176,6 +177,10 @@ pub fn run() {
             media::media_catalog,
             media::media_streams,
             media::media_play,
+            debrid::media_debrid_resolve,
+            debrid::media_debrid_save_config,
+            debrid::media_debrid_get_config,
+            debrid::media_debrid_test_key,
             commands::get_sidebar_locations,
             commands::eject_volume,
             commands::connect_network_location,

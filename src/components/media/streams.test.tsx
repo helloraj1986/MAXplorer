@@ -77,7 +77,7 @@ describe("MediaWorkspace streams sheet", () => {
     expect(screen.getByText(/Couldn't resolve streams: HTTP 429/)).toBeTruthy();
   });
 
-  it("shows a Play button for direct streams and an engine note for torrents", () => {
+  it("shows a Stream button for torrent rows instead of a locked note", () => {
     useMediaStore.setState({
       selected: { id: "tt123", name: "Test Movie", type: "movie" },
       streams: rankStreams([
@@ -90,7 +90,7 @@ describe("MediaWorkspace streams sheet", () => {
     render(<MediaWorkspace />);
     expect(screen.getByRole("button", { name: /Play .* in the app/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Play .* in external player/ })).toBeTruthy();
-    expect(screen.getByLabelText(/playback requires the Phase 4 engine/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Stream .* over torrent engine/ })).toBeTruthy();
   });
 
   it("opens the in-app player overlay and closes it", () => {
