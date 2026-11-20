@@ -16,6 +16,11 @@
 **This is the live workstream. Canonical roadmap: `docs/STREMIO_MEDIA.md`. One roadmap
 item per session — never batched.**
 
+> ### ▶ START HERE: `docs/MEDIA_PLAYER_HANDOVER.md`
+> The player has its own handover: what works, the three architectures already
+> ruled out **with evidence**, how Stremio differs, and the concrete plan for
+> embedding libmpv via the render API. Read it before touching playback.
+
 ### What exists (all verified live in the installed app)
 
 | Phase | Commit | What ships |

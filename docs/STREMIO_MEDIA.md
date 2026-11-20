@@ -60,6 +60,11 @@
 
 ## ROADMAP (ordered)
 
+0. **Phase 4d — Embed the player (NEXT)** — video currently renders in mpv's own
+   window; macOS has no `wid` path, so the **libmpv render API** is the only route.
+   Full plan, API constants and acceptance criteria: `docs/MEDIA_PLAYER_HANDOVER.md`.
+   Same doc also lists the pending buffering UI (`PlayerStatus.pausedForCache` etc.
+   are already wired backend-side).
 1. **Phase 5 — Addon manager UI** — install/remove by manifest URL, pinned-addons rail (from the mock), addon config pages in an iframe/webview tab.
 2. **Phase 6 — Library & sync** — My Library, watch progress, Trakt scrobbling; self-hostable sync profile.
 3. **Phase 7 — ⭐ TV / mobile (remote-friendly)** — VERY IMPORTANT, do not cut. The addon protocol is pure HTTP+JSON, so the core already works from any client:
