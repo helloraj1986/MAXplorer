@@ -205,6 +205,62 @@ symptom we have now).
 
 ---
 
+### 4.6 Reference implementations to copy (verified sources)
+
+**Stremio's desktop player does exactly the render API — no `wid`.** Source:
+`https://github.com/Stremio/stremio-shell/blob/master/mpv.cpp`
+
+```cpp
+mpv_opengl_init_params gl_init_params{get_proc_address_mpv, nullptr, nullptr};
+mpv_render_param params[]{
+  {MPV_RENDER_PARAM_API_TYPE, const_cast<char *>(MPV_RENDER_API_TYPE_OPENGL)},
+  {MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, &gl_init_params},
+  {MPV_RENDER_PARAM_INVALID, nullptr}};
+mpv_render_context_create(&obj->mpv_gl, obj->mpv, params);
+mpv_render_context_set_update_callback(obj->mpv_gl, on_mpv_redraw, obj);
+
+// per frame:
+QOpenGLFramebufferObject *fbo = framebufferObject();
+mpv_opengl_fbo mpfbo{static_cast<int>(fbo->handle()), fbo->width(), fbo->height(), 0};
+int flip_y{0};
+mpv_render_param p[] = {
+  {MPV_RENDER_PARAM_OPENGL_FBO, &mpfbo},
+  {MPV_RENDER_PARAM_FLIP_Y, &flip_y},
+  {MPV_RENDER_PARAM_INVALID, nullptr}};
+mpv_render_context_render(obj->mpv_gl, p);
+```
+
+It subclasses **`QQuickFramebufferObject`**, so the video is a texture inside
+Stremio's own scene graph — that is why it is "in app". Also note their playback
+tuning, worth copying: `vo=libmpv`, `gpu-hwdec-interop=auto`,
+`cache-default=15000`, `cache-backbuffer=15000`, `cache-secs=10`.
+
+**macOS proof with our exact stack:** IINA's `iina/ViewLayer.swift` is a
+`CAOpenGLLayer` owning a `CGLContextObj`, calling `mpv_render_context_render`
+with `MPV_RENDER_PARAM_OPENGL_FBO` + `FLIP_Y`.
+And mpv ships a minimal macOS skeleton ready to adapt:
+`mpv-examples/libmpv/cocoa-rendergl/cocoa-rendergl.m` — an `NSOpenGLView`
+subclass whose `drawRect` does the render call, with
+`mpv_render_context_set_update_callback(mpvGL, glupdate, view)`.
+
+So the ObjC shape for us is: `NSOpenGLView` (or `CAOpenGLLayer`) subview of the
+Tauri `contentView` → `makeCurrentContext` → create the render context →
+`setNeedsDisplay` from the update callback → `drawRect` renders + `flushBuffer`.
+
+### 4.7 Rendering-thread rules (from render.h — violating these deadlocks or degrades playback)
+
+- Create the render context **before** the first file is loaded, or mpv "will
+  revert to a VO that creates its own window" (our current bug).
+- Only one `mpv_render_*` call at a time per core; never call them from inside
+  the update callback (post to the main thread instead).
+- For OpenGL, the GL context must be **current on the calling thread** and be the
+  **same** context the render context was created with.
+- Do **not** call other libmpv API from the render thread.
+- `mpv_render_context_free` **before** `mpv_terminate_destroy` (and after the
+  event thread is joined — see `teardown`).
+- Do not set `MPV_RENDER_PARAM_ADVANCED_CONTROL` unless you will call
+  `mpv_render_context_update` + `report_swap`; otherwise render can deadlock.
+
 ## 5. Environment facts (this machine)
 
 | Item | Value |
