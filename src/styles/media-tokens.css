@@ -1,0 +1,78 @@
+/* Media design tokens — Stremio-parity spec (docs/MEDIA_UI_SPEC.md §1).
+ *
+ * Measured from the reference screenshots. Imported by `media.css`; every media
+ * component reads these `--m-*` custom properties instead of hard-coded values.
+ *
+ * Scoped to `.media-app` (the MediaShell root) on purpose: the file-explorer
+ * chrome keeps its own theme, and media tokens must not leak into it
+ * (spec §11.8).
+ */
+
+.media-app {
+  /* 1.1 Colour */
+  --m-bg: #0f0e14;
+  --m-bg-elevated: #141219;
+  --m-surface: #1b1b24;
+  --m-surface-hover: #23222e;
+  --m-surface-active: #2b2a38;
+  --m-rail: rgba(14, 14, 18, 0.85);
+  --m-hairline: rgba(255, 255, 255, 0.08);
+  --m-accent: #7051f3;
+  --m-accent-hover: #8168f6;
+  --m-accent-soft: rgba(112, 81, 243, 0.16);
+  --m-text: #ffffff;
+  --m-text-dim: #b4b7c4;
+  --m-text-muted: #7e8291;
+  --m-gold: #fe8a0e;
+  --m-imdb: #f5c518;
+  --m-quality-hd: #8fd3ff;
+  --m-quality-low: #b4b7c4;
+  --m-good: #4ed07a;
+  --m-warn: #f2b33c;
+  --m-error: #ff6b6b;
+  --m-dv: linear-gradient(90deg, #8b5cf6, #22d3ee, #f59e0b);
+  --m-overlay-hero: linear-gradient(
+    180deg,
+    rgba(15, 14, 20, 0) 0%,
+    rgba(15, 14, 20, 0.55) 55%,
+    #0f0e14 100%
+  );
+  --m-blur: saturate(140%) blur(24px);
+
+  /* 1.2 Radius */
+  --m-radius-pill: 999px;
+  --m-radius-panel: 14px;
+  --m-radius-card: 10px;
+  --m-radius-sm: 6px;
+
+  /* 1.3 Spacing scale */
+  --m-space-1: 4px;
+  --m-space-2: 8px;
+  --m-space-3: 12px;
+  --m-space-4: 16px;
+  --m-space-5: 20px;
+  --m-space-6: 24px;
+  --m-space-8: 32px;
+  --m-space-10: 40px;
+  --m-space-14: 56px;
+  --m-space-18: 72px;
+
+  /* 1.4 Typography */
+  --m-font: -apple-system, "SF Pro Text", "Inter", system-ui, sans-serif;
+  --m-font-size-hero: 40px;
+  --m-font-size-meta: 15px;
+  --m-font-size-row: 22px;
+  --m-font-size-body: 15px;
+  --m-font-size-detail: 13px;
+  --m-font-size-label: 12px;
+
+  /* 1.5 Elevation & motion */
+  --m-shadow-panel: 0 24px 60px rgba(0, 0, 0, 0.55);
+  --m-ease-chrome: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --m-dur-chrome: 300ms;
+  --m-dur-hover: 160ms;
+
+  /* Shell geometry */
+  --m-rail-w: 72px;
+  --m-topbar-h: 56px;
+}

@@ -22,8 +22,14 @@ export interface MediaCatalogState {
   error: string | null;
 }
 
+/** Which media screen the shell is showing (docs/MEDIA_UI_SPEC.md §6). */
+export type MediaScreen = "board" | "detail" | "player";
+
 export interface MediaState {
   workspaceOpen: boolean;
+  screen: MediaScreen;
+  /** Top-bar search text. WP2 wires it to the loaded catalogs (spec §12.5). */
+  searchQuery: string;
   manifest: MediaManifest | null;
   manifestLoading: boolean;
   manifestError: string | null;
@@ -60,6 +66,8 @@ export interface MediaState {
   debridConfig: { provider: "realdebrid" | "torbox"; apiKey: string } | null;
 
   openWorkspace: () => Promise<void>;
+  setScreen: (screen: MediaScreen) => void;
+  setSearchQuery: (query: string) => void;
   closeWorkspace: () => void;
   loadManifest: () => Promise<void>;
   loadCatalog: (type: string, id: string, name: string) => Promise<void>;
@@ -85,6 +93,8 @@ function trimMetas(metas: MediaCatalogMeta[]): MediaCatalogMeta[] {
 
 export const useMediaStore = create<MediaState>((set, get) => ({
   workspaceOpen: false,
+  screen: "board",
+  searchQuery: "",
   manifest: null,
   manifestLoading: false,
   manifestError: null,
@@ -110,7 +120,15 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   },
 
   closeWorkspace() {
-    set({ workspaceOpen: false });
+    set({ workspaceOpen: false, screen: "board" });
+  },
+
+  setScreen(screen) {
+    set({ screen });
+  },
+
+  setSearchQuery(query) {
+    set({ searchQuery: query });
   },
 
   async loadManifest() {
@@ -160,12 +178,19 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   },
 
   selectMeta(meta) {
-    set({ selected: meta });
+    set({ selected: meta, screen: "detail" });
     void get().loadStreams(meta);
   },
 
   clearSelection() {
-    set({ selected: null, streams: [], streamsLoading: false, streamsError: null, engine: null });
+    set({
+      selected: null,
+      streams: [],
+      streamsLoading: false,
+      streamsError: null,
+      engine: null,
+      screen: "board",
+    });
   },
 
   async loadStreams(meta) {
@@ -183,11 +208,13 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   },
 
   openPlayer(url, title) {
-    set({ playerSource: { url, title }, playerStatus: null });
+    set({ playerSource: { url, title }, playerStatus: null, screen: "player" });
   },
 
   closePlayer() {
-    set({ playerSource: null, playerStatus: null });
+    // Back to whichever screen launched playback: the detail view when a title
+    // is still selected, otherwise the board.
+    set({ playerSource: null, playerStatus: null, screen: get().selected ? "detail" : "board" });
     void api.playerClose().catch((error) => {
       logDiagnostic("warn", `closing the player failed: ${String(error)}`, "media.player");
     });

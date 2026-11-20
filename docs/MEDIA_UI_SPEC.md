@@ -480,12 +480,37 @@ Card width = `clamp(150px, 8.5vw, 300px)`; poster height derives from the 0.7 ra
 
 | WP | Deliverable | Acceptance |
 |---|---|---|
-| **WP1** | Tokens + shell: `media-tokens.css`, `MediaShell`, `MediaRail`, `MediaTopBar`, icons | Board renders inside the new shell at 3440 and 1440; rail keyboard-navigable; `tsc` + vitest green; screenshots from the user match the reference chrome |
+| **WP1** ✅ | Tokens + shell: `media-tokens.css`, `MediaShell`, `MediaRail`, `MediaTopBar`, icons | Board renders inside the new shell at 3440 and 1440; rail keyboard-navigable; `tsc` + vitest green; screenshots from the user match the reference chrome |
 | **WP2** | Board: `MediaHero`, `MediaCarousel`, `MediaPosterCard` | Cinemeta rows render with 0.7 posters, hover play overlay, progress bars drawn from a stub store; loading + error states |
 | **WP3** | Detail + `StreamsPanel` + new `StreamRow` (7-line anatomy, filter, in-row engine states) | Torrentio rows show quality/codec/size/bitrate/langs; filter works; selecting a row plays; the previous `StreamsSheet` is gone |
 | **WP4** | Player chrome: autohide strips, transport, seek with buffered span, volume, state pill, error card, keyboard map | Plays a 4K HEVC MKV; chrome hides after 3 s; buffered span tracks `cacheSeconds`; error card visible (surface hidden) |
 | **WP5** | Track menus + watch progress: `media_player_tracks`/`media_player_set_track`, `TrackMenu`, `library.json` writes, "Continue watching" fed by real progress | Switch audio to English on the 6-track test release; subtitles off/on/forced; quit and resume at the same position; Continue watching appears on the board |
 | **WP6** | Polish: responsiveness table, a11y pass, reduced motion, skeletons, `Show all` cap | Keyboard-only walkthrough of A→B→C; contrast checks; `prefers-reduced-motion` honoured |
+
+### WP1 as built (2026-11-21, branch `feature/media-ui-wp1`)
+
+- `src/styles/media-tokens.css` — every `--m-*` token from §1, scoped to
+  `.media-app` (so the file-explorer chrome keeps its theme), imported at the top
+  of `media.css`. Orange media colours in `media.css` are untouched — they move to
+  tokens per component in WP2–WP4.
+- `src/components/media/icons.tsx` — namespaced glyph set (`MediaIcon`,
+  `MediaBrandMark`) over lucide; the explorer's `AppIcon` is left alone.
+- `MediaShell.tsx` (rail + floating top bar + content slot), `MediaRail.tsx`
+  (72 px; Home/Discover live, Library/Calendar/Addons/Settings inert with tooltips;
+  roving tabindex with ↑/↓/Home/End), `MediaTopBar.tsx` (56 px, ⌘F search +
+  Esc clear, downloads/fullscreen/cast, close).
+- `MediaWorkspace.tsx` now renders inside the shell; the old title bar, 216 px side
+  nav and their markup are gone, and the catalog/engine/debrid status strip moved to
+  `.media-statusline` at the end of the board.
+- `mediaStore.ts` — `screen` (`board|detail|player`) and `searchQuery`;
+  `selectMeta`/`clearSelection`/`openPlayer`/`closePlayer` maintain `screen`, and the
+  shell hides rail + top bar in `player` mode (§2.2).
+- Top bar floats **over** the content (`position: absolute` inside `.media-app-main`)
+  so WP2's hero can bleed under it; `.media-main` clears it with
+  `padding-top: var(--m-topbar-h) + 16px` until the hero lands.
+- Gates: `npx tsc --noEmit` clean; `npx vitest run src/components/media` → 21 passed
+  (14 before, 7 new in `MediaShell.test.tsx`). No eslint config exists in this repo,
+  so lint is not part of the gate.
 
 Later (separate, only if the user asks): **WP7** centre-title/overlay compositing
 into the frame buffer; scrub thumbnails; downloads screen behind the top-bar tray;

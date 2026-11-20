@@ -1,3 +1,5 @@
+@import "./media-tokens.css";
+
 /* Media workspace — dark discover mode. */
 
 .media-workspace {
@@ -1017,5 +1019,343 @@
   .media-poster-skeleton,
   .media-skeleton-line {
     animation: none;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * App shell — rail + top bar + content slot (MEDIA_UI_SPEC.md §2)
+ * ------------------------------------------------------------------ */
+
+.media-app {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--m-bg);
+  color: var(--m-text);
+  font-family: var(--m-font);
+  border-radius: var(--media-radius, 10px);
+}
+
+.media-app-main {
+  position: relative; /* the top bar floats over the content column */
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.media-app-content {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* The old 216px side-nav column is gone: the board is a single column now. */
+.media-app .media-body {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* The top bar floats over the content so the hero can bleed under it
+   (spec §2.2 / §3.1); the board clears it with its own top padding. */
+.media-app .media-main {
+  height: 100%;
+  box-sizing: border-box;
+  padding-top: calc(var(--m-topbar-h) + 16px);
+}
+
+/* --- Rail (§2.1) --------------------------------------------------- */
+
+.media-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--m-space-2);
+  width: var(--m-rail-w);
+  flex: 0 0 var(--m-rail-w);
+  padding: var(--m-space-3) 0;
+  background: var(--m-rail);
+  backdrop-filter: var(--m-blur);
+  -webkit-backdrop-filter: var(--m-blur);
+  border-right: 1px solid var(--m-hairline);
+  z-index: 5; /* above the floating top bar: the rail stays fully visible */
+}
+
+.media-rail-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: var(--m-space-4);
+  /* the window drag strip: the rail is the only always-visible chrome */
+  -webkit-app-region: drag;
+}
+
+.media-brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  background: linear-gradient(150deg, #8a6bff 0%, #5b3ce0 100%);
+  box-shadow: 0 4px 14px rgba(112, 81, 243, 0.4);
+}
+
+.media-brand-play {
+  color: #fff;
+  fill: #fff;
+}
+
+.media-rail-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--m-space-2);
+}
+
+.media-rail-foot {
+  margin-top: auto;
+}
+
+.media-rail-item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: var(--m-radius-panel);
+  background: transparent;
+  color: var(--m-text-muted);
+  cursor: pointer;
+  transition: color var(--m-dur-hover) ease-out, background var(--m-dur-hover) ease-out;
+}
+
+.media-rail-item:hover:not(:disabled) {
+  color: var(--m-text);
+  background: var(--m-surface);
+}
+
+.media-rail-item--active {
+  color: var(--m-accent);
+  background: var(--m-accent-soft);
+}
+
+.media-rail-item:focus-visible {
+  outline: 2px solid var(--m-accent);
+  outline-offset: 2px;
+}
+
+.media-rail-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.media-rail-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--m-good);
+}
+
+/* --- Top bar (§2.2) ------------------------------------------------ */
+
+.media-topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: var(--m-space-4);
+  height: var(--m-topbar-h);
+  padding: 0 var(--m-space-4) 0 var(--m-space-5);
+  background: linear-gradient(180deg, rgba(15, 14, 20, 0.9), rgba(15, 14, 20, 0.55));
+  -webkit-app-region: drag;
+}
+
+.media-topbar button,
+.media-topbar input {
+  -webkit-app-region: no-drag;
+}
+
+.media-topbar-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--m-space-2);
+  font-size: var(--m-font-size-label);
+  font-weight: 600;
+  color: var(--m-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.media-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--m-space-2);
+  width: 320px;
+  height: 40px;
+  padding: 0 var(--m-space-3) 0 var(--m-space-4);
+  border: 1px solid var(--m-hairline);
+  border-radius: var(--m-radius-pill);
+  background: rgba(255, 255, 255, 0.06);
+  transition: background var(--m-dur-hover) ease-out, box-shadow var(--m-dur-hover) ease-out;
+}
+
+.media-search:focus-within {
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 0 2px var(--m-accent);
+}
+
+.media-search-icon {
+  color: var(--m-text-muted);
+  flex: 0 0 auto;
+}
+
+.media-search-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--m-text);
+  font-family: inherit;
+  font-size: var(--m-font-size-body);
+  outline: none;
+}
+
+.media-search-input::placeholder {
+  color: var(--m-text-muted);
+}
+
+.media-search-kbd {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--m-text-muted);
+  border: 1px solid var(--m-hairline);
+  border-radius: var(--m-radius-sm);
+  padding: 2px 5px;
+}
+
+.media-search-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--m-surface);
+  color: var(--m-text-dim);
+  cursor: pointer;
+}
+
+.media-search-clear:hover {
+  color: var(--m-text);
+  background: var(--m-surface-hover);
+}
+
+.media-topbar-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--m-space-1);
+}
+
+.media-topbar-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: var(--m-radius-pill);
+  background: transparent;
+  color: var(--m-text-dim);
+  cursor: pointer;
+  transition: color var(--m-dur-hover) ease-out, background var(--m-dur-hover) ease-out;
+}
+
+.media-topbar-btn:hover:not(:disabled) {
+  color: var(--m-text);
+  background: var(--m-surface);
+}
+
+.media-topbar-btn:focus-visible {
+  outline: 2px solid var(--m-accent);
+  outline-offset: 2px;
+}
+
+.media-topbar-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.media-topbar-close {
+  margin-left: var(--m-space-2);
+}
+
+.media-topbar-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--m-good);
+}
+
+/* Status strip the old side nav used to carry — engine/debrid truth. */
+.media-statusline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--m-space-5);
+  margin-top: var(--m-space-6);
+  padding-top: var(--m-space-4);
+  border-top: 1px solid var(--m-hairline);
+  font-size: var(--m-font-size-label);
+  color: var(--m-text-muted);
+}
+
+.media-statusline > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--m-space-2);
+}
+
+/* --- Small windows (§9): rail shrinks, search gives way ------------- */
+
+@media (max-width: 1200px) {
+  .media-app {
+    --m-rail-w: 56px;
+  }
+  .media-search {
+    width: 240px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .media-rail-item,
+  .media-topbar-btn,
+  .media-search {
+    transition: none;
   }
 }

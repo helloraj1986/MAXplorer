@@ -7,7 +7,7 @@
 | Project version | 0.2.1 (aarch64 DMG) + media feature on `feature/stremio-compat` |
 | Repository | https://github.com/helloraj1986/MAXplorer (private) |
 | Release | https://github.com/helloraj1986/MAXplorer/releases/latest |
-| Current branch | `feature/stremio-compat` — read the head with `git log --oneline -1` (a fixed SHA here goes stale the moment anything is committed). Last installable build: 2026-11-21, installed at `/Applications/MAXplorer.app`. **Branch is not yet on origin** (`git push origin feature/stremio-compat`). |
+| Current branch | `feature/media-ui-wp1` (branched from `feature/stremio-compat`) — read the head with `git log --oneline -1` (a fixed SHA here goes stale the moment anything is committed). Last installable build: 2026-11-21, installed at `/Applications/MAXplorer.app`. **`feature/stremio-compat` is not yet on origin** (`git push origin feature/stremio-compat`). |
 
 ---
 
@@ -28,11 +28,20 @@ item per session — never batched.**
 >    three architectures already ruled out **with evidence**, and the as-built
 >    record of the libmpv render API. Read before touching playback.
 >
-> **Next session (exactly one item):** WP1 of `docs/MEDIA_UI_SPEC.md` — design
-> tokens (`src/styles/media-tokens.css`) + the app shell (icon rail, top bar,
-> icon set). Gate: `npx tsc --noEmit && npx vitest run src/components/media`,
-> then hand the built `.app` to the user for a screenshot check against
-> `crop-rail.png` / `crop-topbar.png`.
+> **WP1 is DONE** (tokens + shell: `media-tokens.css`, `MediaShell`,
+> `MediaRail`, `MediaTopBar`, `icons.tsx`; details in `docs/MEDIA_UI_SPEC.md`
+> §10 "WP1 as built"). Gates green: `npx tsc --noEmit`; vitest
+> `src/components/media` → 21 passed.
+>
+> **Next session (exactly one item):** **WP2** of `docs/MEDIA_UI_SPEC.md` —
+> board: `MediaHero`, `MediaCarousel`, `MediaPosterCard` (0.7 posters, hover play
+> overlay, progress stub, loading/error states). That work also moves the board's
+> remaining orange styling in `media.css` onto the `--m-*` tokens, and lets the
+> hero bleed under the floating top bar (`.media-main`'s
+> `padding-top: calc(var(--m-topbar-h) + 16px)` currently clears it). Gate:
+> `npx tsc --noEmit && npx vitest run src/components/media`, then hand the built
+> `.app` to the user for a screenshot check against `crop-hero.png` /
+> `crop-card.png`.
 
 ### What exists (all verified live in the installed app)
 
@@ -46,6 +55,7 @@ item per session — never batched.**
 | 4c | `mpv.rs`, `player.rs` | Native **libmpv** playback replacing the HTML5 `<video>`. ⚠️ This row originally claimed in-window embedding via mpv's `wid` option — **that was wrong** (macOS ignores `wid`; video opened in mpv's own window). Superseded by 4d. Plays MKV/HEVC/AC3/DTS — what the webview refused. Needs mpv **master** (`brew install mpv --HEAD`); `media_player_diagnostics` reports support. |
 | 4d | `render.rs` (new), `player.rs`, `PlayerOverlay.tsx` | **Video now renders inside the app window** via the libmpv **render API** (`MPV_RENDER_API_TYPE_SW` → CGImage on the NSView layer). No second window, no `wid`. Buffering pill (cache % + MB/s) + buffered span on the seek bar. Headless proof: `cargo test --lib live_sw_render_paints_pixels -- --ignored --nocapture` → `non_black_pixels=67769/76800`. |
 | 4e | `torrent.rs`, `player.rs`, `PlayerOverlay.tsx` | **Blank-player fixes + live stats.** The stream URL is now Range-probed before it reaches mpv (librqbit answered HTTP 500 while a torrent was still setting up, and mpv's own "couldn't resolve" retry made it look random). The native surface starts hidden and is revealed on `file-loaded`, so the spinner/error card is never covered by a black rectangle. Header shows `↓ speed · Ns buffered · N peers`; stream rows show speed + peers while resolving; `framedrop=vo` keeps A/V in sync on a slow SW render; render fps is logged every 5 s. |
+| UI WP1 | (this branch) | Media app shell per `docs/MEDIA_UI_SPEC.md` §1–2: `media-tokens.css` (violet `#7051F3` token set scoped to `.media-app`), `MediaShell`/`MediaRail`/`MediaTopBar`/`icons.tsx`; the old title bar and 216 px side nav are gone, the status strip moved into the board, and the store gained `screen` + `searchQuery`. |
 
 ### ⚠️ CRITICAL USER FEEDBACK (why the next session exists)
 
@@ -114,7 +124,7 @@ file-explorer chrome is out of scope. Implement it WP by WP, one per session.
   `live_sw_render_paints_pixels` (render API paints pixels),
   `live_stream_gate` (torrent URL serves 206 before the player gets it),
   `live_engine` (Range seek), `live_decodes_mkv` (MKV/H.264/AC3).
-- `npx tsc --noEmit` clean; `npx vitest run src/components/media` → 14 passed.
+- `npx tsc --noEmit` clean; `npx vitest run src/components/media` → 21 passed (UI WP1).
 - Build + install: `npm run tauri build` (background, ~6–8 min), then copy
   `src-tauri/target/release/bundle/macos/MAXplorer.app` to `/Applications`.
 - **Live torrent tests need the app quit first** (a second librqbit session fails

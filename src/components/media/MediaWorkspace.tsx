@@ -6,12 +6,16 @@ import { useExplorerStore } from "../../state/explorerStore";
 import { useMediaStore } from "../../state/mediaStore";
 import { streamRowLabel } from "./streams";
 import { PlayerOverlay } from "./PlayerOverlay";
+import { MediaShell } from "./MediaShell";
 import { DEFAULT_MEDIA_CATALOGS, type MediaCatalogMeta, type RankedStream } from "./types";
 
 /**
- * Media workspace — laid out to the approved concept
- * (`maxplorer-media/Maxplorer Media UI Concept.html`): title bar, left rail,
- * hero + pinned-addons rail, poster rows, and the streams panel.
+ * Media workspace — the board content (hero, addon rail, poster rows) plus the
+ * streams panel and the native player.
+ *
+ * Chrome comes from `MediaShell` (rail + top bar, docs/MEDIA_UI_SPEC.md §2);
+ * this component is the content slot. The board itself is restyled in WP2 —
+ * today's hero/rows are carried over unchanged.
  *
  * Playback is handled by the native libmpv engine (see `PlayerOverlay`), so
  * torrent rows play the MKV/AC3/DTS releases the webview cannot decode.
@@ -21,7 +25,6 @@ export function MediaWorkspace() {
   const manifestLoading = useMediaStore((state) => state.manifestLoading);
   const manifestError = useMediaStore((state) => state.manifestError);
   const catalogs = useMediaStore((state) => state.catalogs);
-  const closeWorkspace = useMediaStore((state) => state.closeWorkspace);
   const loadCatalog = useMediaStore((state) => state.loadCatalog);
   const selectMeta = useMediaStore((state) => state.selectMeta);
   const selected = useMediaStore((state) => state.selected);
@@ -49,7 +52,6 @@ export function MediaWorkspace() {
     return null;
   }, [rows]);
 
-  const itemCount = rows.reduce((total, row) => total + row.metas.length, 0);
   const engineOk = Boolean(diagnostics?.available && diagnostics?.embeddingSupported);
   const engineLabel = !diagnostics
     ? "engine: checking…"
@@ -58,93 +60,9 @@ export function MediaWorkspace() {
       : "engine: unavailable";
 
   return (
-    <section className="media-workspace" aria-label="Media">
+    <MediaShell>
       <PlayerOverlay />
-      <header className="media-titlebar">
-        <div className="media-brand">
-          <span className="media-brand-mark" aria-hidden="true" />
-          <span>MAXplorer</span>
-          <small>Media</small>
-        </div>
-        <div className="media-omni" aria-hidden="true">
-          <span className="media-omni-icon">⌕</span>
-          <span>Search movies, shows, addons…</span>
-          <kbd>⌘K</kbd>
-        </div>
-        <span className={`media-status ${manifest ? "ok" : "off"}`}>
-          {manifest ? `${manifest.name} connected` : manifestLoading ? "Connecting…" : "Offline"}
-        </span>
-        <span className="media-pill">{itemCount} titles</span>
-        <button
-          type="button"
-          className="media-close"
-          onClick={() => {
-            clearSelection();
-            closeWorkspace();
-          }}
-          aria-label="Close media"
-        >
-          <Icon name="close" size={14} />
-        </button>
-      </header>
-
       <div className="media-body">
-        <nav className="media-side" aria-label="Media sections">
-          <h4>Media</h4>
-          <button type="button" className="media-nav on" aria-current="page">
-            <span className="media-nav-ic" aria-hidden="true">◈</span>
-            <span>Discover</span>
-          </button>
-          <button type="button" className="media-nav" disabled title="Arrives with Library & sync">
-            <span className="media-nav-ic" aria-hidden="true">↻</span>
-            <span>Continue</span>
-          </button>
-          <button type="button" className="media-nav" disabled title="Arrives with Library & sync">
-            <span className="media-nav-ic" aria-hidden="true">★</span>
-            <span>Library</span>
-          </button>
-          <button type="button" className="media-nav" disabled title="Arrives with the addon manager">
-            <span className="media-nav-ic" aria-hidden="true">▤</span>
-            <span>Catalogs</span>
-          </button>
-
-          <h4>Addons</h4>
-          <button type="button" className="media-nav" disabled title="Arrives with the addon manager">
-            <span className="media-nav-ic" aria-hidden="true">◉</span>
-            <span>Installed</span>
-            <span className="media-nav-count">{manifest ? 1 : 0}</span>
-          </button>
-          <button type="button" className="media-nav" disabled title="Arrives with the addon manager">
-            <span className="media-nav-ic" aria-hidden="true">✦</span>
-            <span>Discover addons</span>
-          </button>
-
-          <h4>Sources</h4>
-          <button type="button" className="media-nav" disabled>
-            <span className="media-nav-ic" aria-hidden="true">☰</span>
-            <span>Cinemeta</span>
-          </button>
-          <button type="button" className="media-nav" disabled>
-            <span className="media-nav-ic" aria-hidden="true">▤</span>
-            <span>Torrentio</span>
-          </button>
-
-          <div className="media-side-foot">
-            <div>
-              <span className={`media-dot ${manifest ? "ok" : "warn"}`} />
-              catalog: {manifest ? "connected" : manifestLoading ? "connecting" : "offline"}
-            </div>
-            <div>
-              <span className={`media-dot ${engineOk ? "ok" : "warn"}`} />
-              {engineLabel}
-            </div>
-            <div>
-              <span className={`media-dot ${debridConfig ? "ok" : "warn"}`} />
-              debrid: {debridConfig ? debridConfig.provider : "off (optional)"}
-            </div>
-          </div>
-        </nav>
-
         <main className="media-main">
           <div className="media-crumb">
             <b>Discover</b> › {manifest?.name ?? "Cinemeta"}
@@ -294,6 +212,20 @@ export function MediaWorkspace() {
             <p className="media-empty">Loading catalogs…</p>
           ) : null}
 
+          <footer className="media-statusline" aria-label="Media engine status">
+            <span>
+              <span className={`media-dot ${manifest ? "ok" : "warn"}`} /> catalog:{" "}
+              {manifest ? "connected" : manifestLoading ? "connecting" : "offline"}
+            </span>
+            <span>
+              <span className={`media-dot ${engineOk ? "ok" : "warn"}`} /> {engineLabel}
+            </span>
+            <span>
+              <span className={`media-dot ${debridConfig ? "ok" : "warn"}`} /> debrid:{" "}
+              {debridConfig ? debridConfig.provider : "off (optional)"}
+            </span>
+          </footer>
+
           {selected ? (
             <StreamsPanel
               meta={selected}
@@ -305,7 +237,7 @@ export function MediaWorkspace() {
           ) : null}
         </main>
       </div>
-    </section>
+    </MediaShell>
   );
 }
 
