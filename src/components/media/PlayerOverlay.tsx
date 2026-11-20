@@ -1,134 +1,96 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { api, isTauri, normalizeError } from "../../lib/api";
 import { logDiagnostic } from "../../lib/diagnostics";
 import { useMediaStore } from "../../state/mediaStore";
-import type { NativePlayerStatus } from "./types";
+import type { PreparedStream } from "./types";
 
 /**
- * In-app media player (Phase 4c).
+ * In-app media player.
  *
- * Playback is handled by **libmpv**, embedded in the app window: the backend
- * places a native video surface (an NSView) over the rect this component
- * reserves, and streams state back through the `media-player://state` event.
- *
- * That is deliberately not an HTML5 `<video>`: WKWebView cannot open MKV
- * containers and has no AC3/DTS decoders, which is what torrent releases use.
- * libmpv plays everything, so the shell here is only the chrome around the
- * native surface.
+ * The `<video>` element only decodes what WKWebView supports (MP4/HLS; not MKV,
+ * and no AC3/DTS), so the backend first **prepares** the source: ffmpeg remuxes
+ * it to fMP4 HLS (video stream-copied, audio transcoded to AAC) and serves it on
+ * loopback. This component plays that playlist and reports every buffering
+ * state, because a torrent-backed stream can sit silent for a while.
  */
 export function PlayerOverlay() {
   const playerSource = useMediaStore((state) => state.playerSource);
-  const playerStatus = useMediaStore((state) => state.playerStatus);
-  const playerDiagnostics = useMediaStore((state) => state.playerDiagnostics);
   const closePlayer = useMediaStore((state) => state.closePlayer);
-  const setPlayerStatus = useMediaStore((state) => state.setPlayerStatus);
+  const playerDiagnostics = useMediaStore((state) => state.playerDiagnostics);
 
-  const stageRef = useRef<HTMLDivElement | null>(null);
-  const [opening, setOpening] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [stream, setStream] = useState<PreparedStream | null>(null);
+  const [preparing, setPreparing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [volume, setVolume] = useState(1);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [buffering, setBuffering] = useState(false);
+  const [bufferedPct, setBufferedPct] = useState(0);
 
-  const status: NativePlayerStatus | null = playerStatus;
-  const position = status?.position ?? 0;
-  const duration = status?.duration ?? 0;
-  const paused = status?.paused ?? false;
-  const muted = status?.muted ?? false;
-  const volume = status?.volume ?? 100;
-
-  // ── Open / close the native session ───────────────────────────────────────
+  // ── Prepare the stream (ffmpeg remux) whenever a source is opened ──────────
   useEffect(() => {
-    if (!playerSource) return;
-    if (!isTauri) {
-      // Outside Tauri (unit tests) there is no native surface to drive.
+    if (!playerSource) {
+      setStream(null);
+      setPreparing(false);
+      setError(null);
+      setBuffering(false);
+      setBufferedPct(0);
       return;
     }
+    if (!isTauri) return; // unit tests: no backend
     let cancelled = false;
-    const stage = stageRef.current;
-    if (!stage) return;
-
-    const rect = () => {
-      const box = stage.getBoundingClientRect();
-      return {
-        x: Math.round(box.left),
-        y: Math.round(box.top),
-        width: Math.round(box.width),
-        height: Math.round(box.height),
-      };
-    };
-
-    setOpening(true);
+    setStream(null);
     setError(null);
-    logDiagnostic("info", `opening native player: ${playerSource.title}`, "media.player");
+    setPreparing(true);
+    logDiagnostic("info", `preparing stream: ${playerSource.title}`, "media.player");
+
     api
-      .playerOpen(playerSource.url, playerSource.title, rect())
-      .then((initial) => {
+      .playerOpen(playerSource.url, playerSource.title)
+      .then((prepared) => {
         if (cancelled) return;
-        setPlayerStatus(initial);
+        logDiagnostic(
+          "info",
+          `stream ready (${prepared.videoMode}, ${prepared.videoCodec}) ${prepared.streamUrl}`,
+          "media.player",
+        );
+        setStream(prepared);
       })
       .catch((caught) => {
         if (cancelled) return;
         const message = normalizeError(caught).message;
         setError(message);
-        logDiagnostic("error", `native player could not start: ${message}`, "media.player");
+        logDiagnostic("error", `stream preparation failed: ${message}`, "media.player");
       })
       .finally(() => {
-        if (!cancelled) setOpening(false);
+        if (!cancelled) setPreparing(false);
       });
-
-    // Keep the native surface aligned when the window or layout changes.
-    const observer = new ResizeObserver(() => {
-      void api.playerSetRect(rect()).catch(() => undefined);
-    });
-    observer.observe(stage);
-    const onWindowResize = () => {
-      void api.playerSetRect(rect()).catch(() => undefined);
-    };
-    window.addEventListener("resize", onWindowResize);
 
     return () => {
       cancelled = true;
-      observer.disconnect();
-      window.removeEventListener("resize", onWindowResize);
     };
-  }, [playerSource, setPlayerStatus]);
-
-  // ── Live state from the backend ───────────────────────────────────────────
-  useEffect(() => {
-    if (!playerSource || !isTauri) return;
-    let unlisten: UnlistenFn | undefined;
-    let disposed = false;
-    void listen<NativePlayerStatus>("media-player://state", (event) => {
-      setPlayerStatus(event.payload);
-      if (event.payload.error) {
-        setError(event.payload.error);
-      }
-    }).then((cleanup) => {
-      if (disposed) cleanup();
-      else unlisten = cleanup;
-    });
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, [playerSource, setPlayerStatus]);
+  }, [playerSource]);
 
   const togglePlay = useCallback(() => {
-    if (!status) return;
-    void api.playerSetPause(!status.paused).then(setPlayerStatus).catch((caught) => {
-      const message = normalizeError(caught).message;
-      setError(message);
-      logDiagnostic("error", `pause failed: ${message}`, "media.player");
-    });
-  }, [status, setPlayerStatus]);
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) void video.play();
+    else video.pause();
+  }, []);
 
   const seekBy = useCallback((seconds: number) => {
-    void api.playerSeekRelative(seconds).then(setPlayerStatus).catch(() => undefined);
-  }, [setPlayerStatus]);
+    const video = videoRef.current;
+    if (!video || !Number.isFinite(video.duration)) return;
+    video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + seconds));
+  }, []);
 
-  // ── Keyboard shortcuts (the native surface has focus, so bind on window) ──
   useEffect(() => {
-    if (!playerSource) return;
+    if (!playerSource || !stream) return;
     const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.isContentEditable)) return;
       switch (event.key) {
         case " ":
           event.preventDefault();
@@ -141,10 +103,7 @@ export function PlayerOverlay() {
           seekBy(-10);
           break;
         case "m":
-          void api
-            .playerSetMuted(!(useMediaStore.getState().playerStatus?.muted ?? false))
-            .then(setPlayerStatus)
-            .catch(() => undefined);
+          setMuted((value) => !value);
           break;
         case "Escape":
           closePlayer();
@@ -155,41 +114,110 @@ export function PlayerOverlay() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [playerSource, togglePlay, seekBy, closePlayer, setPlayerStatus]);
+  }, [playerSource, stream, togglePlay, seekBy, closePlayer]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video) {
+      video.muted = muted;
+      video.volume = volume;
+    }
+  }, [muted, volume, stream]);
 
   if (!playerSource) return null;
 
-  const progress = duration > 0 ? (position / duration) * 100 : 0;
-  const engineUnavailable = error !== null;
+  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const busy = preparing || buffering;
 
   return (
     <div className="media-player-overlay" role="dialog" aria-label={`Playing ${playerSource.title}`}>
       <header className="media-player-head">
         <span className="media-player-title">{playerSource.title}</span>
-        {status?.videoFormat ? (
-          <span className="media-player-badge">{status.videoFormat.toUpperCase()}</span>
+        {stream ? (
+          <>
+            <span className="media-player-badge">{stream.videoCodec.toUpperCase()}</span>
+            <span className="media-player-badge subtle">
+              {stream.videoMode === "copy" ? "REMUX" : "TRANSCODE"}
+            </span>
+          </>
         ) : null}
-        <button
-          type="button"
-          className="media-close"
-          onClick={closePlayer}
-          aria-label="Close player"
-        >
+        <button type="button" className="media-close" onClick={closePlayer} aria-label="Close player">
           ✕
         </button>
       </header>
 
-      <div className="media-player-stage" ref={stageRef}>
-        {/* The native video surface is composited over this element; nothing
-            should be drawn here or it would be hidden behind the video. */}
-        {opening && !engineUnavailable ? (
-          <div className="media-player-spinner" aria-label="Starting playback" />
+      <div className="media-player-stage">
+        {stream && !error ? (
+          <video
+            ref={videoRef}
+            className="media-player-video"
+            src={stream.streamUrl}
+            autoPlay
+            playsInline
+            onLoadedMetadata={(event) => {
+              setDuration(event.currentTarget.duration);
+              setBuffering(false);
+            }}
+            onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+            onProgress={(event) => {
+              const video = event.currentTarget;
+              if (video.buffered.length && Number.isFinite(video.duration) && video.duration > 0) {
+                const end = video.buffered.end(video.buffered.length - 1);
+                setBufferedPct(Math.min(100, Math.round((end / video.duration) * 100)));
+              }
+            }}
+            onWaiting={() => setBuffering(true)}
+            onStalled={() => setBuffering(true)}
+            onLoadStart={() => setBuffering(true)}
+            onPlaying={() => {
+              setBuffering(false);
+              setPlaying(true);
+            }}
+            onCanPlay={() => setBuffering(false)}
+            onPause={() => setPlaying(false)}
+            onEnded={() => setPlaying(false)}
+            onError={() =>
+              setError(
+                "The prepared stream could not be decoded. Try ↗ External, or pick another source.",
+              )
+            }
+            onClick={togglePlay}
+          />
         ) : null}
-        {engineUnavailable ? (
+
+        {busy && !error ? (
+          <div className="media-player-busy" role="status" aria-live="polite">
+            <div className="media-player-spinner" />
+            <div className="media-player-busy-text">
+              {preparing ? (
+                <>
+                  <strong>Preparing stream…</strong>
+                  <span>
+                    Remuxing MKV / converting audio for the in-app player — this can take a few
+                    seconds on a torrent.
+                  </span>
+                </>
+              ) : (
+                <>
+                  <strong>Buffering…</strong>
+                  <span>
+                    {bufferedPct > 0
+                      ? `${bufferedPct}% downloaded`
+                      : "Waiting for data from the swarm"}
+                    {" · "}
+                    {formatTime(currentTime)} / {formatTime(duration)}
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        {error ? (
           <div className="media-player-error" role="alert">
             <p>Couldn't play this stream in-app.</p>
             <p className="media-error-detail">{error}</p>
-            {playerDiagnostics && !playerDiagnostics.embeddingSupported ? (
+            {playerDiagnostics && !playerDiagnostics.ffmpeg ? (
               <p className="media-error-detail">{playerDiagnostics.detail}</p>
             ) : null}
             <button
@@ -199,7 +227,7 @@ export function PlayerOverlay() {
                 void api.playMediaStream(playerSource.url).catch((caught) => {
                   logDiagnostic(
                     "error",
-                    `external player fallback failed: ${normalizeError(caught).message}`,
+                    `external playback failed: ${normalizeError(caught).message}`,
                     "media.player",
                   );
                 });
@@ -216,35 +244,36 @@ export function PlayerOverlay() {
           type="button"
           className="media-play"
           onClick={togglePlay}
-          aria-label={paused ? "Play" : "Pause"}
+          disabled={!stream || Boolean(error)}
+          aria-label={playing ? "Pause" : "Play"}
         >
-          {paused ? "▶" : "⏸"}
+          {playing ? "⏸" : "▶"}
         </button>
-        <span className="media-player-time">{formatTime(position)}</span>
+        <span className="media-player-time">{formatTime(currentTime)}</span>
         <div
           className="media-player-track"
           role="slider"
           aria-label="Seek"
           aria-valuemin={0}
           aria-valuemax={Math.round(duration)}
-          aria-valuenow={Math.round(position)}
+          aria-valuenow={Math.round(currentTime)}
           tabIndex={0}
           onClick={(event) => {
-            if (duration <= 0) return;
+            const video = videoRef.current;
+            if (!video || !Number.isFinite(video.duration)) return;
             const rect = event.currentTarget.getBoundingClientRect();
             const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-            void api.playerSeek(ratio * duration).then(setPlayerStatus).catch(() => undefined);
+            video.currentTime = ratio * video.duration;
           }}
         >
+          <div className="media-player-track-buffer" style={{ width: `${bufferedPct}%` }} />
           <div className="media-player-track-fill" style={{ width: `${progress}%` }} />
         </div>
         <span className="media-player-time">{formatTime(duration)}</span>
         <button
           type="button"
           className="media-player-icon"
-          onClick={() =>
-            void api.playerSetMuted(!muted).then(setPlayerStatus).catch(() => undefined)
-          }
+          onClick={() => setMuted((value) => !value)}
           aria-label={muted ? "Unmute" : "Mute"}
         >
           {muted ? "🔇" : "🔊"}
@@ -253,20 +282,14 @@ export function PlayerOverlay() {
           className="media-player-volume"
           type="range"
           min={0}
-          max={100}
-          step={5}
+          max={1}
+          step={0.05}
           value={muted ? 0 : volume}
           aria-label="Volume"
           onChange={(event) => {
             const next = Number(event.target.value);
-            void api
-              .playerSetVolume(next)
-              .then((updated) => {
-                setPlayerStatus(updated);
-                if (next > 0 && muted) return api.playerSetMuted(false).then(setPlayerStatus);
-                return undefined;
-              })
-              .catch(() => undefined);
+            setVolume(next);
+            setMuted(next === 0);
           }}
         />
       </footer>

@@ -8,7 +8,6 @@ import {
   type MediaCatalogMeta,
   type MediaManifest,
   type NativePlayerDiagnostics,
-  type NativePlayerStatus,
 } from "../components/media/types";
 import { rankStreams } from "../components/media/streams";
 import type { RankedStream } from "../components/media/types";
@@ -34,11 +33,9 @@ export interface MediaState {
   streams: RankedStream[];
   streamsLoading: boolean;
   streamsError: string | null;
-  /** Phase 3/4c: in-app player source (native libmpv surface). */
+  /** Phase 3/4c: in-app player source (prepared stream). */
   playerSource: { url: string; title: string } | null;
-  /** Live state reported by the libmpv engine. */
-  playerStatus: NativePlayerStatus | null;
-  /** Whether the native engine is usable on this machine. */
+  /** Whether the in-app player can run on this machine. */
   playerDiagnostics: NativePlayerDiagnostics | null;
   /** Phase 4b: torrent engine flow for the selected torrent stream. */
   engine: {
@@ -61,7 +58,6 @@ export interface MediaState {
   loadStreams: (meta: MediaCatalogMeta) => Promise<void>;
   openPlayer: (url: string, title: string) => void;
   closePlayer: () => void;
-  setPlayerStatus: (status: NativePlayerStatus | null) => void;
   loadPlayerDiagnostics: () => Promise<void>;
   streamTorrent: (infoHash: string, title: string) => Promise<void>;
   loadDebridConfig: () => Promise<void>;
@@ -175,18 +171,14 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   },
 
   openPlayer(url, title) {
-    set({ playerSource: { url, title }, playerStatus: null });
+    set({ playerSource: { url, title } });
   },
 
   closePlayer() {
-    set({ playerSource: null, playerStatus: null });
+    set({ playerSource: null });
     void api.playerClose().catch((error) => {
       logDiagnostic("warn", `closing the player failed: ${String(error)}`, "media.player");
     });
-  },
-
-  setPlayerStatus(status) {
-    set({ playerStatus: status });
   },
 
   async loadPlayerDiagnostics() {
@@ -194,8 +186,8 @@ export const useMediaStore = create<MediaState>((set, get) => ({
       const diagnostics = await api.playerDiagnostics();
       set({ playerDiagnostics: diagnostics });
       logDiagnostic(
-        diagnostics.available && diagnostics.embeddingSupported ? "info" : "warn",
-        `native player: libmpv=${diagnostics.apiVersion ?? "none"} embedding=${diagnostics.embeddingSupported} — ${diagnostics.detail}`,
+        diagnostics.ffmpeg ? "info" : "warn",
+        `in-app player: ffmpeg=${diagnostics.ffmpeg ?? "missing"} — ${diagnostics.detail}`,
         "media.player",
       );
     } catch (error) {
