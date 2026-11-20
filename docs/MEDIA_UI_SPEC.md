@@ -397,6 +397,18 @@ The video is a native `NSView` composited **above** the webview
 | Ended | Last frame + chrome visible with `⏯` reset to play; `⏭` plays the next episode when known |
 | Audio-only source | Stage shows the title art on `--m-bg` (no video track) |
 
+### 5.4 WP4a scope note (decided 2026-11-21)
+
+WP4a is **frontend only**. The audio/subtitle/speed controls in §5.1's bottom bar
+need backend commands that belong to WP5 (`media_player_tracks`,
+`media_player_set_track`), so 4a's right cluster ends at fullscreen rather than
+shipping dead buttons. `[`/`]` speed is held with the speed menu (not in §5's
+keyboard map). Two additions accepted beyond the reference: a **2 px progress
+hairline** that stays visible while the chrome is hidden, and **optimistic seek
+dragging** (render the scrub position locally, one `player_seek` on release).
+The engine-level speed work is a separate item — WP4b, backlog in
+`HANDOVER.md` §0.
+
 ---
 
 ## 6. Component inventory & file plan
@@ -483,7 +495,8 @@ Card width = `clamp(150px, 8.5vw, 300px)`; poster height derives from the 0.7 ra
 | **WP1** ✅ | Tokens + shell: `media-tokens.css`, `MediaShell`, `MediaRail`, `MediaTopBar`, icons | Board renders inside the new shell at 3440 and 1440; rail keyboard-navigable; `tsc` + vitest green; screenshots from the user match the reference chrome |
 | **WP2** | Board: `MediaHero`, `MediaCarousel`, `MediaPosterCard` | Cinemeta rows render with 0.7 posters, hover play overlay, progress bars drawn from a stub store; loading + error states |
 | **WP3** | Detail + `StreamsPanel` + new `StreamRow` (7-line anatomy, filter, in-row engine states) | Torrentio rows show quality/codec/size/bitrate/langs; filter works; selecting a row plays; the previous `StreamsSheet` is gone |
-| **WP4** | Player chrome: autohide strips, transport, seek with buffered span, volume, state pill, error card, keyboard map | Plays a 4K HEVC MKV; chrome hides after 3 s; buffered span tracks `cacheSeconds`; error card visible (surface hidden) |
+| **WP4a** | Player chrome: autohide strips, transport, seek with buffered span (+ optimistic drag), volume, state pill, error card, keyboard map, 2 px hairline when idle | Plays a 4K HEVC MKV; chrome hides after 3 s; buffered span tracks `cacheSeconds`; error card visible (surface hidden); seek drag = one commit, not a seek queue |
+| **WP4b** | Player **engine performance** (backend): coalesced state events, zero-copy frame present, SW scaler/target tuning, session prewarm, per-source cache policy, drop telemetry | Webview CPU and `media.player.perf` drop counts measured before/after; existing headless proofs still green. Backlog: `HANDOVER.md` §0 "WP4b backlog". |
 | **WP5** | Track menus + watch progress: `media_player_tracks`/`media_player_set_track`, `TrackMenu`, `library.json` writes, "Continue watching" fed by real progress | Switch audio to English on the 6-track test release; subtitles off/on/forced; quit and resume at the same position; Continue watching appears on the board |
 | **WP6** | Polish: responsiveness table, a11y pass, reduced motion, skeletons, `Show all` cap | Keyboard-only walkthrough of A→B→C; contrast checks; `prefers-reduced-motion` honoured |
 

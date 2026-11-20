@@ -21,8 +21,9 @@ item per session — never batched.**
 > 1. **`docs/MEDIA_UI_SPEC.md`** — the *next workstream*. Stremio-parity redesign of
 >    the media workspace + player, derived from the user's screenshots: tokens,
 >    three screens, component/file inventory, data mapping, keyboard/a11y rules and
->    six work packages (WP1 tokens+shell → WP6 polish). **Implement one WP per
->    session; WP1, WP2 and WP3 are done, WP4 is next.** Reference images (not in git):
+>    six work packages (WP1 tokens+shell → WP6 polish; WP4 is split into WP4a
+>    chrome / WP4b engine performance). **Implement one WP per session; WP1, WP2,
+>    WP3 done, WP4a is next.** Reference images (not in git):
 >    `~/hermes-workspace/maxplorer-media/ui-reference/`.
 > 2. **`docs/MEDIA_PLAYER_HANDOVER.md`** — the player internals: what works, the
 >    three architectures already ruled out **with evidence**, and the as-built
@@ -31,14 +32,131 @@ item per session — never batched.**
 > **WP1 (tokens + shell), WP2 (the board) and WP3 (detail + streams panel) are
 > DONE** — components and the as-built notes are in `docs/MEDIA_UI_SPEC.md` §10.
 > Gates green: `npx tsc --noEmit`; vitest `src/components/media` → 74 passed.
->
-> **Next session (exactly one item):** **WP4** of `docs/MEDIA_UI_SPEC.md` —
-> player chrome: autohide top/bottom strips, transport, seek bar with the buffered
-> span, volume, the state pill and the error card, plus the §5 keyboard map. Keep
-> the native-surface layering rule (nothing drawn over the video) and the
-> `fileLoaded`-gated visibility. Gate: `npx tsc --noEmit && npx vitest run
-> src/components/media`, then hand the built `.app` over for a check against
-> `crop-player-bottom.png`.
+> WP3 lives on `feature/media-ui-wp3` @ `cb138ae` (pushed).
+
+---
+
+## ▶ NEXT SESSION — UI WP4a: player chrome (exactly this, nothing else)
+
+**Branch:** `feature/media-ui-wp4a` off `feature/media-ui-wp3`.
+**Read first:** `docs/MEDIA_UI_SPEC.md` §5 (screen C) + §10 WP4a, then
+`docs/MEDIA_PLAYER_HANDOVER.md` §4.6 (as-built render path) and §8 (blank-video RCA).
+Reference crop: `~/hermes-workspace/maxplorer-media/ui-reference/crop-player-bottom.png`
+(plus `stremio-03-player.png`). Load the crop before writing CSS.
+
+### Scope (frontend only — do NOT touch `render.rs` / `player.rs` in this WP)
+
+Rewrite `src/components/media/PlayerOverlay.tsx` chrome to §5 on `--m-*` tokens,
+plus a new `.media-player-*` block in `src/styles/media.css` (replace the
+carried-over orange chrome entirely). Keep the `media-` class prefix.
+
+1. **Three strips, no overlays on the stage.** Top strip (72 px, gradient from
+   black 70%): close `✕` (32 px ghost), title 15/600, optional `S/E`, codec +
+   resolution chip, right cluster = stats pill + fullscreen. Bottom bar (88 px,
+   gradient): `⏮ ⏯ ⏭` 40 px, elapsed, seek (flex), total, volume icon + 90 px
+   slider that expands on hover, fullscreen. Everything outside
+   `.media-player-stage` — the native `NSView` composites **above** the webview,
+   so nothing drawn on the stage can ever be seen (spec §5.2, skill do-not list).
+2. **Autohide contract.** Visible on mousemove / pause / `Tab`; hides 3 s after
+   the last input while playing (`.is-idle` fade, `prefers-reduced-motion` →
+   fade only). Cursor hides with the chrome. When hidden, keep a **2 px progress
+   hairline** at the very bottom so position stays readable.
+3. **State pill** 40 px above the bar, `role="status"`: `Buffering 42 % · 1.5 MB/s`
+   from `cacheSummary`, or `Connecting to the swarm… 37 % · 12 peers` while the
+   engine resolves. Error card instead of the stage content (`role="alert"`, reason,
+   `↗ Open in external player`, `Retry`) — resume the hidden-surface rule in the
+   same breath: `fileLoaded` gate stays, surface stays hidden on error.
+4. **Seek bar.** 4 px track `rgba(255,255,255,.22)`, buffered span
+   `rgba(255,255,255,.4)` from `cacheSeconds`, played span `--m-accent`, hover →
+   7 px + 14 px knob + a **text** time tooltip. Dragging is optimistic: render the
+   local scrub position immediately and only call `player_seek` on release (one
+   seek per gesture, no seek queue). Slider semantics: `role="slider"`,
+   `aria-valuetext="12:34 of 1:44:59"`, arrow keys scrub ±5 s, Home/End to ends.
+5. **Volume.** Icon toggles mute, slider expands on hover, `↑/↓` ±5, `M` mute,
+   ephemeral "Volume 40 %" curtain when it changes.
+6. **Keyboard map (§5), bound on `window`** — the native surface has focus:
+   `Space`/`K` play-pause · `←/→` ±10 s · `Shift+←/→` ±60 s · `↑/↓` volume ±5 ·
+   `M` mute · `F` fullscreen (Tauri window fullscreen) · `Tab` show chrome and
+   move focus into it · `Esc` hide chrome, then close the player. Seek keys show a
+   `−10s / +10s` ripple inside the bar.
+7. **Ended state**: play icon resets, `⏭` only when a next episode is known.
+   Audio-only source: stage shows the title art on `--m-bg` (poster comes from the
+   selected meta; `playerSource` carries only `metaId` today — either thread a
+   `poster` field through `openPlayer`, or render the title art and note it).
+
+**Deliberately NOT in 4a** (they need backend commands that belong to WP5):
+audio/subtitle **menus**, speed menu, and `media_player_tracks` /
+`media_player_set_track`. Do not ship dead buttons for them — the bar's right
+cluster simply ends at fullscreen. (Optional only if it costs <15 min:
+`media_player_set_speed` + a 0.5–2× speed menu, mpv `speed` property.)
+
+### Constraints that already cost cycles
+- Chrome class prefix `media-`; the old `.media-player-head/controls/track/badge`
+  names are yours to replace, but `PlayerOverlay.test.tsx` and
+  `src/state/mediaStore.ts` must keep working (`playerSource`, `closePlayer`).
+- Keep `framedrop=vo`, the `fileLoaded`→`set_surface_visible` gate, and the
+  Range-probe before a torrent URL reaches mpv (never bypass).
+- No faked seeder counts; peers only.
+- jsdom cannot assert layout — visual acceptance is the user looking at the
+  installed `.app` against `crop-player-bottom.png`.
+
+### Gate + handover
+```
+npx tsc --noEmit && npx vitest run src/components/media
+```
+Add `PlayerOverlay.test.tsx` cases: autohide with `vi.useFakeTimers`, key map
+dispatches the right `api.*` calls (mock `../../lib/api`), seek ratio math,
+buffered-span width from `cacheSeconds`, error card replaces the stage, slider
+`aria-valuetext`. No jest-dom (use `toBeTruthy()`/`textContent`).
+
+Then: build (background, `notify=true`, finish edits first), grep the new string
+in `dist/assets/*.js`, install to `/Applications`, verify with the user's click
+path, compare against `crop-player-bottom.png`.
+
+**After 4a ships, the next item is WP4b (engine performance) — read the backlog
+below before starting it.**
+
+
+### WP4b backlog — player engine performance (measured from the code, not guessed)
+
+Reading `src-tauri/src/player.rs` + `render.rs` on 2026-11-21 found these; each is
+a separate, measurable change. Do them one per session maximum, with before/after
+numbers in the commit message.
+
+1. **`emit_state` fires per frame.** `MPV_EVENT_PROPERTY_CHANGE` → `emit_state()`
+   for every change, and `time-pos`/`cache-speed`/`demuxer-cache-time` change
+   ~per frame → a full `PlayerStatus` JSON to the webview up to 60×/s, each
+   re-rendering `PlayerOverlay` while video is compositing. Fix: dirty-flag +
+   250 ms coalesced "tick" event `{position, cachePercent, cacheSeconds,
+   cacheSpeed}`; immediate full event only for discrete changes (pause, mute,
+   volume, file-loaded, error, eof, playback-restart). Expect ~95 % less IPC and
+   React work; the bar stays smooth via a CSS transition.
+2. **Per-frame full-frame memcpy in `render.rs#present`.** `buffer.snapshot()`
+   copies the whole RGB frame (~23 MB at 3416×1700@2x), then a fresh
+   `CGDataProvider` + `CGImage` per frame, posted to the main thread. Fix: a
+   3-buffer ring, `CGImageCreate` over the raw buffer, recycle a buffer only after
+   its image has been replaced two frames ago (avoid tearing). This is the single
+   biggest win and the reason `framedrop=vo` is needed today.
+3. **SW scaler / render-target size.** The SW renderer scales in CPU at
+   bicubic/lanczos into the full backing size. Set `scale=bilinear`,
+   `dscale=bilinear` for the `vo=libmpv` path and cap the target at
+   `min(stage backing, 2560 px wide)` — CALayer scales the rest for free.
+4. **Main-thread dispatch per frame** — frame-generation counter, drop stale
+   frames before dispatch, one reusable block.
+5. **Prewarm the session** — create the mpv core + render context when the detail
+   screen opens (or keep one idle core), `loadfile` on Play; on torrent rows start
+   mpv paused+hidden while the swarm resolves. ~100–300 ms off first frame.
+6. **Per-source cache policy** — torrent: `demuxer-readahead-secs=120`,
+   `cache-pause-wait=2`, 512 MiB forward; direct HTTP/debrid: `cache=no` (CDN
+   links are seekable; buffering only delays start).
+7. **Seek path** — `hr-seek=yes` for short jumps; throttle/deduplicate seeks.
+8. **Telemetry** — log `vo-drop-frame-count`, `decoder-frame-drop-count` and
+   render ms/frame to `media.player.perf` every 5 s, so "it feels slow" is a number.
+
+Acceptance for WP4b: webview CPU during 4K playback, `media.player.perf` drop
+counts, time-to-first-frame and seek latency recorded before/after; plus the
+existing headless proofs (`cargo test --lib live_sw_render_paints_pixels`,
+`live_stream_gate`) still green.
 
 ### What exists (all verified live in the installed app)
 
