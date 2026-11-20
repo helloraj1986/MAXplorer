@@ -223,6 +223,9 @@ unsafe fn create_view(window: *mut AnyObject, rect: NSRect) -> *mut AnyObject {
     // Layer-back the view so mpv's output composites correctly.
     let _: () = msg_send![view, setWantsLayer: Bool::YES];
     let _: () = msg_send![content_view, addSubview: view];
+    // Hidden until the first file actually loads, so the HTML spinner/error card
+    // is visible instead of being covered by a black native rectangle.
+    let _: () = msg_send![view, setHidden: Bool::YES];
     view
 }
 
@@ -366,6 +369,10 @@ fn create_mpv(api: &'static MpvApi) -> Result<MpvHandle, AppError> {
     // Hardware decode where safe — needed for HEVC/HDR/4K torrent releases.
     set_option(api, handle, "hwdec", "auto-safe");
     // Network/torrent streams: keep a modest forward buffer.
+    // The SW renderer copies every frame on the CPU; if it cannot keep up, drop
+    // rendered frames instead of stalling the audio clock (a frozen/blank picture
+    // is what the user reads as breakage).
+    set_option(api, handle, "framedrop", "vo");
     set_option(api, handle, "cache", "yes");
     set_option(api, handle, "demuxer-max-bytes", "256MiB");
 
@@ -808,6 +815,29 @@ pub async fn media_player_set_rect(
         renderer.set_size(width_px, height_px);
     }
     Ok(())
+}
+
+/// Shows/hides the native video surface. The UI hides it while loading and on
+/// playback errors so the HTML spinner or error card is not covered by a black
+/// rectangle (the surface sits above the webview).
+#[tauri::command]
+pub async fn media_player_set_surface_visible(
+    app: tauri::AppHandle,
+    visible: bool,
+) -> Result<(), AppError> {
+    let view = {
+        let slot = session_slot().lock().unwrap();
+        slot.as_ref().map(|session| session.view as usize)
+    };
+    let Some(view) = view else { return Ok(()) };
+    logging::debug(
+        LOG_TARGET,
+        format!("native surface visibility -> {visible}"),
+    );
+    with_main_thread(&app, move || unsafe {
+        let view = view as *mut AnyObject;
+        let _: () = msg_send![view, setHidden: if visible { Bool::NO } else { Bool::YES }];
+    })
 }
 
 #[tauri::command]

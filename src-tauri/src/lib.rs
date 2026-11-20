@@ -190,6 +190,7 @@ pub fn run() {
             player::media_player_open,
             player::media_player_close,
             player::media_player_set_rect,
+            player::media_player_set_surface_visible,
             player::media_player_set_pause,
             player::media_player_seek,
             player::media_player_seek_relative,

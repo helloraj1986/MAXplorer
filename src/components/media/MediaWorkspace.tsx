@@ -473,6 +473,12 @@ function StreamRow({ ranked }: { ranked: RankedStream }) {
         ))}
       </span>
       <span className="media-stream-size">{formatSize(ranked.sizeBytes)}</span>
+      {resolving ? (
+        <span className="media-stream-engine" aria-live="polite">
+          {engine?.speed ? `↓ ${engine.speed.toFixed(1)} MB/s` : "↓ …"}
+          {engine?.peers ? ` · ${engine.peers} peers` : ""}
+        </span>
+      ) : null}
       <span className="media-stream-actions">
         {direct ? (
           <>

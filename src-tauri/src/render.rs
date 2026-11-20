@@ -333,6 +333,10 @@ impl SwRenderer {
 
 fn render_loop(api: &'static MpvApi, ctx: MpvRenderContext, shared: Arc<Shared>) {
     logging::debug(LOG_TARGET, "render thread started");
+    // Periodic fps log: proves whether the SW path keeps up with the source, which
+    // is the difference between "video is broken" and "CPU scaling is too slow".
+    let mut last_report = std::time::Instant::now();
+    let mut frames_since_report: u64 = 0;
     loop {
         {
             let mut signal = match shared.signal.lock() {
@@ -364,6 +368,20 @@ fn render_loop(api: &'static MpvApi, ctx: MpvRenderContext, shared: Arc<Shared>)
         match render_frame(api, ctx, &shared) {
             Ok(Some((pixels, width, height, stride))) => {
                 shared.rendered.fetch_add(1, Ordering::Relaxed);
+                frames_since_report += 1;
+                if last_report.elapsed() >= Duration::from_secs(5) {
+                    let elapsed = last_report.elapsed().as_secs_f64();
+                    logging::info(
+                        LOG_TARGET,
+                        format!(
+                            "render: {:.1} fps at {width}x{height} px ({:.1} MB/frame)",
+                            frames_since_report as f64 / elapsed,
+                            (stride * height as usize) as f64 / (1024.0 * 1024.0)
+                        ),
+                    );
+                    last_report = std::time::Instant::now();
+                    frames_since_report = 0;
+                }
                 let view = shared.view;
                 let app = shared.app.clone();
                 let failed = shared.present_failed.load(Ordering::Relaxed);

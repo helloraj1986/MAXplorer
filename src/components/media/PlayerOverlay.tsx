@@ -21,11 +21,12 @@ export function PlayerOverlay() {
   const playerSource = useMediaStore((state) => state.playerSource);
   const playerStatus = useMediaStore((state) => state.playerStatus);
   const playerDiagnostics = useMediaStore((state) => state.playerDiagnostics);
+  const engine = useMediaStore((state) => state.engine);
+  const refreshEngineStats = useMediaStore((state) => state.refreshEngineStats);
   const closePlayer = useMediaStore((state) => state.closePlayer);
   const setPlayerStatus = useMediaStore((state) => state.setPlayerStatus);
 
   const stageRef = useRef<HTMLDivElement | null>(null);
-  const [opening, setOpening] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const status: NativePlayerStatus | null = playerStatus;
@@ -56,7 +57,6 @@ export function PlayerOverlay() {
       };
     };
 
-    setOpening(true);
     setError(null);
     logDiagnostic("info", `opening native player: ${playerSource.title}`, "media.player");
     api
@@ -70,9 +70,6 @@ export function PlayerOverlay() {
         const message = normalizeError(caught).message;
         setError(message);
         logDiagnostic("error", `native player could not start: ${message}`, "media.player");
-      })
-      .finally(() => {
-        if (!cancelled) setOpening(false);
       });
 
     // Keep the native surface aligned when the window or layout changes.
@@ -111,6 +108,23 @@ export function PlayerOverlay() {
       unlisten?.();
     };
   }, [playerSource, setPlayerStatus]);
+
+  // Torrent swarm stats (speed / peers) while a torrent-backed stream plays.
+  useEffect(() => {
+    if (!playerSource || !engine || engine.phase !== "ready") return;
+    void refreshEngineStats();
+    const timer = window.setInterval(() => void refreshEngineStats(), 2000);
+    return () => window.clearInterval(timer);
+  }, [playerSource, engine?.phase, engine?.infoHash, refreshEngineStats]);
+
+  // The native surface sits above the webview, so it must stay hidden until a
+  // file is actually loaded — otherwise it covers the spinner and the error card
+  // and a failed stream just looks like a blank player.
+  const surfaceVisible = Boolean(status?.fileLoaded) && error === null;
+  useEffect(() => {
+    if (!playerSource || !isTauri) return;
+    void api.playerSetSurfaceVisible(surfaceVisible).catch(() => undefined);
+  }, [playerSource, surfaceVisible]);
 
   const togglePlay = useCallback(() => {
     if (!status) return;
@@ -176,6 +190,15 @@ export function PlayerOverlay() {
             Buffering {cacheSummary(status?.cachePercent ?? 0, status?.cacheSpeed ?? 0)}
           </span>
         ) : null}
+        {status?.fileLoaded ? (
+          <span className="media-player-badge stats" role="status" aria-label="Stream stats">
+            ↓ {formatSpeed(status.cacheSpeed)}
+            {status.cacheSeconds > 0 ? ` · ${status.cacheSeconds.toFixed(1)}s buffered` : ""}
+            {engine?.phase === "ready" && engine.peers !== undefined
+              ? ` · ${engine.peers} peers`
+              : ""}
+          </span>
+        ) : null}
         <button
           type="button"
           className="media-close"
@@ -189,8 +212,16 @@ export function PlayerOverlay() {
       <div className="media-player-stage" ref={stageRef}>
         {/* The native video surface is composited over this element; nothing
             should be drawn here or it would be hidden behind the video. */}
-        {opening && !engineUnavailable ? (
-          <div className="media-player-spinner" aria-label="Starting playback" />
+        {!status?.fileLoaded && !engineUnavailable ? (
+          <>
+            <div className="media-player-spinner" aria-label="Starting playback" />
+            {engine?.phase === "resolving" ? (
+              <p className="media-player-stage-note">
+                Connecting to the swarm… {Math.round((engine.progress ?? 0) * 100)}%
+                {engine.peers ? ` · ${engine.peers} peers` : ""}
+              </p>
+            ) : null}
+          </>
         ) : null}
         {engineUnavailable ? (
           <div className="media-player-error" role="alert">

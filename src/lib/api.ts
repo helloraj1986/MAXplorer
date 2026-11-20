@@ -124,24 +124,33 @@ export const api = {
   playerSetVolume: (volume: number) =>
     call<NativePlayerStatus>("media_player_set_volume", { volume }),
   playerSetMuted: (muted: boolean) => call<NativePlayerStatus>("media_player_set_muted", { muted }),
-  playerStatus: () => call<NativePlayerStatus>("media_player_status"),
+  playerSetSurfaceVisible: (visible: boolean) =>
+      call<void>("media_player_set_surface_visible", { visible }),
+    playerStatus: () => call<NativePlayerStatus>("media_player_status"),
   playerDiagnostics: () => call<NativePlayerDiagnostics>("media_player_diagnostics"),
   startTorrent: (infoHash: string) =>
       call<{ baseUrl: string }>("media_torrent_start", { infoHash }),
-    torrentStatus: (infoHash: string, baseUrl: string) =>
+    torrentStatus: (infoHash: string, baseUrl: string, probe = true) =>
       call<{
         registered: boolean;
         metadataReady: boolean;
         name: string | null;
         files: { idx: number; name: string; length: number }[];
         progress: number;
+        /** MB/s */
         downloadSpeed: number;
+        /** Connected peers. */
         peers: number;
+        /** Peers discovered in the swarm. */
+        peersSeen: number;
+        /** librqbit state: initializing | live | paused | error */
         state: string;
+        /** True only when librqbit can actually serve the stream URL. */
+        streamable: boolean;
         streamUrl: string | null;
       }>(
         "media_torrent_status",
-        { infoHash, baseUrl },
+        { infoHash, baseUrl, probe },
       ),
     debridResolve: (infoHash: string) => call<string>("media_debrid_resolve", { infoHash }),
     debridSaveConfig: (config: { provider: "realdebrid" | "torbox"; apiKey: string }) =>

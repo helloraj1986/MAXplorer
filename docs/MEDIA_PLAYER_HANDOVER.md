@@ -359,3 +359,63 @@ body; read `exception.type`, `termination.namespace`, faulting thread frames).
    the next milestone, or later?
 4. `objc2` + `libloading` remain in `Cargo.toml`; `objc2` is still used for the
    NSView/CALayer surface, `libloading` for the dlopen shim — both required.
+---
+
+## 8. Blank video / streams that never start (2026-11-21)
+
+### What the log showed
+
+`maxplorer.log`, target `media.player`, two distinct failures:
+
+```
+curlHTTP error 500
+curltransfer failed: Failed writing received data to disk/application
+streamFailed to open http://127.0.0.1:18081/torrents/<hash>/stream/0
+```
+
+and, a second later on another stream:
+
+```
+curlerror: Couldn't resolve host name
+```
+
+Both are the embedded torrent server refusing the request, not a codec or
+network-speed problem: the same URLs served fine minutes later (`HTTP 200`,
+`content-length` = the file size). mpv's "couldn't resolve host name" is its
+retry path after the server closed the connection — it does **not** mean DNS or
+the LAN is at fault.
+
+Root cause: the frontend opened the player as soon as the torrent's **metadata**
+(files) existed, but librqbit's stream handler is only reliable once the torrent
+is actually serving. A freshly added torrent — and every torrent re-added on app
+restart — has files long before that moment.
+
+### What was fixed
+
+1. **Probe before handing the URL to mpv.** `media_torrent_status` now does a
+   2-byte `Range: bytes=0-1` GET against the stream URL and withholds
+   `streamUrl` unless it returns success (with the failure status + body
+   snippet logged once). `probe=false` is used by the playback-time stats poll so
+   it never opens extra streams while playing.
+2. **State gate.** `streamUrl` also requires librqbit state `live`/`paused`
+   (`can_stream`), because its `streams()` rejects other states outright.
+3. **The native surface starts hidden.** It is revealed only on `file-loaded`
+   (and hidden again on error). Previously it covered the spinner and the error
+   card, so a failed stream looked exactly like "blank video" with no message.
+4. **`framedrop=vo`** so a renderer that cannot keep up drops frames instead of
+   freezing the picture (SW scaling a 4K source is the known cost, §1).
+5. **Render fps is logged every 5 s** (`media.render: 23.9 fps at 3024x1458 px`),
+   which separates "decode/render too slow" from "no data from the swarm".
+
+### Live stats in the UI
+
+- Player header: `↓ 2.4 MB/s · 8.2s buffered · 18 peers` (mpv `cache-speed` /
+  `demuxer-cache-time`, librqbit live peer count), plus the stall pill
+  `Buffering 42% · 1.5 MB/s` while `paused-for-cache` is set.
+- Stage note while a torrent connects: `Connecting to the swarm… 37% · 12 peers`.
+- Stream rows: `↓ 2.4 MB/s · 12 peers` while resolving, with the % inside the
+  button.
+
+Note on seeders: librqbit's `api_stats_v1` exposes connected/discovered peer
+counts but **not** a seed/leecher split, so the UI reports peers honestly rather
+than inventing a seeder figure. A seeder count would need tracker scrapes.

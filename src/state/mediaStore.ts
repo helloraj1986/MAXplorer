@@ -47,7 +47,14 @@ export interface MediaState {
     phase: "resolving" | "ready" | "error";
     error?: string;
     progress?: number;
+    /** Connected peers. */
     peers?: number;
+    /** Peers discovered in the swarm. */
+    peersSeen?: number;
+    /** MB/s from the torrent engine. */
+    speed?: number;
+    /** librqbit state: initializing | live | paused | error */
+    state?: string;
   } | null;
   /** Phase 4 (debrid): debrid configuration. */
   debridConfig: { provider: "realdebrid" | "torbox"; apiKey: string } | null;
@@ -64,6 +71,7 @@ export interface MediaState {
   setPlayerStatus: (status: NativePlayerStatus | null) => void;
   loadPlayerDiagnostics: () => Promise<void>;
   streamTorrent: (infoHash: string, title: string) => Promise<void>;
+  refreshEngineStats: () => Promise<void>;
   loadDebridConfig: () => Promise<void>;
   saveDebridConfig: (config: { provider: "realdebrid" | "torbox"; apiKey: string }) => Promise<void>;
   clearDebridConfig: () => Promise<void>;
@@ -219,11 +227,33 @@ export const useMediaStore = create<MediaState>((set, get) => ({
       await new Promise((resolve) => window.setTimeout(resolve, 3000));
       try {
         const status = await api.torrentStatus(infoHash, baseUrl);
-        set({ engine: { infoHash, baseUrl, phase: "resolving", progress: status.progress, peers: status.peers } });
-        if (status.streamUrl) {
+        set({
+          engine: {
+            infoHash,
+            baseUrl,
+            phase: "resolving",
+            progress: status.progress,
+            peers: status.peers,
+            peersSeen: status.peersSeen,
+            speed: status.downloadSpeed,
+            state: status.state,
+          },
+        });
+        // `streamUrl` is null until the torrent is live/paused: librqbit answers
+        // HTTP 500 while it initializes, which used to show up as a blank player.
+        if (status.streamable && status.streamUrl) {
           const label = status.name ?? title;
           set({
-            engine: { infoHash, baseUrl, phase: "ready", progress: status.progress, peers: status.peers },
+            engine: {
+              infoHash,
+              baseUrl,
+              phase: "ready",
+              progress: status.progress,
+              peers: status.peers,
+              peersSeen: status.peersSeen,
+              speed: status.downloadSpeed,
+              state: status.state,
+            },
             playerSource: { url: status.streamUrl, title: label },
           });
           return;
@@ -241,6 +271,27 @@ export const useMediaStore = create<MediaState>((set, get) => ({
         error: "No peers responded in time. The swarm may be slow — try again or use a debrid source.",
       },
     });
+  },
+
+  /** One poll of the active torrent's swarm stats (used by the player chrome). */
+  async refreshEngineStats() {
+    const engine = get().engine;
+    if (!engine || !engine.baseUrl || engine.phase !== "ready") return;
+    try {
+      const status = await api.torrentStatus(engine.infoHash, engine.baseUrl, false);
+      set({
+        engine: {
+          ...engine,
+          progress: status.progress,
+          peers: status.peers,
+          peersSeen: status.peersSeen,
+          speed: status.downloadSpeed,
+          state: status.state,
+        },
+      });
+    } catch {
+      // Stats are best-effort; playback does not depend on them.
+    }
   },
 
   async loadDebridConfig() {
