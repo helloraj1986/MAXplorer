@@ -160,6 +160,8 @@ export function PlayerOverlay() {
   if (!playerSource) return null;
 
   const progress = duration > 0 ? (position / duration) * 100 : 0;
+  const buffered = duration > 0 ? Math.min(100, ((position + (status?.cacheSeconds ?? 0)) / duration) * 100) : 0;
+  const buffering = Boolean(status?.pausedForCache);
   const engineUnavailable = error !== null;
 
   return (
@@ -168,6 +170,11 @@ export function PlayerOverlay() {
         <span className="media-player-title">{playerSource.title}</span>
         {status?.videoFormat ? (
           <span className="media-player-badge">{status.videoFormat.toUpperCase()}</span>
+        ) : null}
+        {buffering ? (
+          <span className="media-player-badge buffering" role="status">
+            Buffering {cacheSummary(status?.cachePercent ?? 0, status?.cacheSpeed ?? 0)}
+          </span>
         ) : null}
         <button
           type="button"
@@ -236,6 +243,7 @@ export function PlayerOverlay() {
             void api.playerSeek(ratio * duration).then(setPlayerStatus).catch(() => undefined);
           }}
         >
+          <div className="media-player-track-buffer" style={{ width: `${buffered}%` }} />
           <div className="media-player-track-fill" style={{ width: `${progress}%` }} />
         </div>
         <span className="media-player-time">{formatTime(duration)}</span>
@@ -272,6 +280,28 @@ export function PlayerOverlay() {
       </footer>
     </div>
   );
+}
+
+/**
+ * Header label for a stalled torrent stream: cache fill plus arrival rate. The
+ * panel can't live over the stage — the native video surface covers it — so the
+ * state is reported in the chrome instead.
+ */
+export function cacheSummary(percent: number, bytesPerSecond: number): string {
+  const pct = Math.max(0, Math.min(100, Math.round(percent)));
+  return `${pct}% · ${formatSpeed(bytesPerSecond)}`;
+}
+
+export function formatSpeed(bytesPerSecond: number): string {
+  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return "0 B/s";
+  const units = ["B/s", "KB/s", "MB/s", "GB/s"];
+  let value = bytesPerSecond;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
 }
 
 function formatTime(seconds: number): string {

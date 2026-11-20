@@ -9,12 +9,13 @@
 //! Stremio-like "runs every file" playback, embedded in the app window (no
 //! leaving the app).
 //!
-//! How the video surface works: mpv is pointed at an `NSView` we add as a
-//! subview of the Tauri window's content view, via mpv's `wid` option. On macOS
-//! this requires a libmpv build that has the `wid`/NSView path (mpv master;
-//! `brew install mpv --HEAD`). `media_player_diagnostics` reports whether the
-//! installed libmpv supports it, so a missing capability is diagnosable instead
-//! of silent.
+//! How the video surface works: mpv renders each frame with the **render API**
+//! (`MPV_RENDER_API_TYPE_SW`) into an RGBA buffer we own (`render.rs`), which is
+//! wrapped in a `CGImage` and set as the contents of a layer-backed `NSView`
+//! placed over the player stage. That is how Stremio embeds mpv, and it is the
+//! only path that exists on macOS — mpv's `wid`/NSView option was never merged
+//! upstream, so setting it succeeds and is silently ignored (the video then
+//! opens in mpv's own window).
 //!
 //! Everything here is heavily logged via `crate::logging` — engine load path,
 //! option/command result codes, end-file reasons and mpv's own log stream — so a
@@ -23,6 +24,7 @@
 use crate::error::AppError;
 use crate::logging;
 use crate::mpv::{self, MpvApi, MpvEventEndFile, MpvEventLogMessage, MpvEventProperty, MpvHandle};
+use crate::render::SwRenderer;
 use objc2::msg_send;
 use objc2::runtime::{AnyObject, Bool};
 use serde::Serialize;
@@ -104,6 +106,9 @@ struct Session {
     api: &'static MpvApi,
     handle: MpvHandle,
     view: *mut AnyObject,
+    /// Software renderer that paints mpv frames into `view`. `None` only if the
+    /// render context could not be created — mpv then opens its own window.
+    renderer: Option<SwRenderer>,
     shared: Arc<Mutex<PlayerStatus>>,
     /// Tells the event thread to stop before the handle is destroyed.
     stop: Arc<std::sync::atomic::AtomicBool>,
@@ -140,23 +145,6 @@ fn set_option(api: &MpvApi, handle: MpvHandle, name: &str, value: &str) -> c_int
     logging::debug(
         LOG_TARGET,
         format!("set_option {name}={value} -> {}", mpv::error_string(api, code)),
-    );
-    code
-}
-
-fn set_option_i64(api: &MpvApi, handle: MpvHandle, name: &str, mut value: i64) -> c_int {
-    let (n, _v) = (cstr(name), cstr(""));
-    let code = unsafe {
-        (api.mpv_set_option)(
-            handle,
-            n.as_ptr(),
-            mpv::MPV_FORMAT_INT64,
-            &mut value as *mut i64 as *mut c_void,
-        )
-    };
-    logging::debug(
-        LOG_TARGET,
-        format!("set_option {name}={value} (int64) -> {}", mpv::error_string(api, code)),
     );
     code
 }
@@ -229,6 +217,9 @@ unsafe fn create_view(window: *mut AnyObject, rect: NSRect) -> *mut AnyObject {
     if view.is_null() {
         return std::ptr::null_mut();
     }
+    // Own a reference ourselves: presentation closures are queued on the main
+    // thread, and one may still run after the view is removed from its superview.
+    let _: () = msg_send![view, retain];
     // Layer-back the view so mpv's output composites correctly.
     let _: () = msg_send![view, setWantsLayer: Bool::YES];
     let _: () = msg_send![content_view, addSubview: view];
@@ -262,6 +253,23 @@ unsafe fn remove_view(view: *mut AnyObject) {
 unsafe fn frame_from_css(window: *mut AnyObject, x: f64, y: f64, w: f64, h: f64) -> NSRect {
     let height = content_view_height(window);
     NSRect::from_points(x, height - (y + h), w, h)
+}
+
+/// Size of a CSS rect in **backing pixels** (points × display scale factor).
+/// The render surface must match these, or Retina displays get a half-size video.
+unsafe fn backing_size(window: *mut AnyObject, x: f64, y: f64, w: f64, h: f64) -> (u32, u32) {
+    let content_view: *mut AnyObject = msg_send![window, contentView];
+    let mut width = w;
+    let mut height = h;
+    if !content_view.is_null() {
+        let rect = frame_from_css(window, x, y, w, h);
+        let backing: NSRect = msg_send![content_view, convertRectToBacking: rect];
+        if backing.size.width >= 1.0 && backing.size.height >= 1.0 {
+            width = backing.size.width;
+            height = backing.size.height;
+        }
+    }
+    (width.round().max(1.0) as u32, height.round().max(1.0) as u32)
 }
 
 fn with_main_thread<T, F>(app: &tauri::AppHandle, work: F) -> Result<T, AppError>
@@ -313,12 +321,21 @@ fn teardown(app: Option<&tauri::AppHandle>) {
         // mpv_wait_event returns within its 0.25s timeout, so this is quick.
         let _ = thread.join();
     }
+    // Render context must be freed before the core is destroyed, and only after
+    // the render thread has stopped touching it.
+    if let Some(renderer) = session.renderer.take() {
+        renderer.stop();
+    }
     let _ = command(session.api, session.handle, &["quit"]);
     unsafe { (session.api.mpv_terminate_destroy)(session.handle) };
     if let Some(app) = app {
         let view = session.view as usize;
         let _ = with_main_thread(&app, move || unsafe {
-            remove_view(view as *mut AnyObject);
+            // Release the reference taken in `create_view` — a queued frame may
+            // still be in flight, so the object must outlive its superview.
+            let view = view as *mut AnyObject;
+            remove_view(view);
+            let _: () = msg_send![view, release];
         });
     } else {
         unsafe { remove_view(session.view) };
@@ -328,7 +345,7 @@ fn teardown(app: Option<&tauri::AppHandle>) {
 }
 
 /// Create an mpv instance with MAXplorer's playback options.
-fn create_mpv(api: &'static MpvApi, viewer_view: *mut AnyObject) -> Result<MpvHandle, AppError> {
+fn create_mpv(api: &'static MpvApi) -> Result<MpvHandle, AppError> {
     let handle = unsafe { (api.mpv_create)() };
     if handle.is_null() {
         return Err(perr("libmpv could not create a player instance"));
@@ -352,19 +369,11 @@ fn create_mpv(api: &'static MpvApi, viewer_view: *mut AnyObject) -> Result<MpvHa
     set_option(api, handle, "cache", "yes");
     set_option(api, handle, "demuxer-max-bytes", "256MiB");
 
-    // Embed into our NSView. On macOS this is the `wid` NSView path.
-    let code = set_option_i64(api, handle, "wid", viewer_view as i64);
-    if code < 0 {
-        logging::warn(
-            LOG_TARGET,
-            format!(
-                "libmpv rejected `wid` ({}); video output will not be embedded. \
-                 A libmpv built without the macOS NSView `wid` path (e.g. mpv 0.42 \
-                 release) cannot embed; use mpv master via `brew install mpv --HEAD`.",
-                mpv::error_string(api, code)
-            ),
-        );
-    }
+    // Embed the video through the render API: the `libmpv` VO is driven by the
+    // render context created right after `mpv_initialize` (render.h requires it
+    // to exist before the first VO is created). Without that context, mpv opens
+    // its own window instead.
+    set_option(api, handle, "vo", "libmpv");
 
     let code = unsafe { (api.mpv_initialize)(handle) };
     if code < 0 {
@@ -375,13 +384,9 @@ fn create_mpv(api: &'static MpvApi, viewer_view: *mut AnyObject) -> Result<MpvHa
     }
 
     let vo = get_property_string(api, handle, "vo");
-    let wid = get_property_string(api, handle, "wid");
     logging::info(
         LOG_TARGET,
-        format!(
-            "mpv initialised (vo={vo:?}, wid={wid:?}, embedding={})",
-            viewer_view as i64
-        ),
+        format!("mpv initialised (vo={vo:?}); video is rendered via the SW render API"),
     );
 
     let level = cstr(if cfg!(debug_assertions) { "v" } else { "info" });
@@ -619,30 +624,8 @@ fn emit_state(app: &tauri::AppHandle, shared: &Arc<Mutex<PlayerStatus>>) {
 
 // ── Tauri commands ──────────────────────────────────────────────────────────
 
-/// Probes whether this libmpv accepts mpv's `wid` NSView embedding on macOS by
-/// attempting to set the option on a throwaway handle (unknown options return a
-/// negative code).
-pub(crate) fn probe_embedding_support(api: &MpvApi) -> bool {
-    unsafe {
-        let probe = (api.mpv_create)();
-        if probe.is_null() {
-            return false;
-        }
-        let name = cstr("wid");
-        let mut value: i64 = 1;
-        let code = (api.mpv_set_option)(
-            probe,
-            name.as_ptr(),
-            mpv::MPV_FORMAT_INT64,
-            &mut value as *mut i64 as *mut c_void,
-        );
-        (api.mpv_terminate_destroy)(probe);
-        code >= 0
-    }
-}
-
-/// Reports whether the in-app player can run, and whether this libmpv build
-/// supports macOS NSView embedding. Logged so failures are traceable.
+/// Reports whether the in-app player can run, and whether this libmpv can embed
+/// video via the render API. Logged so failures are traceable.
 #[tauri::command]
 pub fn media_player_diagnostics() -> PlayerDiagnostics {
     let lib = match mpv::libmpv() {
@@ -659,14 +642,14 @@ pub fn media_player_diagnostics() -> PlayerDiagnostics {
         }
     };
 
-    let embedding_supported = probe_embedding_support(&lib.api);
+    let embedding_supported = crate::render::probe(&lib.api);
 
     let detail = if embedding_supported {
-        "libmpv supports embedded video output.".to_string()
+        "libmpv supports the software render API; video is embedded in the app window.".to_string()
     } else {
-        "This libmpv does not accept mpv's `wid` NSView embedding on macOS \
-         (the 0.42 Homebrew release lacks it). Install mpv master with \
-         `brew install mpv --HEAD`, or set MAXPLORER_LIBMPV to a build that has it."
+        "This libmpv cannot create a software render context, so video would open in \
+         mpv's own window. Reinstall mpv (`brew install mpv --HEAD`) or set \
+         MAXPLORER_LIBMPV to a libmpv build with the render API."
             .to_string()
     };
     logging::info(
@@ -716,10 +699,15 @@ pub async fn media_player_open(
     // Create the native surface on the main thread (pointer passed as usize,
     // since raw pointers are not `Send`).
     let raw_window = window as usize;
-    let view_addr = with_main_thread(&app, move || unsafe {
+    let (view_addr, width_px, height_px) = with_main_thread(&app, move || unsafe {
         let window = raw_window as *mut AnyObject;
         let rect = frame_from_css(window, x, y, width, height);
-        create_view(window, rect) as usize
+        let (width_px, height_px) = backing_size(window, x, y, width, height);
+        (
+            create_view(window, rect) as usize,
+            width_px,
+            height_px,
+        )
     })?;
     if view_addr == 0 {
         return Err(perr("could not create the native video surface"));
@@ -727,10 +715,33 @@ pub async fn media_player_open(
     let view = view_addr as *mut AnyObject;
     logging::debug(
         LOG_TARGET,
-        format!("native video surface created at 0x{view_addr:x} rect=({x},{y},{width},{height})"),
+        format!(
+            "native video surface created at 0x{view_addr:x} rect=({x},{y},{width},{height}) \
+             backing={width_px}x{height_px}px"
+        ),
     );
 
-    let handle = create_mpv(api, view)?;
+    let handle = create_mpv(api)?;
+    // The render context must exist before the first `loadfile`, otherwise mpv
+    // creates its own VO (and its own window) instead of rendering into our
+    // surface. If it cannot be created we restore `vo=auto` so playback still
+    // works in mpv's separate window, and the log says exactly why.
+    let renderer = match SwRenderer::create(api, handle, app.clone(), view_addr, width_px, height_px)
+    {
+        Ok(renderer) => Some(renderer),
+        Err(error) => {
+            logging::error(
+                LOG_TARGET,
+                format!(
+                    "render context unavailable ({error}); falling back to mpv's own window \
+                     for this playback"
+                ),
+            );
+            let (name, value) = (cstr("vo"), cstr("auto"));
+            unsafe { (api.mpv_set_property_string)(handle, name.as_ptr(), value.as_ptr()) };
+            None
+        }
+    };
     observe(api, handle);
 
     let shared = Arc::new(Mutex::new(PlayerStatus {
@@ -755,6 +766,7 @@ pub async fn media_player_open(
             api,
             handle,
             view,
+            renderer,
             shared: shared.clone(),
             stop,
             thread: Some(thread),
@@ -783,11 +795,19 @@ pub async fn media_player_set_rect(
     };
     let Some(view) = view else { return Ok(()) };
     let window = ns_window(&app)? as usize;
-    with_main_thread(&app, move || unsafe {
+    let (width_px, height_px) = with_main_thread(&app, move || unsafe {
         let window = window as *mut AnyObject;
         let rect = frame_from_css(window, x, y, width, height);
         set_view_frame(view as *mut AnyObject, rect);
-    })
+        backing_size(window, x, y, width, height)
+    })?;
+    // The surface must track the stage size, or the video is letterboxed into a
+    // stale buffer after a resize.
+    let slot = session_slot().lock().unwrap();
+    if let Some(renderer) = slot.as_ref().and_then(|session| session.renderer.as_ref()) {
+        renderer.set_size(width_px, height_px);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -874,88 +894,6 @@ pub async fn media_player_close(app: tauri::AppHandle) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Development probe (used by `examples/embed_probe.rs`): creates a real AppKit
-/// window, embeds mpv into an NSView inside it via `wid`, loads `url`, and
-/// reports what mpv actually did. **Must be called from the main thread** —
-/// that is why it lives in an example binary rather than a `#[test]`, since the
-/// test harness runs tests on worker threads and AppKit aborts there.
-#[doc(hidden)]
-pub fn dev_probe_embed(url: &str, seconds: u64) -> Result<String, AppError> {
-    use std::time::{Duration, Instant};
-
-    let lib = mpv::libmpv().map_err(|error| perr(error))?;
-    let api: &'static MpvApi = &lib.api;
-
-    unsafe {
-        let app: *mut AnyObject = msg_send![objc2::class!(NSApplication), sharedApplication];
-        let _: () = msg_send![app, setActivationPolicy: 1i64]; // Accessory
-        let window: *mut AnyObject = msg_send![objc2::class!(NSWindow), alloc];
-        let window: *mut AnyObject = msg_send![
-            window,
-            initWithContentRect: NSRect::from_points(0.0, 0.0, 640.0, 360.0),
-            styleMask: 0u64,
-            backing: 2u64, // NSBackingStoreBuffered
-            defer: Bool::NO
-        ];
-        if window.is_null() {
-            return Err(perr("could not create a probe window"));
-        }
-        // NOTE: deliberately no makeKeyAndOrderFront — the production path never
-        // orders a window (it only adds a subview to the existing Tauri window),
-        // and ordering blocks on a headless/disconnected display.
-
-        let view = create_view(window, NSRect::from_points(0.0, 0.0, 640.0, 360.0));
-        if view.is_null() {
-            return Err(perr("could not create the probe video surface"));
-        }
-
-        let handle = (api.mpv_create)();
-        if handle.is_null() {
-            return Err(perr("libmpv could not create a player instance"));
-        }
-        set_option(api, handle, "config", "no");
-        set_option(api, handle, "terminal", "no");
-        set_option(api, handle, "ao", "null");
-        let wid_code = set_option_i64(api, handle, "wid", view as i64);
-        let init_code = (api.mpv_initialize)(handle);
-        if init_code < 0 {
-            return Err(perr(format!(
-                "mpv_initialize failed: {}",
-                mpv::error_string(api, init_code)
-            )));
-        }
-        observe(api, handle);
-        let vo_before = get_property_string(api, handle, "vo");
-
-        command(api, handle, &["loadfile", url, "replace"])?;
-
-        let deadline = Instant::now() + Duration::from_secs(seconds);
-        let (mut loaded, mut reconfig) = (false, false);
-        while Instant::now() < deadline && !(loaded && reconfig) {
-            let event = (api.mpv_wait_event)(handle, 0.25);
-            if event.is_null() {
-                break;
-            }
-            match (*event).event_id {
-                mpv::MPV_EVENT_FILE_LOADED => loaded = true,
-                mpv::MPV_EVENT_VIDEO_RECONFIG => reconfig = true,
-                _ => {}
-            }
-        }
-
-        let vo_after = get_property_string(api, handle, "vo");
-        let video = get_property_string(api, handle, "video-format");
-        let audio = get_property_string(api, handle, "audio-codec-name");
-        (api.mpv_terminate_destroy)(handle);
-
-        Ok(format!(
-            "libmpv={} wid_rc={wid_code} init_rc={init_code} vo={vo_before:?}->{vo_after:?} \
-             video={video:?} audio={audio:?} file_loaded={loaded} vo_reconfig={reconfig}",
-            lib.version
-        ))
-    }
-}
-
 /// Run `work` against the live session, or fail if nothing is playing.
 fn with_session<T>(
     work: impl FnOnce(&MpvApi, MpvHandle, &Arc<Mutex<PlayerStatus>>) -> Result<T, AppError>,
@@ -1029,6 +967,12 @@ mod tests {
             diagnostics.detail
         );
         assert!(diagnostics.available);
+        assert!(
+            diagnostics.embedding_supported,
+            "libmpv at {} cannot create a SW render context: {}",
+            lib.path.display(),
+            diagnostics.detail
+        );
     }
 
     /// Live: the core RCA claim — libmpv decodes a container/codec pair the

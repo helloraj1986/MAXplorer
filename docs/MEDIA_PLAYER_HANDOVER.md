@@ -3,8 +3,15 @@
 > Read this before touching the media player. Companion to `HANDOVER.md` §0
 > (feature state) and `docs/STREMIO_MEDIA.md` (roadmap).
 >
-> Branch `feature/stremio-compat`, head at the "revert(media): restore native
-> libmpv playback" commit.
+> Branch `feature/stremio-compat`.
+>
+> **UPDATE (2026-11-21): the render API is implemented — §4 is done, not a plan.**
+> Video now renders inside the MAXplorer window via `MPV_RENDER_API_TYPE_SW`
+> (`src-tauri/src/render.rs`). Headless proof:
+> `cargo test --lib live_sw_render_paints_pixels -- --ignored --nocapture` →
+> `sw render: file_loaded=true non_black_pixels=67769` (of 76,800). The remaining
+> items are the GL backend upgrade (§4.3 Option A) and audio/subtitle selection
+> (§7). Everything in §2 stays true — do not re-try `wid`, libvlc or HLS.
 
 ---
 
@@ -18,17 +25,19 @@
 | Stream resolution | Torrentio (`torrentio.strem.fun`), ranked streams sheet — Phase 2 |
 | Torrent engine | Embedded librqbit 8.1.1, `media_torrent_start/status`, built-in HTTP stream server on `127.0.0.1:18081` with Range. Verified live: Sintel streams, HTTP 206 + `Content-Range` |
 | **Native playback** | libmpv (mpv HEAD), **any container/codec**, hardware decode. Log proof: `Heart.of.the.Beast … hevc 3840x1600`, `eac3 6ch`, `Using hardware decoding (videotoolbox)` |
+| **Embedding** | Render API (`sw`): mpv paints into our aligned RGBA buffer, wrapped as a `CGImage` on the NSView's layer — no second window. Verified headlessly (non-black pixels after decode) |
 | Debrid | Real-Debrid + TorBox (`debrid.rs`) — optional accelerator |
 | Crash fix | teardown now joins the event thread before destroying the mpv handle (was SIGSEGV in `mpv_wait_event`) |
+| Buffering UI | Header pill shows cache % + arrival rate when `paused-for-cache`; seek bar shows buffered-ahead span |
 
 ### Not working / open
 
-1. **Video renders in mpv's OWN window, not inside MAXplorer.** This is the
-   single blocking defect. Root cause is a platform limitation, see §2.
-2. **No buffering indicator in the UI.** The data now exists —
-   `PlayerStatus.pausedForCache`, `cachePercent`, `cacheSeconds`, `cacheSpeed`,
-   `fileLoaded` — but `PlayerOverlay` does not render it yet.
-3. Player chrome still says generic copy; badges should show codec + engine.
+1. **Software-render cost.** One CPU copy per frame (~8 MB at 1080p, ~33 MB at
+   4K). Acceptable for 1080p; 4K may drop frames on a busy machine. The fix is
+   the GL backend (§4.3 Option A), not more patching of the SW path.
+2. **GUI click-through on this box is unverifiable** (display composites blank).
+   The user must confirm pixels inside the window (§4.4 step 6).
+3. Audio/subtitle track selection (mpv exposes `aid`/`sid`) — not wired to any UI.
 
 ---
 
@@ -92,7 +101,7 @@ That is the missing piece, and it is the whole of the next task.
 
 ---
 
-## 4. THE PLAN — embed mpv with the render API
+## 4. IMPLEMENTED — embed mpv with the render API
 
 ### 4.1 Shape
 
@@ -205,7 +214,40 @@ symptom we have now).
 
 ---
 
-### 4.6 Reference implementations to copy (verified sources)
+### 4.6 As-built (2026-11-21)
+
+`src-tauri/src/render.rs` (new) + slimmed `player.rs`:
+
+- `MpvApi` resolves the five render symbols: `mpv_render_context_create`,
+  `set_update_callback`, `update`, `render`, `free`. A candidate libmpv missing
+  any of them fails to load with the symbol named.
+- `SwRenderer` owns the context and a dedicated **`mpv-render` thread**. All
+  `mpv_render_*` calls happen on that thread; the update callback only bumps a
+  counter and signals a condvar (it never calls mpv — render.h forbids it).
+  Frames are presented by posting to the main thread, where the RGBA snapshot is
+  wrapped in a `CGImage` (`CGDataProviderCreateWithData`, owned by the layer)
+  and assigned to the view layer's `contents`. CoreGraphics is a system
+  framework — no new crate, so `Cargo.lock` is unchanged.
+- Surface: `FrameBuffer` is 64-byte-aligned (`render.h` alignment rule), stride
+  rounded to 64, format `rgb0`, size in **backing pixels** via
+  `convertRectToBacking` (Retina would otherwise play at half resolution).
+- Ordering, all load-bearing: `vo=libmpv` before `mpv_initialize` → render
+  context → `loadfile`; on teardown, join the event thread → detach the update
+  callback → join the render thread → `mpv_render_context_free` → `quit` →
+  `mpv_terminate_destroy` → remove the NSView.
+- If the render context cannot be created, playback still proceeds with
+  `vo=auto` (mpv's own window) and the log states why — no silent black stage.
+- `media_player_diagnostics` now probes by actually creating a throwaway SW
+  render context, not by setting `wid` (which is a false positive).
+- Buffering UI: `PlayerOverlay` shows a header pill (`Buffering 42% · 1.5 MB/s`)
+  and a buffered span on the seek bar. It cannot overlay the stage because the
+  native surface covers it.
+- Verification: `cargo test --lib` 109 passed / 5 ignored; the new ignored live
+  test renders a real H.264+AC3 MKV through the SW path and asserts non-black
+  pixels (observed 67,769 of 76,800). `npx tsc --noEmit` clean; media vitest 14
+  passed (4 new formatting assertions).
+
+### 4.7 Reference implementations to copy (verified sources)
 
 **Stremio's desktop player does exactly the render API — no `wid`.** Source:
 `https://github.com/Stremio/stremio-shell/blob/master/mpv.cpp`
@@ -247,7 +289,7 @@ So the ObjC shape for us is: `NSOpenGLView` (or `CAOpenGLLayer`) subview of the
 Tauri `contentView` → `makeCurrentContext` → create the render context →
 `setNeedsDisplay` from the update callback → `drawRect` renders + `flushBuffer`.
 
-### 4.7 Rendering-thread rules (from render.h — violating these deadlocks or degrades playback)
+### 4.8 Rendering-thread rules (from render.h — violating these deadlocks or degrades playback)
 
 - Create the render context **before** the first file is loaded, or mpv "will
   revert to a VO that creates its own window" (our current bug).
@@ -307,12 +349,13 @@ body; read `exception.type`, `termination.namespace`, faulting thread frames).
 
 ## 7. Open questions for the user
 
-1. **Rendering backend**: start with the software renderer (verifiable, CPU cost)
-   and move to GL later, or go straight to GL (correct, unverifiable here)?
+1. **Rendering backend (partly answered):** the software renderer shipped and is
+   verified. Decide whether 4K playback is good enough on this machine or whether
+   to do the GL backend next (correct long-term, unverifiable headlessly here).
 2. **Fallback while embedding is unfinished**: is mpv's own window acceptable as
    a stop-gap if it plays everything instantly (it already does today), or should
    the player refuse rather than open a second window?
 3. **Audio/subtitle track selection** (mpv exposes `aid`/`sid` lists): needed for
    the next milestone, or later?
-4. `objc2` + `libloading` remain in `Cargo.toml`; remove once the render backend
-   is settled (they are still used by the ObjC surface helpers).
+4. `objc2` + `libloading` remain in `Cargo.toml`; `objc2` is still used for the
+   NSView/CALayer surface, `libloading` for the dlopen shim — both required.

@@ -17,12 +17,23 @@
 
 #![allow(non_snake_case)]
 
-use std::ffi::{c_char, c_double, c_int, c_void, CStr, CString};
+use std::ffi::{c_char, c_double, c_int, c_void, CStr};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
 /// Opaque libmpv handle.
 pub type MpvHandle = *mut c_void;
+
+/// Opaque libmpv render context (`mpv_render_context` in render.h).
+pub type MpvRenderContext = *mut c_void;
+
+/// `mpv_render_param` — one entry of a render-parameter array. Arrays are
+/// terminated by an entry with `type_ == 0`.
+#[repr(C)]
+pub struct MpvRenderParam {
+    pub type_: c_int,
+    pub data: *mut c_void,
+}
 
 // ── mpv_format ──────────────────────────────────────────────────────────────
 pub const MPV_FORMAT_NONE: c_int = 0;
@@ -119,6 +130,21 @@ pub struct MpvApi {
     pub mpv_wait_event: unsafe extern "C" fn(MpvHandle, c_double) -> *mut MpvEvent,
     pub mpv_request_log_messages: unsafe extern "C" fn(MpvHandle, *const c_char) -> c_int,
     pub mpv_error_string: unsafe extern "C" fn(c_int) -> *const c_char,
+    // ── render API (render.h) — SW backend, used to embed video in-app ──────
+    pub mpv_render_context_create: unsafe extern "C" fn(
+        *mut MpvRenderContext,
+        MpvHandle,
+        *mut MpvRenderParam,
+    ) -> c_int,
+    pub mpv_render_context_set_update_callback: unsafe extern "C" fn(
+        MpvRenderContext,
+        Option<unsafe extern "C" fn(*mut c_void)>,
+        *mut c_void,
+    ),
+    pub mpv_render_context_update: unsafe extern "C" fn(MpvRenderContext) -> u64,
+    pub mpv_render_context_render:
+        unsafe extern "C" fn(MpvRenderContext, *mut MpvRenderParam) -> c_int,
+    pub mpv_render_context_free: unsafe extern "C" fn(MpvRenderContext),
 }
 
 /// A loaded libmpv plus its resolved symbols. The `Library` is kept alive for
@@ -202,6 +228,12 @@ fn load_libmpv() -> Result<LibMpv, String> {
                     mpv_wait_event: *library.get(b"mpv_wait_event\0")?,
                     mpv_request_log_messages: *library.get(b"mpv_request_log_messages\0")?,
                     mpv_error_string: *library.get(b"mpv_error_string\0")?,
+                    mpv_render_context_create: *library.get(b"mpv_render_context_create\0")?,
+                    mpv_render_context_set_update_callback: *library
+                        .get(b"mpv_render_context_set_update_callback\0")?,
+                    mpv_render_context_update: *library.get(b"mpv_render_context_update\0")?,
+                    mpv_render_context_render: *library.get(b"mpv_render_context_render\0")?,
+                    mpv_render_context_free: *library.get(b"mpv_render_context_free\0")?,
                 })
             }
         })();

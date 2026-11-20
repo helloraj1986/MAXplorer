@@ -31,6 +31,7 @@ item per session — never batched.**
 | 4 | `dde5c1e` | Debrid integration (`src-tauri/src/debrid.rs`): Real-Debrid + TorBox APIs convert torrent info-hashes to direct stream URLs (`media_debrid_resolve`), config persisted in app data `debrid-config.json` (`save/get/test_key` commands). Torrent rows show `▶ Stream` button. |
 | 4b | `torrent.rs` | Embedded **librqbit** torrent engine (`media_torrent_start`/`media_torrent_status`) + librqbit's built-in HTTP stream server on `127.0.0.1:18081`. `▶ Stream` works with **no debrid key**; range/seek verified live with Sintel. |
 | 4c | `mpv.rs`, `player.rs` | Native **libmpv** playback embedded into the app window (NSView + mpv `wid`), replacing the HTML5 `<video>`. Plays MKV/HEVC/AC3/DTS — what the webview refused. Needs mpv **master** (`brew install mpv --HEAD`); `media_player_diagnostics` reports support. |
+| 4d | `render.rs` (new), `player.rs`, `PlayerOverlay.tsx` | **Video now renders inside the app window** via the libmpv **render API** (`MPV_RENDER_API_TYPE_SW` → CGImage on the NSView layer). No second window, no `wid`. Buffering pill (cache % + MB/s) + buffered span on the seek bar. Headless proof: `cargo test --lib live_sw_render_paints_pixels -- --ignored --nocapture` → `non_black_pixels=67769/76800`. |
 
 ### ⚠️ CRITICAL USER FEEDBACK (why the next session exists)
 
@@ -91,6 +92,10 @@ and gets `HTTP 206 Partial Content`, `Content-Range: bytes 5000000-129241751/129
    iOS/Apple TV via Tauri 2 iOS or RN/web client; prerequisite: media-core exposed as a
    local HTTP JSON API so TV/mobile stream from the desktop/LAN box, never P2P on TV;
    D-pad + TV-safe UI are acceptance criteria)
+
+Optional engineering follow-up (not a roadmap phase): swap the SW render backend for
+`MPV_RENDER_API_TYPE_OPENGL` if 4K software rendering drops frames. Plan and rules
+are in `docs/MEDIA_PLAYER_HANDOVER.md` §4.3 Option A.
 
 ---
 

@@ -72,6 +72,15 @@ export interface NativePlayerStatus {
   muted: boolean;
   title: string | null;
   videoFormat: string | null;
+  /** mpv is stalled waiting for the network (a torrent stream does this a lot). */
+  pausedForCache: boolean;
+  /** mpv's cache fill, 0-100. */
+  cachePercent: number;
+  /** Seconds of media buffered ahead. */
+  cacheSeconds: number;
+  /** Bytes/second arriving from the source. */
+  cacheSpeed: number;
+  fileLoaded: boolean;
   error: string | null;
 }
 

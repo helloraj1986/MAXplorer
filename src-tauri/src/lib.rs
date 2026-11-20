@@ -13,6 +13,7 @@ mod operations;
 mod paths;
 pub mod player;
 mod preview;
+mod render;
 pub mod search;
 mod storage;
 mod storage_cache;

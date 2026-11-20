@@ -938,6 +938,13 @@
   border-color: #232830;
 }
 
+/* Torrent stream stalled: cache fill + arrival rate, in the player chrome. */
+.media-player-badge.buffering {
+  color: #f2a33c;
+  border-color: rgba(242, 163, 60, 0.35);
+  background: rgba(242, 163, 60, 0.08);
+}
+
 /* Buffering / "preparing stream" panel over the video stage. */
 .media-player-busy {
   position: absolute;
