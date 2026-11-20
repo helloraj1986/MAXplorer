@@ -31,6 +31,8 @@ export interface MediaState {
   streams: RankedStream[];
   streamsLoading: boolean;
   streamsError: string | null;
+  /** Phase 3: in-app player source. */
+  playerSource: { url: string; title: string } | null;
 
   openWorkspace: () => Promise<void>;
   closeWorkspace: () => void;
@@ -39,6 +41,8 @@ export interface MediaState {
   selectMeta: (meta: MediaCatalogMeta) => void;
   clearSelection: () => void;
   loadStreams: (meta: MediaCatalogMeta) => Promise<void>;
+  openPlayer: (url: string, title: string) => void;
+  closePlayer: () => void;
 }
 
 const CATALOG_LIMIT = 12;
@@ -58,6 +62,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   streams: [],
   streamsLoading: false,
   streamsError: null,
+  playerSource: null,
 
   async openWorkspace() {
     set({ workspaceOpen: true });
@@ -137,5 +142,13 @@ export const useMediaStore = create<MediaState>((set, get) => ({
     } catch (error) {
       set({ streamsLoading: false, streamsError: normalizeError(error).message });
     }
+  },
+
+  openPlayer(url, title) {
+    set({ playerSource: { url, title } });
+  },
+
+  closePlayer() {
+    set({ playerSource: null });
   },
 }));

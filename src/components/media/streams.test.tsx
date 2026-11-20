@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MediaWorkspace } from "./MediaWorkspace";
 import { rankStreams, parseSizeBytes } from "./streams";
 import { useMediaStore } from "../../state/mediaStore";
@@ -88,7 +88,28 @@ describe("MediaWorkspace streams sheet", () => {
       streamsError: null,
     });
     render(<MediaWorkspace />);
+    expect(screen.getByRole("button", { name: /Play .* in the app/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Play .* in external player/ })).toBeTruthy();
     expect(screen.getByLabelText(/playback requires the Phase 4 engine/)).toBeTruthy();
+  });
+
+  it("opens the in-app player overlay and closes it", () => {
+    useMediaStore.setState({
+      selected: { id: "tt123", name: "Test Movie", type: "movie" },
+      streams: rankStreams([
+        { url: "https://example.com/d/x", title: "Movie 1080p", quality: "1080p", name: "Debrid" },
+      ]),
+      streamsLoading: false,
+      streamsError: null,
+      playerSource: null,
+    });
+    render(<MediaWorkspace />);
+    fireEvent.click(screen.getByRole("button", { name: /Play .* in the app/ }));
+    const dialog = screen.getByRole("dialog", { name: /Playing Debrid/ });
+    const video = dialog.querySelector("video");
+    expect(video).toBeTruthy();
+    expect((video as HTMLVideoElement).src).toContain("example.com");
+    fireEvent.click(screen.getByRole("button", { name: "Close player" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

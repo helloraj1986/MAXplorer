@@ -4,6 +4,7 @@ import { api, normalizeError } from "../../lib/api";
 import { useExplorerStore } from "../../state/explorerStore";
 import { useMediaStore } from "../../state/mediaStore";
 import { streamRowLabel } from "./streams";
+import { PlayerOverlay } from "./PlayerOverlay";
 import { DEFAULT_MEDIA_CATALOGS, type MediaCatalogMeta, type RankedStream } from "./types";
 
 /**
@@ -59,6 +60,7 @@ export function MediaWorkspace() {
       </header>
 
       <div className="media-scroll">
+        <PlayerOverlay />
         {selected ? (
           <StreamsSheet
             meta={selected}
@@ -225,9 +227,10 @@ function StreamsSheet({
 
 function StreamRow({ ranked }: { ranked: RankedStream }) {
   const toast = useExplorerStore((state) => state.toast);
+  const openPlayer = useMediaStore((state) => state.openPlayer);
   const [playing, setPlaying] = useState(false);
   const direct = Boolean(ranked.stream.url && !ranked.stream.infoHash);
-  const play = async () => {
+  const playExternal = async () => {
     if (!direct || playing) return;
     setPlaying(true);
     try {
@@ -261,20 +264,31 @@ function StreamRow({ ranked }: { ranked: RankedStream }) {
         ))}
       </span>
       {direct ? (
-        <button
-          type="button"
-          className="media-play"
-          onClick={() => void play()}
-          disabled={playing}
-          aria-label={`Play ${ranked.label} in external player`}
-        >
-          {playing ? "…" : "▶ Play"}
-        </button>
+        <>
+          <button
+            type="button"
+            className="media-play"
+            onClick={() => openPlayer(ranked.stream.url as string, ranked.label)}
+            aria-label={`Play ${ranked.label} in the app`}
+          >
+            ▶ Play
+          </button>
+          <button
+            type="button"
+            className="media-play media-play-external"
+            onClick={() => void playExternal()}
+            disabled={playing}
+            aria-label={`Play ${ranked.label} in external player`}
+            title="Open in external player (VLC/IINA/mpv)"
+          >
+            {playing ? "…" : "↗ External"}
+          </button>
+        </>
       ) : (
         <span
           className="media-flag"
           title="Torrent streams need the Phase 4 stream engine"
-          aria-label={`Torrent stream, playback requires the Phase 4 engine`}
+          aria-label="Torrent stream, playback requires the Phase 4 engine"
         >
           🔒 Engine
         </span>
