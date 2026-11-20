@@ -76,4 +76,19 @@ describe("MediaWorkspace streams sheet", () => {
     render(<MediaWorkspace />);
     expect(screen.getByText(/Couldn't resolve streams: HTTP 429/)).toBeTruthy();
   });
+
+  it("shows a Play button for direct streams and an engine note for torrents", () => {
+    useMediaStore.setState({
+      selected: { id: "tt123", name: "Test Movie", type: "movie" },
+      streams: rankStreams([
+        { url: "https://example.com/d/x", title: "Movie 1080p 9.4 GB", quality: "1080p", name: "Debrid" },
+        { infoHash: "abc123", title: "Movie 720p 4.1 GB", quality: "720p", name: "Torrentio" },
+      ]),
+      streamsLoading: false,
+      streamsError: null,
+    });
+    render(<MediaWorkspace />);
+    expect(screen.getByRole("button", { name: /Play .* in external player/ })).toBeTruthy();
+    expect(screen.getByLabelText(/playback requires the Phase 4 engine/)).toBeTruthy();
+  });
 });

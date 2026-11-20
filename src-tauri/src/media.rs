@@ -138,6 +138,96 @@ pub struct StreamsResponse {
 }
 
 /// Fetches stream links for one item: {base}/stream/{type}/{id}.json.
+
+#[derive(Debug, Serialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum PlayerKind {
+    Vlc,
+    Iina,
+    Mpv,
+    Default,
+}
+
+impl PlayerKind {
+    fn detection_path(&self) -> &'static str {
+        match self {
+            PlayerKind::Vlc => "/Applications/VLC.app",
+            PlayerKind::Iina => "/Applications/IINA.app",
+            PlayerKind::Mpv => "/opt/homebrew/bin/mpv",
+            PlayerKind::Default => "",
+        }
+    }
+
+    /// macOS launch arguments for the player.
+    fn launch(&self, url: &str) -> std::process::Command {
+        match self {
+            PlayerKind::Vlc => {
+                let mut cmd = std::process::Command::new("open");
+                cmd.args(["-a", "VLC", url]);
+                cmd
+            }
+            PlayerKind::Iina => {
+                let mut cmd = std::process::Command::new("open");
+                cmd.args(["-a", "IINA", url]);
+                cmd
+            }
+            PlayerKind::Mpv => {
+                let mut cmd = std::process::Command::new("/opt/homebrew/bin/mpv");
+                cmd.arg(url);
+                cmd
+            }
+            PlayerKind::Default => {
+                let mut cmd = std::process::Command::new("open");
+                cmd.arg(url);
+                cmd
+            }
+        }
+    }
+}
+
+/// Picks the best installed external player, in preference order.
+fn detect_player() -> PlayerKind {
+    for kind in [
+        PlayerKind::Iina,
+        PlayerKind::Vlc,
+        PlayerKind::Mpv,
+        PlayerKind::Default,
+    ] {
+        if kind == PlayerKind::Default || std::path::Path::new(kind.detection_path()).exists() {
+            return kind;
+        }
+    }
+    PlayerKind::Default
+}
+
+#[derive(Debug, Serialize)]
+pub struct PlayResult {
+    pub player: PlayerKind,
+}
+
+/// Plays a direct stream URL in the best detected external player.
+/// Torrent-only streams (infoHash, no url) need the Phase 4 engine and are
+/// rejected here with a clear error.
+#[tauri::command]
+pub async fn media_play(url: String) -> Result<PlayResult, AppError> {
+    if url.trim().is_empty() {
+        return Err(AppError::new("media", "Missing stream URL.", None));
+    }
+    let player = detect_player();
+    let status = player
+        .launch(&url)
+        .status()
+        .map_err(|error| AppError::new("media", format!("Could not launch player: {error}"), None))?;
+    if !status.success() {
+        return Err(AppError::new(
+            "media",
+            format!("Player exited with status {status}"),
+            None,
+        ));
+    }
+    Ok(PlayResult { player })
+}
+
 #[tauri::command]
 pub async fn media_streams(
     url: String,
@@ -260,5 +350,25 @@ mod tests {
         .expect("parse torrent");
         assert!(torrent.info_hash.is_some());
         assert!(torrent.url.is_none());
+    }
+
+    #[test]
+    fn player_detection_prefers_installed_players() {
+        // Preference order is IINA > VLC > mpv > default; on this dev machine
+        // VLC exists and IINA/mpv do not, so detection must land on VLC.
+        let player = detect_player();
+        let iina = std::path::Path::new(PlayerKind::Iina.detection_path()).exists();
+        let vlc = std::path::Path::new(PlayerKind::Vlc.detection_path()).exists();
+        let mpv = std::path::Path::new(PlayerKind::Mpv.detection_path()).exists();
+        let expected = if iina {
+            PlayerKind::Iina
+        } else if vlc {
+            PlayerKind::Vlc
+        } else if mpv {
+            PlayerKind::Mpv
+        } else {
+            PlayerKind::Default
+        };
+        assert_eq!(player, expected);
     }
 }

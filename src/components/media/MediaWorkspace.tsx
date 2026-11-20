@@ -1,5 +1,7 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Icon } from "../Icon";
+import { api, normalizeError } from "../../lib/api";
+import { useExplorerStore } from "../../state/explorerStore";
 import { useMediaStore } from "../../state/mediaStore";
 import { streamRowLabel } from "./streams";
 import { DEFAULT_MEDIA_CATALOGS, type MediaCatalogMeta, type RankedStream } from "./types";
@@ -209,27 +211,74 @@ function StreamsSheet({
       ) : (
         <ol className="media-stream-list">
           {streams.map((ranked, index) => (
-            <li key={`${ranked.label}-${index}`} className="media-stream-row">
-              <span
-                className={`media-stream-quality ${ranked.qualityRank >= 6 ? "uhd" : ""}`}
-              >
-                {ranked.qualityBadge ?? "N/A"}
-              </span>
-              <span className="media-stream-desc">{streamRowLabel(ranked)}</span>
-              <span className="media-stream-flags">
-                {ranked.flags.map((flag) => (
-                  <span key={flag.text} className={`media-flag media-flag-${flag.tone}`}>
-                    {flag.text}
-                  </span>
-                ))}
-              </span>
-            </li>
+            <StreamRow key={`${ranked.label}-${index}`} ranked={ranked} />
           ))}
         </ol>
       )}
       <p className="media-detail-hint">
-        Streams are ranked by quality, direct/debrid links, then size. Playback starts in Phase 3.
+        Streams are ranked by quality, direct/debrid links, then size. Torrent links need the
+        stream engine (Phase 4) before they can play.
       </p>
     </section>
+  );
+}
+
+function StreamRow({ ranked }: { ranked: RankedStream }) {
+  const toast = useExplorerStore((state) => state.toast);
+  const [playing, setPlaying] = useState(false);
+  const direct = Boolean(ranked.stream.url && !ranked.stream.infoHash);
+  const play = async () => {
+    if (!direct || playing) return;
+    setPlaying(true);
+    try {
+      const result = await api.playMediaStream(ranked.stream.url as string);
+      toast({
+        title: "Playing in external player",
+        detail: `Player: ${result.player} · ${ranked.label}`,
+        tone: "success",
+      });
+    } catch (error) {
+      toast({
+        title: "Playback failed",
+        detail: normalizeError(error).message,
+        tone: "error",
+      });
+    } finally {
+      setPlaying(false);
+    }
+  };
+  return (
+    <li className="media-stream-row">
+      <span className={`media-stream-quality ${ranked.qualityRank >= 6 ? "uhd" : ""}`}>
+        {ranked.qualityBadge ?? "N/A"}
+      </span>
+      <span className="media-stream-desc">{streamRowLabel(ranked)}</span>
+      <span className="media-stream-flags">
+        {ranked.flags.map((flag) => (
+          <span key={flag.text} className={`media-flag media-flag-${flag.tone}`}>
+            {flag.text}
+          </span>
+        ))}
+      </span>
+      {direct ? (
+        <button
+          type="button"
+          className="media-play"
+          onClick={() => void play()}
+          disabled={playing}
+          aria-label={`Play ${ranked.label} in external player`}
+        >
+          {playing ? "…" : "▶ Play"}
+        </button>
+      ) : (
+        <span
+          className="media-flag"
+          title="Torrent streams need the Phase 4 stream engine"
+          aria-label={`Torrent stream, playback requires the Phase 4 engine`}
+        >
+          🔒 Engine
+        </span>
+      )}
+    </li>
   );
 }

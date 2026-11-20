@@ -103,6 +103,7 @@ export const api = {
     call<MediaCatalogResponse>("media_catalog", { url, type, catalogId }),
   getMediaStreams: (url: string, type: string, id: string) =>
     call<StreamsResponse>("media_streams", { url, type, id }),
+  playMediaStream: (url: string) => call<{ player: string }>("media_play", { url }),
   getSidebarLocations: () => call<Location[]>("get_sidebar_locations"),
   ejectVolume: (path: string) => call<void>("eject_volume", { path }),
   connectNetworkLocation: (
