@@ -120,6 +120,7 @@ export function Sidebar() {
     tags: true,
   });
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const [thisMacOpen, setThisMacOpen] = useState(true);
 
   const byId = useMemo(() => {
     const map = new Map<string, Location>();
@@ -456,31 +457,35 @@ export function Sidebar() {
             <>
               {icloudLocation ? renderLocationRow(icloudLocation) : null}
               <div
-                className={`nav-row nav-group ${isCurrent(rootLocation?.path ?? "/") ? "selected" : ""}`}
+                className="nav-row nav-group"
                 role="button"
-                aria-current={isCurrent(rootLocation?.path ?? "/") ? "page" : undefined}
+                aria-expanded={thisMacOpen}
                 tabIndex={0}
-                title={computerLabel}
-                onClick={() => void navigate(rootLocation?.path ?? "/")}
+                title={`${computerLabel} — click to ${thisMacOpen ? "hide" : "show"} mounted disks`}
+                onClick={() => setThisMacOpen((open) => !open)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
-                    void navigate(rootLocation?.path ?? "/");
+                    setThisMacOpen((open) => !open);
                   }
                 }}
               >
-                <span className="nav-child-indent" aria-hidden="true" />
+                <span className="sidebar-heading-chevron" aria-hidden="true">
+                  <Icon name="chevronRight" size={10} />
+                </span>
                 <span className="sidebar-icon sidebar-icon-blue">
                   <Icon name="computer" size={16} />
                 </span>
                 <span className="nav-label">{computerLabel}</span>
               </div>
-              <div className="nav-children">
-                {rootLocation ? renderLocationRow(rootLocation, { indent: true }) : null}
-                {volumeLocations.map((location) =>
-                  renderLocationRow(location, { indent: true }),
-                )}
-              </div>
+              {thisMacOpen ? (
+                <div className="nav-children">
+                  {rootLocation ? renderLocationRow(rootLocation, { indent: true }) : null}
+                  {volumeLocations.map((location) =>
+                    renderLocationRow(location, { indent: true }),
+                  )}
+                </div>
+              ) : null}
               <div
                 className={`nav-row ${isCurrent(NETWORK_LOCATION) ? "selected" : ""}`}
                 role="button"
