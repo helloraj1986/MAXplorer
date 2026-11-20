@@ -4,7 +4,6 @@ import { AppIcon, type AppIconName } from "./icons/AppIcon";
 import { FolderIcon } from "./icons/FolderIcon";
 import { StorageIcon } from "./icons/StorageIcon";
 import { useExplorerStore } from "../state/explorerStore";
-import { useStorageStore } from "../state/storageStore";
 import { beginFavoriteDrag, beginTagDrag } from "../state/fileDrag";
 import { basename } from "../lib/format";
 import { samePath, tagPathKey } from "../lib/tags";
@@ -115,11 +114,6 @@ export function Sidebar() {
   const sidebarWidth = useExplorerStore((state) => state.sidebarWidth);
   const showContextMenu = useExplorerStore((state) => state.showContextMenu);
   const ejectVolume = useExplorerStore((state) => state.ejectVolume);
-  const openStorageWorkspace = useStorageStore((state) => state.openWorkspace);
-  const storageWorkspaceOpen = useStorageStore((state) => state.workspaceOpen);
-  const storageVolume = useStorageStore((state) =>
-    state.volumes.find((volume) => volume.mountPoint === state.selectedVolumePath),
-  );
   const [openSections, setOpenSections] = useState<Record<SidebarSection, boolean>>({
     favorites: true,
     locations: true,
@@ -162,7 +156,6 @@ export function Sidebar() {
   const sharedLocation = byId.get("shared");
   const trashLocation = byId.get("trash");
   const computerLabel = platform?.computerLabel ?? "This PC";
-  const homePath = platform?.home ?? "/";
   const tagCounts = useMemo(() => {
     // Count unique paths per tag in one pass so a large tag library cannot
     // turn every sidebar render into a nested scan.
@@ -262,34 +255,6 @@ export function Sidebar() {
             <Icon name="eject" size={12} />
           </button>
         ) : null}
-      </div>
-    );
-  };
-
-  const renderHomeRow = () => {
-    const selected = isCurrent(HOME_LOCATION);
-    return (
-      <div
-        className={`nav-row ${selected ? "selected" : ""}`}
-        role="button"
-        aria-current={selected ? "page" : undefined}
-        tabIndex={0}
-        title={homePath}
-        onClick={() => void navigate(HOME_LOCATION)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            void navigate(HOME_LOCATION);
-          }
-        }}
-        onContextMenu={(event) => openLocationMenu(event, "home", homePath, "Home", false)}
-        data-drop-path={homePath}
-        data-drop-label="Home"
-      >
-        <span className="sidebar-icon sidebar-icon-home">
-          <Icon name="home" size={16} />
-        </span>
-        <span className="nav-label">Home</span>
       </div>
     );
   };
@@ -490,8 +455,20 @@ export function Sidebar() {
             "Locations",
             <>
               {icloudLocation ? renderLocationRow(icloudLocation) : null}
-              {renderHomeRow()}
-              <div className="nav-row nav-group" role="presentation" title={computerLabel}>
+              <div
+                className={`nav-row nav-group ${isCurrent(rootLocation?.path ?? "/") ? "selected" : ""}`}
+                role="button"
+                aria-current={isCurrent(rootLocation?.path ?? "/") ? "page" : undefined}
+                tabIndex={0}
+                title={computerLabel}
+                onClick={() => void navigate(rootLocation?.path ?? "/")}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    void navigate(rootLocation?.path ?? "/");
+                  }
+                }}
+              >
                 <span className="nav-child-indent" aria-hidden="true" />
                 <span className="sidebar-icon sidebar-icon-blue">
                   <Icon name="computer" size={16} />
@@ -631,57 +608,11 @@ export function Sidebar() {
               </button>
               {!tags.length ? (
                 <div className="sidebar-hint">
-                  Tags are MAXplorer metadata. They never change file contents.
+                  Tags label files without changing them.
                 </div>
               ) : null}
-            </>,
+            </>
           )}
-
-          <section className="sidebar-section" aria-label="Tools">
-            <div className="sidebar-heading static">Tools</div>
-            <div className="nav-section">
-              <div
-                className={`nav-row ${storageWorkspaceOpen ? "selected" : ""}`}
-                role="button"
-                aria-current={storageWorkspaceOpen ? "page" : undefined}
-                tabIndex={0}
-                title={
-                  storageVolume
-                    ? `Analyze ${storageVolume.name}`
-                    : "Analyze storage on this Mac"
-                }
-                onClick={() => void openStorageWorkspace()}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    void openStorageWorkspace();
-                  }
-                }}
-              >
-                <span className="sidebar-icon sidebar-icon-blue">
-                  <StorageIcon
-                    size={16}
-                    variant={
-                      storageVolume?.isNetwork
-                        ? "network"
-                        : storageVolume?.isInternal
-                          ? "internal"
-                          : "external"
-                    }
-                  />
-                </span>
-                <span className="nav-label">Storage Analyzer</span>
-                {storageVolume ? (
-                  <span
-                    className="nav-storage-percent"
-                    title={`${storageVolume.usagePercent.toFixed(1)}% used`}
-                  >
-                    {Math.round(storageVolume.usagePercent)}%
-                  </span>
-                ) : null}
-              </div>
-            </div>
-          </section>
         </nav>
       </aside>
       <div
