@@ -32,6 +32,32 @@ export interface MediaCatalogResponse {
 }
 
 export const CINEMETA_ADDON_URL = "https://v3-cinemeta.strem.io";
+export const DEFAULT_STREAM_ADDON_URL = "https://torrentio.strem.io";
+
+export interface MediaStream {
+  url?: string | null;
+  title?: string | null;
+  name?: string | null;
+  quality?: string | null;
+  size?: string | null;
+  infoHash?: string | null;
+  source?: string | null;
+}
+
+export interface StreamsResponse {
+  streams: MediaStream[];
+}
+
+export interface RankedStream {
+  stream: MediaStream;
+  /** Stable sort key components, precomputed for the ranked sheet. */
+  qualityRank: number;
+  direct: boolean;
+  sizeBytes: number;
+  label: string;
+  source: string;
+  flags: { text: string; tone: "good" | "warn" | "plain" }[];
+}
 
 export const DEFAULT_MEDIA_CATALOGS: { type: string; id: string; name: string }[] = [
   { type: "movie", id: "top", name: "Trending movies" },

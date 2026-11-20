@@ -109,6 +109,58 @@ pub struct CatalogResponse {
     pub metas: Vec<CatalogMeta>,
 }
 
+/// One entry from an addon's `stream` resource. Torrent-only sources carry an
+/// `info_hash` and no playable `url`; debrid/direct sources expose `url`.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamEntry {
+    #[serde(default, rename = "url")]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub quality: Option<String>,
+    #[serde(default)]
+    pub size: Option<String>,
+    #[serde(default)]
+    pub info_hash: Option<String>,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub behavior_hints: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct StreamsResponse {
+    pub streams: Vec<StreamEntry>,
+}
+
+/// Fetches stream links for one item: {base}/stream/{type}/{id}.json.
+#[tauri::command]
+pub async fn media_streams(
+    url: String,
+    r#type: String,
+    id: String,
+) -> Result<StreamsResponse, crate::error::AppError> {
+    let base = url.trim().trim_end_matches('/');
+    let request_url = format!("{base}/stream/{type}/{id}.json");
+    let raw = get_json::<serde_json::Value>(&request_url).await?;
+    let streams = if let Some(list) = raw.get("streams").and_then(|value| value.as_array()) {
+        list.clone()
+    } else if let Some(list) = raw.as_array() {
+        list.clone()
+    } else {
+        Vec::new()
+    };
+    let streams = streams
+        .into_iter()
+        .filter_map(|value| serde_json::from_value::<StreamEntry>(value).ok())
+        .collect();
+    Ok(StreamsResponse { streams })
+}
+
 /// Fetches one catalog page: {base}/catalog/{type}/{catalogId}.json.
 #[tauri::command]
 pub async fn media_catalog(
@@ -185,5 +237,28 @@ mod tests {
         assert_eq!(meta.name.as_deref(), Some("Thor: Love and Thunder"));
         assert_eq!(meta.release_info.as_deref(), Some("2022"));
         assert!(meta.description.is_none());
+    }
+
+    #[test]
+    fn stream_entry_parses_direct_and_torrent_shapes() {
+        let direct: StreamEntry = serde_json::from_value(serde_json::json!({
+            "url": "https://real-debrid.com/d/abc123",
+            "title": "Dune 4K HDR 58.2 GB",
+            "quality": "2160p",
+            "behaviorHints": { "notWebReady": false }
+        }))
+        .expect("parse direct");
+        assert!(direct.url.is_some());
+        assert!(direct.info_hash.is_none());
+
+        let torrent: StreamEntry = serde_json::from_value(serde_json::json!({
+            "infoHash": "abcdef0123456789",
+            "title": "Dune 1080p WEB-DL 9.4 GB",
+            "name": "Torrentio",
+            "quality": "1080p"
+        }))
+        .expect("parse torrent");
+        assert!(torrent.info_hash.is_some());
+        assert!(torrent.url.is_none());
     }
 }

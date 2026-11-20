@@ -39,6 +39,7 @@ import type {
 import type {
   MediaCatalogResponse,
   MediaManifest,
+  StreamsResponse,
 } from "../components/media/types";
 import type {
   CachedStorageScan,
@@ -100,6 +101,8 @@ export const api = {
     call<MediaManifest>("media_addon_manifest", { url }),
   getMediaCatalog: (url: string, type: string, catalogId: string) =>
     call<MediaCatalogResponse>("media_catalog", { url, type, catalogId }),
+  getMediaStreams: (url: string, type: string, id: string) =>
+    call<StreamsResponse>("media_streams", { url, type, id }),
   getSidebarLocations: () => call<Location[]>("get_sidebar_locations"),
   ejectVolume: (path: string) => call<void>("eject_volume", { path }),
   connectNetworkLocation: (

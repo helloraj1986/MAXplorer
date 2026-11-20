@@ -174,6 +174,7 @@ pub fn run() {
             commands::get_platform_info,
             media::media_addon_manifest,
             media::media_catalog,
+            media::media_streams,
             commands::get_sidebar_locations,
             commands::eject_volume,
             commands::connect_network_location,

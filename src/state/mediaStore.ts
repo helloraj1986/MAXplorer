@@ -3,9 +3,12 @@ import { api, normalizeError } from "../lib/api";
 import {
   CINEMETA_ADDON_URL,
   DEFAULT_MEDIA_CATALOGS,
+  DEFAULT_STREAM_ADDON_URL,
   type MediaCatalogMeta,
   type MediaManifest,
 } from "../components/media/types";
+import { rankStreams } from "../components/media/streams";
+import type { RankedStream } from "../components/media/types";
 
 export interface MediaCatalogState {
   type: string;
@@ -23,11 +26,19 @@ export interface MediaState {
   manifestError: string | null;
   catalogs: MediaCatalogState[];
   connected: boolean;
+  /** Phase 2: stream resolution for the selected item. */
+  selected: MediaCatalogMeta | null;
+  streams: RankedStream[];
+  streamsLoading: boolean;
+  streamsError: string | null;
 
   openWorkspace: () => Promise<void>;
   closeWorkspace: () => void;
   loadManifest: () => Promise<void>;
   loadCatalog: (type: string, id: string, name: string) => Promise<void>;
+  selectMeta: (meta: MediaCatalogMeta) => void;
+  clearSelection: () => void;
+  loadStreams: (meta: MediaCatalogMeta) => Promise<void>;
 }
 
 const CATALOG_LIMIT = 12;
@@ -43,6 +54,10 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   manifestError: null,
   catalogs: [],
   connected: false,
+  selected: null,
+  streams: [],
+  streamsLoading: false,
+  streamsError: null,
 
   async openWorkspace() {
     set({ workspaceOpen: true });
@@ -98,6 +113,29 @@ export const useMediaStore = create<MediaState>((set, get) => ({
             : item,
         ),
       }));
+    }
+  },
+
+  selectMeta(meta) {
+    set({ selected: meta });
+    void get().loadStreams(meta);
+  },
+
+  clearSelection() {
+    set({ selected: null, streams: [], streamsLoading: false, streamsError: null });
+  },
+
+  async loadStreams(meta) {
+    set({ streamsLoading: true, streamsError: null, streams: [] });
+    try {
+      const response = await api.getMediaStreams(
+        DEFAULT_STREAM_ADDON_URL,
+        meta.type ?? "movie",
+        meta.id,
+      );
+      set({ streams: rankStreams(response.streams), streamsLoading: false });
+    } catch (error) {
+      set({ streamsLoading: false, streamsError: normalizeError(error).message });
     }
   },
 }));

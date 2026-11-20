@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { Icon } from "../Icon";
 import { useMediaStore } from "../../state/mediaStore";
-import { DEFAULT_MEDIA_CATALOGS, type MediaCatalogMeta } from "./types";
+import { streamRowLabel } from "./streams";
+import { DEFAULT_MEDIA_CATALOGS, type MediaCatalogMeta, type RankedStream } from "./types";
 
 /**
  * Media workspace (phase 1): discover view backed by real Stremio addon
@@ -15,6 +16,12 @@ export function MediaWorkspace() {
   const catalogs = useMediaStore((state) => state.catalogs);
   const closeWorkspace = useMediaStore((state) => state.closeWorkspace);
   const loadCatalog = useMediaStore((state) => state.loadCatalog);
+  const selectMeta = useMediaStore((state) => state.selectMeta);
+  const selected = useMediaStore((state) => state.selected);
+  const streams = useMediaStore((state) => state.streams);
+  const streamsLoading = useMediaStore((state) => state.streamsLoading);
+  const streamsError = useMediaStore((state) => state.streamsError);
+  const clearSelection = useMediaStore((state) => state.clearSelection);
 
   const rows = useMemo(() => {
     const wanted = DEFAULT_MEDIA_CATALOGS.map((entry) => `${entry.type}:${entry.id}`);
@@ -39,7 +46,10 @@ export function MediaWorkspace() {
         <button
           type="button"
           className="media-close"
-          onClick={closeWorkspace}
+          onClick={() => {
+            clearSelection();
+            closeWorkspace();
+          }}
           aria-label="Close media"
         >
           <Icon name="close" size={14} />
@@ -47,6 +57,16 @@ export function MediaWorkspace() {
       </header>
 
       <div className="media-scroll">
+        {selected ? (
+          <StreamsSheet
+            meta={selected}
+            streams={streams}
+            loading={streamsLoading}
+            error={streamsError}
+            onClose={clearSelection}
+          />
+        ) : null}
+
         {manifestError ? (
           <div className="media-error" role="alert">
             <p>Couldn't reach the catalog addon.</p>
@@ -87,7 +107,7 @@ export function MediaWorkspace() {
             ) : (
               <div className="media-strip">
                 {catalog.metas.map((meta) => (
-                  <MediaCard key={meta.id} meta={meta} />
+                  <MediaCard key={meta.id} meta={meta} onSelect={() => selectMeta(meta)} />
                 ))}
               </div>
             )}
@@ -102,13 +122,25 @@ export function MediaWorkspace() {
   );
 }
 
-function MediaCard({ meta }: { meta: MediaCatalogMeta }) {
+function MediaCard({ meta, onSelect }: { meta: MediaCatalogMeta; onSelect: () => void }) {
   const title = meta.name ?? meta.id;
   const metaBits = [meta.releaseInfo, meta.imdbRating ? `★ ${meta.imdbRating}` : null]
     .filter((bit): bit is string => Boolean(bit))
     .join(" · ");
   return (
-    <article className="media-card" tabIndex={0}>
+    <article
+      className="media-card"
+      tabIndex={0}
+      role="button"
+      aria-label={`Show streams for ${title}`}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
+    >
       {meta.poster ? (
         <img
           className="media-poster"
@@ -125,5 +157,79 @@ function MediaCard({ meta }: { meta: MediaCatalogMeta }) {
       <p className="media-card-title">{title}</p>
       {metaBits ? <p className="media-card-meta">{metaBits}</p> : null}
     </article>
+  );
+}
+
+function StreamsSheet({
+  meta,
+  streams,
+  loading,
+  error,
+  onClose,
+}: {
+  meta: MediaCatalogMeta;
+  streams: RankedStream[];
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+}) {
+  const title = meta.name ?? meta.id;
+  const subtitle = [
+    meta.releaseInfo,
+    meta.type === "series" ? "Series" : "Movie",
+    meta.imdbRating ? `★ ${meta.imdbRating}` : null,
+  ]
+    .filter((bit): bit is string => Boolean(bit))
+    .join(" · ");
+  return (
+    <section className="media-detail" aria-label={`${title} streams`}>
+      <div className="media-detail-head">
+        <h2>{title}</h2>
+        <span className="media-detail-sub">{subtitle}</span>
+        <button
+          type="button"
+          className="media-close"
+          onClick={onClose}
+          aria-label="Close streams"
+        >
+          <Icon name="close" size={14} />
+        </button>
+      </div>
+      {meta.description ? <p className="media-detail-desc">{meta.description}</p> : null}
+      {loading ? (
+        <p className="media-empty" aria-busy="true">
+          Resolving streams from Torrentio…
+        </p>
+      ) : error ? (
+        <p className="media-row-error" role="alert">
+          Couldn't resolve streams: {error}
+        </p>
+      ) : streams.length === 0 ? (
+        <p className="media-empty">No streams found for this title.</p>
+      ) : (
+        <ol className="media-stream-list">
+          {streams.map((ranked, index) => (
+            <li key={`${ranked.label}-${index}`} className="media-stream-row">
+              <span
+                className={`media-stream-quality ${ranked.qualityRank >= 6 ? "uhd" : ""}`}
+              >
+                {ranked.stream.quality ?? "N/A"}
+              </span>
+              <span className="media-stream-desc">{streamRowLabel(ranked)}</span>
+              <span className="media-stream-flags">
+                {ranked.flags.map((flag) => (
+                  <span key={flag.text} className={`media-flag media-flag-${flag.tone}`}>
+                    {flag.text}
+                  </span>
+                ))}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+      <p className="media-detail-hint">
+        Streams are ranked by quality, direct/debrid links, then size. Playback starts in Phase 3.
+      </p>
+    </section>
   );
 }
