@@ -26,6 +26,15 @@ function qualityRankOf(stream: MediaStream): number {
   return rank;
 }
 
+/** Derives a display label ("2160p"/"4k") from the release title. */
+function qualityFromTitle(stream: MediaStream): string | null {
+  const title = (stream.title ?? "").toLowerCase();
+  for (const [needle, value] of QUALITY_ORDER) {
+    if (title.includes(needle)) return value >= 6 ? "4K" : needle;
+  }
+  return null;
+}
+
 /** Parses "58.2 GB" / "9.4 GB" / "700 MB" size hints from addon titles. */
 export function parseSizeBytes(text: string | null | undefined): number {
   if (!text) return 0;
@@ -47,6 +56,7 @@ export function rankStreams(streams: MediaStream[]): RankedStream[] {
       : parseSizeBytes(stream.title);
     const label = stream.name ?? stream.title ?? "Stream";
     const source = stream.source ?? (direct ? "direct" : "torrent");
+    const qualityBadge = stream.quality ?? qualityFromTitle(stream) ?? null;
     const flags: RankedStream["flags"] = [];
     if (direct) {
       flags.push({ text: "DIRECT", tone: "good" });
@@ -54,10 +64,10 @@ export function rankStreams(streams: MediaStream[]): RankedStream[] {
       flags.push({ text: "P2P", tone: "warn" });
     }
     if (qualityRank >= 6) flags.push({ text: "4K", tone: "plain" });
-    if (/hdr|dolby ?vision|dv/i.test(stream.title ?? "")) {
+    if (/hdr|dolby ?vision|dv\b/i.test(stream.title ?? "")) {
       flags.push({ text: "HDR", tone: "plain" });
     }
-    return { stream, qualityRank, direct, sizeBytes, label, source, flags };
+    return { stream, qualityRank, direct, sizeBytes, label, source, flags, qualityBadge };
   });
   ranked.sort((left, right) => {
     if (right.qualityRank !== left.qualityRank) return right.qualityRank - left.qualityRank;

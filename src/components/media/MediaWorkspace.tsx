@@ -213,7 +213,7 @@ function StreamsSheet({
               <span
                 className={`media-stream-quality ${ranked.qualityRank >= 6 ? "uhd" : ""}`}
               >
-                {ranked.stream.quality ?? "N/A"}
+                {ranked.qualityBadge ?? "N/A"}
               </span>
               <span className="media-stream-desc">{streamRowLabel(ranked)}</span>
               <span className="media-stream-flags">

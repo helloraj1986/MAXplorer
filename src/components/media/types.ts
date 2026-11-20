@@ -56,6 +56,7 @@ export interface RankedStream {
   sizeBytes: number;
   label: string;
   source: string;
+  qualityBadge: string | null;
   flags: { text: string; tone: "good" | "warn" | "plain" }[];
 }
 
