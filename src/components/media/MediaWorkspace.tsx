@@ -3,19 +3,18 @@ import { api, normalizeError } from "../../lib/api";
 import { logDiagnostic } from "../../lib/diagnostics";
 import { useExplorerStore } from "../../state/explorerStore";
 import { useMediaStore } from "../../state/mediaStore";
-import { streamRowLabel } from "./streams";
 import { PlayerOverlay } from "./PlayerOverlay";
 import { MediaShell } from "./MediaShell";
 import { MediaHero } from "./MediaHero";
 import { MediaCarousel } from "./MediaCarousel";
 import { allMetas, continueWatching } from "./board";
-import { MediaIcon } from "./icons";
+import { MediaDetail, type DetailAction } from "./MediaDetail";
+import { StreamsPanel } from "./StreamsPanel";
+import { formatSize } from "./format";
 import {
   CINEMETA_ADDON_URL,
   DEFAULT_MEDIA_CATALOGS,
   DEFAULT_STREAM_ADDON_URL,
-  type MediaCatalogMeta,
-  type RankedStream,
 } from "./types";
 
 /**
@@ -42,6 +41,9 @@ export function MediaWorkspace() {
   const streams = useMediaStore((state) => state.streams);
   const streamsLoading = useMediaStore((state) => state.streamsLoading);
   const streamsError = useMediaStore((state) => state.streamsError);
+  const streamFilter = useMediaStore((state) => state.streamFilter);
+  const setStreamFilter = useMediaStore((state) => state.setStreamFilter);
+  const reloadStreams = useMediaStore((state) => state.loadStreams);
   const clearSelection = useMediaStore((state) => state.clearSelection);
   const debridConfig = useMediaStore((state) => state.debridConfig);
   const diagnostics = useMediaStore((state) => state.playerDiagnostics);
@@ -95,6 +97,45 @@ export function MediaWorkspace() {
   };
 
   const streamAddonHost = hostOf(DEFAULT_STREAM_ADDON_URL);
+
+  /** Detail-screen action row: nothing here writes yet (library is roadmap WP6). */
+  const handleDetailAction = (action: DetailAction) => {
+    const roadmap: Record<DetailAction, string> = {
+      library: "My Library arrives with the library roadmap item.",
+      watched: "Marking titles watched arrives with the library roadmap item.",
+      like: "Likes need a profile store — roadmap item 6.",
+      heart: "Favourites need a profile store — roadmap item 6.",
+      share: "Sharing a title arrives with the library roadmap item.",
+    };
+    toast({
+      title: action === "library" ? "My Library is on the roadmap" : "Not saved yet",
+      detail: `${roadmap[action]} Nothing was written for ${selected?.name ?? selected?.id ?? "this title"}.`,
+      tone: "info",
+    });
+  };
+
+  // Detail + streams panel (spec §4): the panel is docked at ≥ 1600 px and a
+  // slide-over below it — both are the same component, placement is CSS.
+  if (selected) {
+    return (
+      <MediaShell>
+        <PlayerOverlay />
+        <main className="media-main media-main-detail">
+          <MediaDetail meta={selected} onClose={clearSelection} onAction={handleDetailAction} />
+          <StreamsPanel
+            meta={selected}
+            streams={streams}
+            loading={streamsLoading}
+            error={streamsError}
+            filter={streamFilter}
+            onFilterChange={setStreamFilter}
+            onClose={clearSelection}
+            onRetry={() => void reloadStreams(selected)}
+          />
+        </main>
+      </MediaShell>
+    );
+  }
 
   return (
     <MediaShell>
@@ -206,18 +247,6 @@ export function MediaWorkspace() {
             </span>
           </div>
         </div>
-
-        {selected ? (
-          <div className="media-board-rows">
-            <StreamsPanel
-              meta={selected}
-              streams={streams}
-              loading={streamsLoading}
-              error={streamsError}
-              onClose={clearSelection}
-            />
-          </div>
-        ) : null}
       </main>
     </MediaShell>
   );
@@ -229,186 +258,6 @@ function hostOf(url: string): string {
   } catch {
     return url;
   }
-}
-
-function StreamsPanel({
-  meta,
-  streams,
-  loading,
-  error,
-  onClose,
-}: {
-  meta: MediaCatalogMeta;
-  streams: RankedStream[];
-  loading: boolean;
-  error: string | null;
-  onClose: () => void;
-}) {
-  const title = meta.name ?? meta.id;
-  const subtitle = [
-    meta.releaseInfo,
-    meta.type === "series" ? "Series" : "Movie",
-    meta.imdbRating ? `★ ${meta.imdbRating}` : null,
-  ]
-    .filter((bit): bit is string => Boolean(bit))
-    .join(" · ");
-  return (
-    <section className="media-detail" aria-label={`${title} streams`}>
-      <div className="media-detail-head">
-        <h2>
-          {title}
-          <span className="media-detail-year">{subtitle}</span>
-        </h2>
-        <button type="button" className="media-close" onClick={onClose} aria-label="Close streams">
-          <MediaIcon name="close" size={14} />
-        </button>
-      </div>
-      {meta.description ? <p className="media-detail-desc">{meta.description}</p> : null}
-      {loading ? (
-        <p className="media-empty" aria-busy="true">
-          Resolving streams from Torrentio…
-        </p>
-      ) : error ? (
-        <p className="media-row-error" role="alert">
-          Couldn't resolve streams: {error}
-        </p>
-      ) : streams.length === 0 ? (
-        <p className="media-empty">No streams found for this title.</p>
-      ) : (
-        <ol className="media-stream-list">
-          {streams.map((ranked, index) => (
-            <StreamRow
-              key={`${ranked.label}-${index}`}
-              ranked={ranked}
-              metaId={meta.id}
-            />
-          ))}
-        </ol>
-      )}
-      <p className="media-detail-hint">
-        Sorted by <b>quality → direct/cached → size</b>. ▶ Play opens the embedded player (plays
-        any file — MKV, HEVC, AC3/DTS), ↗ External opens VLC/IINA/mpv, and ▶ Stream runs the
-        built-in torrent engine with no debrid needed.
-      </p>
-    </section>
-  );
-}
-
-function StreamRow({ ranked, metaId }: { ranked: RankedStream; metaId: string }) {
-  const toast = useExplorerStore((state) => state.toast);
-  const openPlayer = useMediaStore((state) => state.openPlayer);
-  const streamTorrent = useMediaStore((state) => state.streamTorrent);
-  const engine = useMediaStore((state) => state.engine);
-  const [playing, setPlaying] = useState(false);
-  const direct = Boolean(ranked.stream.url && !ranked.stream.infoHash);
-  const hash = ranked.stream.infoHash ?? null;
-  const resolving = engine?.phase === "resolving" && engine.infoHash === hash;
-  const progressPct = resolving && engine?.progress ? Math.round(engine.progress * 100) : null;
-  const engineError =
-    engine?.phase === "error" && engine.infoHash === hash ? engine.error ?? "Unknown error" : null;
-  const lastError = useRef<string | null>(null);
-
-  // The engine reports failures asynchronously (invalid hash, no peers); the row
-  // would otherwise sit silent, so surface the first error of each run.
-  useEffect(() => {
-    if (engineError && lastError.current !== engineError) {
-      lastError.current = engineError;
-      toast({ title: "Torrent stream failed", detail: engineError, tone: "error" });
-    }
-    if (!engineError) lastError.current = null;
-  }, [engineError, toast]);
-
-  const playExternal = async () => {
-    if (!direct || playing) return;
-    setPlaying(true);
-    try {
-      const result = await api.playMediaStream(ranked.stream.url as string);
-      toast({
-        title: "Playing in external player",
-        detail: `Player: ${result.player} · ${ranked.label}`,
-        tone: "success",
-      });
-    } catch (error) {
-      toast({
-        title: "Playback failed",
-        detail: normalizeError(error).message,
-        tone: "error",
-      });
-    } finally {
-      setPlaying(false);
-    }
-  };
-
-  return (
-    <li className="media-stream-row">
-      <span className={`media-stream-quality ${ranked.qualityRank >= 6 ? "uhd" : ""}`}>
-        {ranked.qualityBadge ?? "N/A"}
-      </span>
-      <span className="media-stream-desc">{streamRowLabel(ranked)}</span>
-      <span className="media-stream-flags">
-        {ranked.flags.map((flag) => (
-          <span key={flag.text} className={`media-flag media-flag-${flag.tone}`}>
-            {flag.text}
-          </span>
-        ))}
-      </span>
-      <span className="media-stream-size">{formatSize(ranked.sizeBytes)}</span>
-      {resolving ? (
-        <span className="media-stream-engine" aria-live="polite">
-          {engine?.speed ? `↓ ${engine.speed.toFixed(1)} MB/s` : "↓ …"}
-          {engine?.peers ? ` · ${engine.peers} peers` : ""}
-        </span>
-      ) : null}
-      <span className="media-stream-actions">
-        {direct ? (
-          <>
-            <button
-              type="button"
-              className="media-play"
-              onClick={() => openPlayer(ranked.stream.url as string, ranked.label, metaId)}
-              aria-label={`Play ${ranked.label} in the app`}
-            >
-              ▶ Play
-            </button>
-            <button
-              type="button"
-              className="media-play media-play-external"
-              onClick={() => void playExternal()}
-              disabled={playing}
-              aria-label={`Play ${ranked.label} in external player`}
-              title="Open in external player (VLC/IINA/mpv)"
-            >
-              {playing ? "…" : "↗ External"}
-            </button>
-          </>
-        ) : hash ? (
-          <button
-            type="button"
-            className="media-play"
-            disabled={resolving}
-            onClick={() => void streamTorrent(hash, ranked.label, metaId)}
-            aria-label={`Stream ${ranked.label} over torrent engine`}
-            title="Streams over the embedded torrent engine (local-first, no debrid needed)"
-          >
-            {resolving ? (progressPct !== null ? `${progressPct}%` : "…") : "▶ Stream"}
-          </button>
-        ) : null}
-      </span>
-    </li>
-  );
-}
-
-/** Human-readable release size for the streams panel. */
-export function formatSize(bytes: number): string {
-  if (!bytes) return "—";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value.toFixed(value >= 100 || unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
 
 /** Logged when the workspace hits a problem the user should be able to report. */

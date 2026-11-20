@@ -558,6 +558,49 @@ episode strip for series; TV/D-pad layout (roadmap 7).
   `ThemeCreator.test.tsx` / `storageStore.test.ts` in the full suite are
   **pre-existing** (reproduced on a pristine `HEAD` worktree).
 
+### WP3 as built (2026-11-21, branch `feature/media-ui-wp3`)
+
+- `src/components/media/MediaDetail.tsx` — the content column of screen B: dimmed
+  full-height backdrop (metahub `medium`→`large` upgrade, same as the hero), logo
+  art with a text fallback, meta line + IMDb pill, 3-line synopsis, then
+  `GENRES` / `CAST` / `DIRECTORS` chip rows (96 px label column, pill chips on
+  `--m-surface`) and the 44 px circular action row. `Esc` returns to the board.
+- `src/components/media/StreamsPanel.tsx` — replaces the old inline sheet. Filter
+  select (44 px, `--m-surface`), `SELECTION` group heading with a `N of M` count,
+  the row list, `Show all (N)` past the 60-row cap, skeletons while resolving, and
+  an error panel with `Retry`. Docked as the right grid column at ≥ 1600 px
+  (`grid-template-columns: minmax(0,1fr) clamp(380px,15vw,560px)`), slide-over
+  (fixed, own close button) below that — one component, placement in CSS.
+- `src/components/media/StreamRow.tsx` — the 7-line anatomy. The whole row is one
+  transparent overlay `<button>` (single tab stop, `Enter` plays) rather than a
+  click handler on the `<li>`, so there is never a button nested in an
+  interactive element. Line 7 carries the live engine states (`Starting engine ·
+  37 % · 2.4 MB/s · 12 peers`, `Ready (engine)`, and the red error line that also
+  fires one toast).
+- `src/components/media/streams.ts` — new parsing, all pure: `parseBitrate`
+  (`21.4 Mbps`), `parseRuntime` (`1h:53m:58s`), `parseSource` (`WEB-DL`/`BluRay`/
+  `REMUX`…), `parseCodec`, `parseAudioFormats` (`Atmos | DD+`), `parseChannels`
+  (`5.1`, `8CH`), `parseHdr` (`DV`, `HDR10+`), `parseReleaseGroup`,
+  `parseLanguageFlags` (decodes the addon's flag **emoji** into `GB`/`RU`/… plus
+  a language name for the tooltip) and `filterStreams`. Facts are read from the
+  whole Torrentio `title` because the reference addon puts runtime/audio/bitrate
+  on their own lines. `RankedStream` gained `facts`, `rank` (1-based, shown as a
+  `Rank N` tooltip on line 1) and `isTorrent`.
+- Filter semantics: `All` / `Cached / Instant` / `4K` / `1080p` / `Torrents`.
+  **`Cached` means "direct HTTP source"** — no per-row debrid cache check exists
+  yet, so the label says *Instant* rather than claiming a swarm cache hit.
+  Filtering never reorders (ranking from `rankStreams` is preserved).
+- `src/components/media/format.ts` — `formatSize`, moved out of `MediaWorkspace`.
+- `mediaStore.ts` — `streamFilter` + `setStreamFilter`, reset to `all` per title.
+- Deviations from the spec's prose: the panel is `clamp(380px, 15vw, 560px)`, not
+  380–420 (measured 527 px inside a 3440-wide reference); a row renders 6 lines
+  when the addon supplies no subtitle languages (the line is omitted, never
+  filled with a guess); no `Ready (RD)` claim is rendered because debrid is only
+  resolved at play time (that arrives with WP5's per-row check).
+- Gates: `npx tsc --noEmit` clean; `npx vitest run src/components/media` → **74
+  passed** (49 before; new: `MediaDetail.test.tsx`, `StreamsPanel.test.tsx`,
+  `StreamRow.test.tsx`, and parsing/filter cases in `streams.test.tsx`).
+
 ---
 
 ## 11. Do-not list (invariants that already cost us cycles)

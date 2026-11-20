@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MediaWorkspace } from "./MediaWorkspace";
+import { rankStreams } from "./streams";
 import { useMediaStore } from "../../state/mediaStore";
 import type { MediaManifest } from "./types";
 
@@ -77,6 +78,32 @@ describe("MediaWorkspace board", () => {
       connected: false,
       selected: null,
     });
+  });
+
+  it("replaces the board with the detail screen and the streams panel while a title is open", () => {
+    setBoard({
+      selected: movieMeta,
+      screen: "detail",
+      streams: rankStreams([
+        {
+          url: "https://example.com/d/x",
+          name: "Debrid",
+          title: "Never Surrender 2160p WEB-DL \n💾 9.4 GB 📶 21.4 Mbps ⚙️ TorBox",
+        },
+      ]),
+      streamsLoading: false,
+      streamsError: null,
+      streamFilter: "all",
+    });
+    const { container } = render(<MediaWorkspace />);
+    // Board is gone, the two-column detail screen is on screen.
+    expect(screen.queryByRole("heading", { name: "Trending movies" })).toBeNull();
+    expect(container.querySelector(".media-main-detail")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Streams for Never Surrender" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Play Never Surrender 2160p/ })).toBeTruthy();
+    // Esc returns to the board and clears the selection.
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(useMediaStore.getState().selected).toBeNull();
   });
 
   it("shows the connecting state before the manifest resolves", () => {

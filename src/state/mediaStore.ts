@@ -12,7 +12,7 @@ import {
   type WatchProgress,
 } from "../components/media/types";
 import { rankStreams } from "../components/media/streams";
-import type { RankedStream } from "../components/media/types";
+import type { RankedStream, StreamFilter } from "../components/media/types";
 
 export interface MediaCatalogState {
   type: string;
@@ -47,6 +47,8 @@ export interface MediaState {
   streams: RankedStream[];
   streamsLoading: boolean;
   streamsError: string | null;
+  /** Streams-panel filter (spec §4.3) — client-side, never a refetch. */
+  streamFilter: StreamFilter;
   /** Phase 3/4c: in-app player source (native libmpv surface). */
   playerSource: { url: string; title: string; metaId?: string } | null;
   /** Live state reported by the libmpv engine. */
@@ -75,6 +77,7 @@ export interface MediaState {
   openWorkspace: () => Promise<void>;
   setScreen: (screen: MediaScreen) => void;
   setSearchQuery: (query: string) => void;
+  setStreamFilter: (filter: StreamFilter) => void;
   /** Records a playback position (WP2 stub store; WP5 persists it). */
   recordProgress: (metaId: string, position: number, duration: number) => void;
   closeWorkspace: () => void;
@@ -114,6 +117,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   streams: [],
   streamsLoading: false,
   streamsError: null,
+  streamFilter: "all",
   playerSource: null,
   playerStatus: null,
   playerDiagnostics: null,
@@ -139,6 +143,10 @@ export const useMediaStore = create<MediaState>((set, get) => ({
 
   setSearchQuery(query) {
     set({ searchQuery: query });
+  },
+
+  setStreamFilter(filter) {
+    set({ streamFilter: filter });
   },
 
   /**
@@ -209,7 +217,8 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   },
 
   selectMeta(meta) {
-    set({ selected: meta, screen: "detail" });
+    // A different title starts from the unfiltered list.
+    set({ selected: meta, screen: "detail", streamFilter: "all" });
     void get().loadStreams(meta);
   },
 
@@ -219,6 +228,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
       streams: [],
       streamsLoading: false,
       streamsError: null,
+      streamFilter: "all",
       engine: null,
       screen: "board",
     });

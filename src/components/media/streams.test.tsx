@@ -1,10 +1,108 @@
-// @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { MediaWorkspace } from "./MediaWorkspace";
-import { rankStreams, parseSizeBytes } from "./streams";
-import { useMediaStore } from "../../state/mediaStore";
+import { describe, expect, it } from "vitest";
+import {
+  filterStreams,
+  parseBitrate,
+  parseChannels,
+  parseHdr,
+  parseLanguageFlags,
+  parseRuntime,
+  parseSizeBytes,
+  parseStreamFacts,
+  parseSource,
+  parseCodec,
+  rankStreams,
+  STREAM_FILTERS,
+} from "./streams";
 import type { MediaStream } from "./types";
+
+/** A real Torrentio row (trimmed trackers), captured from the live addon. */
+const torrentioStream: MediaStream = {
+  name: "Torrentio\n4k DV | HDR10+",
+  title:
+    "Sinners 2025 2160p HDR10Plus DV BluRay 8CH x265 HEVC-PSA\n👤 132 💾 5.45 GB ⚙️ ThePirateBay\n🇬🇧 / 🇮🇹 / 🇪🇸",
+  infoHash: "1175658c5b4656dcfb592f1d3b25806002faf713",
+};
+
+/** The reference addon's shape: facts spelled out on their own lines. */
+const comeTorzStream: MediaStream = {
+  url: "https://example.com/d/heartland",
+  name: "ComeTorz\n4K",
+  title:
+    "Heartland (2026)\nWEB-DL ⚙ HEVC 🕐 1h:53m:58s\nAtmos | DD+ 🔊 5.1\n💾 18.3 GB 📶 21.4 Mbps\n⚡ Ready (RD) 🧩 ComeTorz",
+};
+
+describe("parseSizeBytes", () => {
+  it("parses the addon's size hints and ignores noise", () => {
+    expect(parseSizeBytes("58.2 GB")).toBeGreaterThan(50 * 1024 ** 3);
+    expect(parseSizeBytes("700 MB")).toBeGreaterThan(0);
+    expect(parseSizeBytes("no size here")).toBe(0);
+    expect(parseSizeBytes(null)).toBe(0);
+  });
+});
+
+describe("stream fact parsing", () => {
+  it("recovers bitrate, runtime, audio, channels, HDR and group from a release", () => {
+    expect(parseBitrate("📶 21.4 Mbps")).toBeCloseTo(21.4);
+    expect(parseBitrate("nothing here")).toBeNull();
+
+    expect(parseRuntime("1h:53m:58s")).toBe("1h:53m:58s");
+    expect(parseRuntime("2h07m")).toBe("2h:07m");
+    expect(parseRuntime("Heartland (2026)")).toBeNull();
+
+    expect(parseChannels("DDP5.1 Atmos")).toBe("5.1");
+    expect(parseChannels("TrueHD 7.1")).toBe("7.1");
+    expect(parseChannels("8CH x265")).toBe("8CH");
+    expect(parseChannels("no channels")).toBeNull();
+
+    expect(parseSource("…2160p WEB-DL DDP5.1…")).toBe("WEB-DL");
+    expect(parseSource("…UHD BluRay REMUX…")).toBe("REMUX");
+    expect(parseSource("…WEBDL…")).toBe("WEB-DL");
+    expect(parseSource("Untitled")).toBeNull();
+
+    expect(parseCodec("x265 HEVC")).toBe("HEVC");
+    expect(parseCodec("AV1")).toBe("AV1");
+    expect(parseCodec("x264")).toBe("H.264");
+
+    expect(parseHdr("2160p DV HDR10Plus")).toEqual(["DV", "HDR10+"]);
+    expect(parseHdr("1080p HDR")).toEqual(["HDR"]);
+    expect(parseHdr("1080p")).toEqual([]);
+  });
+
+  it("decodes the addon's flag emoji into language codes with names", () => {
+    const flags = parseLanguageFlags("🇬🇧 / 🇷🇺 / 🇪🇸 / 🇬🇧");
+    expect(flags.map((flag) => flag.code)).toEqual(["GB", "RU", "ES"]);
+    expect(flags[0].label).toBe("English");
+    expect(flags[1].label).toBe("Russian");
+    expect(parseLanguageFlags("no flags")).toEqual([]);
+  });
+
+  it("parses a full Torrentio row", () => {
+    const facts = parseStreamFacts(torrentioStream);
+    expect(facts.release).toBe("Sinners 2025 2160p HDR10Plus DV BluRay 8CH x265 HEVC-PSA");
+    expect(facts.source).toBe("BluRay");
+    expect(facts.codec).toBe("HEVC");
+    expect(facts.group).toBe("PSA");
+    expect(facts.provider).toBe("ThePirateBay");
+    expect(facts.peers).toBe(132);
+    expect(facts.channels).toBe("8CH");
+    expect(facts.hdr).toEqual(["DV", "HDR10+"]);
+    // Torrentio does not supply a bitrate: it must stay absent, never invented.
+    expect(facts.bitrateMbps).toBeNull();
+    expect(facts.subLangs.map((flag) => flag.code)).toEqual(["GB", "IT", "ES"]);
+  });
+
+  it("parses a row whose facts are spelled out on their own lines", () => {
+    const facts = parseStreamFacts(comeTorzStream);
+    expect(facts.release).toBe("Heartland (2026)");
+    expect(facts.source).toBe("WEB-DL");
+    expect(facts.codec).toBe("HEVC");
+    expect(facts.runtime).toBe("1h:53m:58s");
+    expect(facts.audio).toEqual(["Atmos", "DD+"]);
+    expect(facts.channels).toBe("5.1");
+    expect(facts.bitrateMbps).toBeCloseTo(21.4);
+    expect(facts.provider).toBe("ComeTorz");
+  });
+});
 
 describe("rankStreams", () => {
   it("ranks quality first, direct over torrent second, then size", () => {
@@ -16,102 +114,45 @@ describe("rankStreams", () => {
     expect(ranked[0].stream.title).toContain("2160p");
     expect(ranked[1].stream.title).toContain("1080p");
     expect(ranked[2].stream.title).toContain("720p");
-    // The 1080p debrid link is flagged DIRECT; the torrent one P2P.
-    const direct = ranked.filter((item) => item.direct);
-    expect(direct).toHaveLength(2);
-    expect(direct.every((item) => item.flags.some((flag) => flag.text === "DIRECT"))).toBe(true);
-    expect(ranked[2].flags.some((flag) => flag.text === "P2P")).toBe(true);
+    expect(ranked.filter((item) => item.direct)).toHaveLength(2);
+    expect(ranked.map((item) => item.rank)).toEqual([1, 2, 3]);
   });
 
-  it("flags HDR releases and parses sizes from titles", () => {
+  it("flags HDR releases and marks torrent rows", () => {
     const [ranked] = rankStreams([
       { name: "X", url: "https://example.com/s", title: "Movie 2160p Dolby Vision 58.2 GB" },
     ]);
     expect(ranked.qualityRank).toBe(6);
     expect(ranked.flags.map((flag) => flag.text)).toContain("HDR");
-    expect(parseSizeBytes("58.2 GB")).toBeGreaterThan(50 * 1024 ** 3);
-    expect(parseSizeBytes("700 MB")).toBeGreaterThan(0);
-    expect(parseSizeBytes("no size here")).toBe(0);
-    expect(parseSizeBytes(null)).toBe(0);
+    expect(ranked.isTorrent).toBe(false);
+    expect(rankStreams([torrentioStream])[0].isTorrent).toBe(true);
   });
 });
 
-describe("MediaWorkspace streams sheet", () => {
-  afterEach(cleanup);
+describe("filterStreams", () => {
+  const ranked = rankStreams([
+    comeTorzStream,
+    torrentioStream,
+    {
+      infoHash: "def",
+      name: "Torrentio\n1080p",
+      title: "Movie 1080p WEB-DL x264 1.4 GB\n⚙️ YTS",
+    },
+  ]);
 
-  const streams: MediaStream[] = [
-    { url: "https://example.com/d/x", title: "Movie 1080p 9.4 GB", quality: "1080p", name: "Debrid" },
-  ];
-
-  function select() {
-    useMediaStore.setState({
-      selected: {
-        id: "tt123",
-        name: "Test Movie",
-        type: "movie",
-        releaseInfo: "2024",
-        imdbRating: "7.5",
-      },
-      streams: rankStreams(streams),
-      streamsLoading: false,
-      streamsError: null,
-    });
-  }
-
-  it("shows the ranked stream rows for the selected title", () => {
-    select();
-    render(<MediaWorkspace />);
-    expect(screen.getByRole("region", { name: "Test Movie streams" })).toBeTruthy();
-    expect(screen.getByText(/Movie 1080p 9.4 GB/)).toBeTruthy();
-    expect(screen.getByText("DIRECT")).toBeTruthy();
+  it("keeps the ranking order under every filter", () => {
+    for (const filter of STREAM_FILTERS) {
+      const result = filterStreams(ranked, filter.id);
+      const expected = ranked.filter((entry) => result.includes(entry));
+      expect(result).toEqual(expected);
+    }
   });
 
-  it("shows loading, error and empty states", () => {
-    useMediaStore.setState({ selected: { id: "tt123", name: "Test Movie" }, streamsLoading: true });
-    const { unmount } = render(<MediaWorkspace />);
-    expect(screen.getByText(/Resolving streams/)).toBeTruthy();
-    unmount();
-
-    useMediaStore.setState({ streamsLoading: false, streamsError: "HTTP 429" });
-    render(<MediaWorkspace />);
-    expect(screen.getByText(/Couldn't resolve streams: HTTP 429/)).toBeTruthy();
-  });
-
-  it("shows a Stream button for torrent rows instead of a locked note", () => {
-    useMediaStore.setState({
-      selected: { id: "tt123", name: "Test Movie", type: "movie" },
-      streams: rankStreams([
-        { url: "https://example.com/d/x", title: "Movie 1080p 9.4 GB", quality: "1080p", name: "Debrid" },
-        { infoHash: "abc123", title: "Movie 720p 4.1 GB", quality: "720p", name: "Torrentio" },
-      ]),
-      streamsLoading: false,
-      streamsError: null,
-    });
-    render(<MediaWorkspace />);
-    expect(screen.getByRole("button", { name: /Play .* in the app/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Play .* in external player/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Stream .* over torrent engine/ })).toBeTruthy();
-  });
-
-  it("opens the native player overlay and closes it", () => {
-    useMediaStore.setState({
-      selected: { id: "tt123", name: "Test Movie", type: "movie" },
-      streams: rankStreams([
-        { url: "https://example.com/d/x", title: "Movie 1080p", quality: "1080p", name: "Debrid" },
-      ]),
-      streamsLoading: false,
-      streamsError: null,
-      playerSource: null,
-    });
-    render(<MediaWorkspace />);
-    fireEvent.click(screen.getByRole("button", { name: /Play .* in the app/ }));
-    const dialog = screen.getByRole("dialog", { name: /Playing Debrid/ });
-    // Playback is a native libmpv surface the backend composites over the stage
-    // (it plays MKV/AC3/DTS, which an HTML5 <video> cannot), so the shell must
-    // expose a measurable stage rather than a <video> element.
-    expect(dialog.querySelector(".media-player-stage")).toBeTruthy();
-    expect(useMediaStore.getState().playerSource?.url).toBe("https://example.com/d/x");
-    fireEvent.click(screen.getByRole("button", { name: "Close player" }));
-    expect(screen.queryByRole("dialog")).toBeNull();
+  it("filters cached (direct), 4K, 1080p and torrent rows", () => {
+    expect(filterStreams(ranked, "all")).toHaveLength(3);
+    expect(filterStreams(ranked, "cached").map((entry) => entry.direct)).toEqual([true]);
+    expect(filterStreams(ranked, "4k")).toHaveLength(2);
+    expect(filterStreams(ranked, "1080p")).toHaveLength(1);
+    expect(filterStreams(ranked, "torrent")).toHaveLength(2);
   });
 });

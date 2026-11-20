@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactElement } from "react";
 import {
+  AudioLines,
   Boxes,
   CalendarDays,
   Cast,
@@ -7,22 +8,34 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Clapperboard,
+  Clock,
   Compass,
+  Cpu,
+  Disc3,
   Download,
+  Eye,
   Film,
   Gauge,
+  HardDrive,
+  Heart,
   Home,
   Languages,
   Maximize,
+  Music,
   Package,
   Pause,
   Play,
   Puzzle,
   Search,
   Settings,
+  Share2,
+  Signal,
   SkipBack,
   SkipForward,
   Subtitles,
+  ThumbsUp,
+  Users,
   Volume2,
   VolumeX,
   X,
@@ -69,7 +82,22 @@ export type MediaIconName =
   | "audio"
   | "speed"
   | "peers"
-  | "ready";
+  | "ready"
+  // detail action row + stream-row line glyphs (WP3)
+  | "quality"
+  | "source"
+  | "codec"
+  | "clock"
+  | "music"
+  | "channels"
+  | "size"
+  | "bitrate"
+  | "peer-count"
+  | "trailer"
+  | "watched"
+  | "like"
+  | "heart"
+  | "share";
 
 interface GlyphProps {
   size?: number;
@@ -110,6 +138,20 @@ const GLYPHS: Record<MediaIconName, (props: GlyphProps) => ReactElement> = {
   speed: (p) => <Gauge {...p} />,
   peers: (p) => <Package {...p} />,
   ready: (p) => <Zap {...p} />,
+  quality: (p) => <Clapperboard {...p} />,
+  source: (p) => <Disc3 {...p} />,
+  codec: (p) => <Cpu {...p} />,
+  clock: (p) => <Clock {...p} />,
+  music: (p) => <Music {...p} />,
+  channels: (p) => <AudioLines {...p} />,
+  size: (p) => <HardDrive {...p} />,
+  bitrate: (p) => <Signal {...p} />,
+  "peer-count": (p) => <Users {...p} />,
+  trailer: (p) => <Film {...p} />,
+  watched: (p) => <Eye {...p} />,
+  like: (p) => <ThumbsUp {...p} />,
+  heart: (p) => <Heart {...p} />,
+  share: (p) => <Share2 {...p} />,
 };
 
 export interface MediaIconProps extends GlyphProps {

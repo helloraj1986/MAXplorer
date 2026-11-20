@@ -76,7 +76,49 @@ export interface RankedStream {
   source: string;
   qualityBadge: string | null;
   flags: { text: string; tone: "good" | "warn" | "plain" }[];
+  /** Parsed release facts rendered by the 7-line stream row (spec §4.3). */
+  facts: StreamFacts;
+  /** 1-based position after ranking — shown as `Rank 1 · 4K direct`. */
+  rank: number;
+  /** True when the row streams over the built-in torrent engine. */
+  isTorrent: boolean;
 }
+
+/** Language flag tile data (`GB` → English) parsed from the addon's flag emoji. */
+export interface StreamLanguageFlag {
+  code: string;
+  label: string;
+}
+
+/** Everything the 7-line stream row shows, parsed from the release name. */
+export interface StreamFacts {
+  /** First line of `title` — the release name. */
+  release: string | null;
+  /** `WEB-DL` / `BluRay` / `REMUX` / `WEBRip` … */
+  source: string | null;
+  /** `HEVC` / `H.264` / `AV1`. */
+  codec: string | null;
+  /** `1h:53m:58s`, only when the addon supplies it. */
+  runtime: string | null;
+  /** `Atmos`, `DD+`, `TrueHD` … strongest first. */
+  audio: string[];
+  /** `5.1` / `7.1` / `8CH`. */
+  channels: string | null;
+  audioLangs: StreamLanguageFlag[];
+  subLangs: StreamLanguageFlag[];
+  /** Parsed `21.4 Mbps`; null when the addon supplies none (never invented). */
+  bitrateMbps: number | null;
+  hdr: string[];
+  /** Release group (`-PSA`), not the addon name. */
+  group: string | null;
+  /** The addon/provider named in the row (`⚙️ ThePirateBay`). */
+  provider: string | null;
+  /** `👤 132` — peers the addon already sees. */
+  peers: number | null;
+}
+
+/** Streams-panel filter (docs/MEDIA_UI_SPEC.md §4.3). */
+export type StreamFilter = "all" | "cached" | "4k" | "1080p" | "torrent";
 
 /** Native (libmpv) player state pushed from the backend. */
 export interface NativePlayerStatus {
