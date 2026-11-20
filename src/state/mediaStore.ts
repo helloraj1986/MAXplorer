@@ -33,8 +33,15 @@ export interface MediaState {
   streamsError: string | null;
   /** Phase 3: in-app player source. */
   playerSource: { url: string; title: string } | null;
-  /** Phase 4: torrent engine flow for the selected torrent stream. */
-  engine: { infoHash: string; baseUrl: string; phase: "resolving" | "ready" | "error"; error?: string } | null;
+  /** Phase 4b: torrent engine flow for the selected torrent stream. */
+  engine: {
+    infoHash: string;
+    baseUrl: string;
+    phase: "resolving" | "ready" | "error";
+    error?: string;
+    progress?: number;
+    peers?: number;
+  } | null;
   /** Phase 4 (debrid): debrid configuration. */
   debridConfig: { provider: "realdebrid" | "torbox"; apiKey: string } | null;
 
@@ -178,14 +185,12 @@ export const useMediaStore = create<MediaState>((set, get) => ({
       await new Promise((resolve) => window.setTimeout(resolve, 3000));
       try {
         const status = await api.torrentStatus(infoHash, baseUrl);
-        const videoFile = status.files.length
-          ? status.files.reduce((best, file) => (file.length > best.length ? file : best))
-          : null;
-        if (videoFile) {
-          const streamUrl = `${baseUrl}/torrents/${infoHash}/stream/${videoFile.idx}`;
+        set({ engine: { infoHash, baseUrl, phase: "resolving", progress: status.progress, peers: status.peers } });
+        if (status.streamUrl) {
+          const label = status.name ?? title;
           set({
-            engine: { infoHash, baseUrl, phase: "ready" },
-            playerSource: { url: streamUrl, title: `${title} · ${videoFile.name}` },
+            engine: { infoHash, baseUrl, phase: "ready", progress: status.progress, peers: status.peers },
+            playerSource: { url: status.streamUrl, title: label },
           });
           return;
         }

@@ -33,6 +33,7 @@ fn client() -> Result<Client, crate::error::AppError> {
 }
 
 fn build_magnet(info_hash: &str) -> String {
+    let info_hash = info_hash.to_ascii_lowercase();
     const TRACKERS: &[&str] = &[
         "udp://tracker.opentrackr.org:1337/announce",
         "udp://open.demonii.com:1337/announce",

@@ -107,7 +107,17 @@ export const api = {
   startTorrent: (infoHash: string) =>
       call<{ baseUrl: string }>("media_torrent_start", { infoHash }),
     torrentStatus: (infoHash: string, baseUrl: string) =>
-      call<{ registered: boolean; metadataReady: boolean; name: string | null; files: { idx: number; name: string; length: number }[] }>(
+      call<{
+        registered: boolean;
+        metadataReady: boolean;
+        name: string | null;
+        files: { idx: number; name: string; length: number }[];
+        progress: number;
+        downloadSpeed: number;
+        peers: number;
+        state: string;
+        streamUrl: string | null;
+      }>(
         "media_torrent_status",
         { infoHash, baseUrl },
       ),

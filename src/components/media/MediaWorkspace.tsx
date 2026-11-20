@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "../Icon";
 import { api, normalizeError } from "../../lib/api";
 import { useExplorerStore } from "../../state/explorerStore";
@@ -234,6 +234,20 @@ function StreamRow({ ranked }: { ranked: RankedStream }) {
   const direct = Boolean(ranked.stream.url && !ranked.stream.infoHash);
   const hash = ranked.stream.infoHash ?? null;
   const resolving = engine?.phase === "resolving" && engine.infoHash === hash;
+  const progressPct =
+    resolving && engine?.progress ? Math.round(engine.progress * 100) : null;
+  const engineError =
+    engine?.phase === "error" && engine.infoHash === hash ? engine.error ?? "Unknown error" : null;
+  const lastError = useRef<string | null>(null);
+  // The engine reports failures asynchronously (invalid hash, no peers); the
+  // row would otherwise sit silent, so surface the first error of each run.
+  useEffect(() => {
+    if (engineError && lastError.current !== engineError) {
+      lastError.current = engineError;
+      toast({ title: "Torrent stream failed", detail: engineError, tone: "error" });
+    }
+    if (!engineError) lastError.current = null;
+  }, [engineError, toast]);
   const playExternal = async () => {
     if (!direct || playing) return;
     setPlaying(true);
@@ -297,7 +311,7 @@ function StreamRow({ ranked }: { ranked: RankedStream }) {
           aria-label={`Stream ${ranked.label} over torrent engine`}
           title="Streams over the embedded torrent engine (local-first, no debrid needed)"
         >
-          {resolving ? "…" : "▶ Stream"}
+          {resolving ? (progressPct !== null ? `${progressPct}%` : "…") : "▶ Stream"}
         </button>
       ) : null}
     </li>
