@@ -175,7 +175,7 @@ symptom we have now).
 - Cannot be verified without seeing the screen; treat as a follow-up once SW
   proves the pipeline.
 
-### 4.4 Concrete steps (next session)
+### 4.4 Concrete steps (DONE — kept as the implementation record)
 
 1. **`mpv.rs`** — add the six render functions above to `MpvApi` and to
    `load_libmpv`'s symbol table (a missing symbol currently makes that candidate

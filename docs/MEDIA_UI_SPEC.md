@@ -304,7 +304,7 @@ Panel mechanics:
 - **Engine-driven states** (ours, not in the reference — required):
   - `resolving`: the row's line 7 becomes `⏳ Starting engine · 37 % · 2.4 MB/s · 12 peers`
     with the values from `media_torrent_status` (the probe-gated URL is what makes
-    this safe to show — see `MEDIA_PLAYER_HANDOVER.md` §8).
+    this safe to show — see `docs/MEDIA_PLAYER_HANDOVER.md` §8).
   - `error`: line 7 turns `--m-error` with the reason; a toast fires once.
 - **Row cap**: render the first 60 after filtering, then a `Show all (N)` text
   button; the list is not virtualised in v1 (60 rows × ~7 lines is fine).
@@ -368,7 +368,7 @@ move / on pause / on `Tab`, and hides again after 3 s of no input (`Esc` closes)
 ### 5.2 Layering constraint (must not be violated)
 
 The video is a native `NSView` composited **above** the webview
-(`MEDIA_PLAYER_HANDOVER.md` §4.6). Therefore:
+(`docs/MEDIA_PLAYER_HANDOVER.md` §4.6). Therefore:
 
 - Nothing drawn in the webview can appear over the video. The player chrome lives
   in the strips **outside** the video stage (top/bottom), exactly like the current
@@ -500,7 +500,7 @@ episode strip for series; TV/D-pad layout (roadmap 7).
 2. **Never** expose a torrent stream URL to mpv without the readiness Range-probe
    (`media_torrent_status` with `probe=true`).
 3. **Never** gate surface visibility on the observed `file-loaded` *property* alone;
-   use the `MPV_EVENT_FILE_LOADED` event (see `MEDIA_PLAYER_HANDOVER.md` §8).
+   use the `MPV_EVENT_FILE_LOADED` event (see `docs/MEDIA_PLAYER_HANDOVER.md` §8).
 4. **Never** fake a seeder count — librqbit exposes peers, not seeds.
 5. **Never** `git stash pop` in this repo; use `git worktree` for pristine checks.
 6. **Never** rewrite `src/styles/app.css` with the patch tool (CRLF → 500-line diff).
@@ -511,7 +511,23 @@ episode strip for series; TV/D-pad layout (roadmap 7).
 
 ---
 
-## 12. Open questions for the user
+## 12. Decisions taken for v1 (override freely)
+
+Recorded so the next session does not stall; all reversible:
+
+1. **Accent = violet `#7051F3`** for the media area (it is what the reference
+   screenshots show). File-explorer chrome keeps its own theme.
+2. **Title art** renders the addon's `logo` PNG when present, text fallback otherwise.
+3. **Paused centre title** uses **mpv OSD** in v1 (no webview-over-video); buffer
+   compositing (§5.2 option b) stays in WP7.
+4. **Trailer button** is hidden when the addon supplies no trailer (no dead buttons).
+5. **`⌘F` search** filters already-loaded catalogs in v1; addon `catalog/search` is
+   a later addition.
+6. **Audio/subtitle track menus** (WP5) are in scope for the redesign even though
+   the reference only shows them behind hover — the user's test release has 6 audio
+   and 8 subtitle tracks, so this is a real daily-use need.
+
+## 13. Open questions for the user
 
 1. **Accent colour**: adopt the reference violet `#7051F3` for the media area (my
    recommendation, it is what the screenshots show) or keep MAXplorer's orange?

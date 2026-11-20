@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Document version | 1.3 |
-| Handover date | 2026-11-20 |
+| Document version | 1.4 |
+| Handover date | 2026-11-21 |
 | Project version | 0.2.1 (aarch64 DMG) + media feature on `feature/stremio-compat` |
 | Repository | https://github.com/helloraj1986/MAXplorer (private) |
 | Release | https://github.com/helloraj1986/MAXplorer/releases/latest |
-| Current branch | `feature/stremio-compat` @ `bdb52d0` (media feature, 9 commits ahead of main) |
+| Current branch | `feature/stremio-compat` — read the head with `git log --oneline -1` (a fixed SHA here goes stale the moment anything is committed). Last installable build: 2026-11-21, installed at `/Applications/MAXplorer.app`. **Branch is not yet on origin** (`git push origin feature/stremio-compat`). |
 
 ---
 
@@ -16,10 +16,23 @@
 **This is the live workstream. Canonical roadmap: `docs/STREMIO_MEDIA.md`. One roadmap
 item per session — never batched.**
 
-> ### ▶ START HERE: `docs/MEDIA_PLAYER_HANDOVER.md`
-> The player has its own handover: what works, the three architectures already
-> ruled out **with evidence**, how Stremio differs, and the concrete plan for
-> embedding libmpv via the render API. Read it before touching playback.
+> ### ▶ START HERE — two documents
+>
+> 1. **`docs/MEDIA_UI_SPEC.md`** — the *next workstream*. Stremio-parity redesign of
+>    the media workspace + player, derived from the user's screenshots: tokens,
+>    three screens, component/file inventory, data mapping, keyboard/a11y rules and
+>    six work packages (WP1 tokens+shell → WP6 polish). **Implement one WP per
+>    session; WP1 is next.** Reference images (not in git):
+>    `~/hermes-workspace/maxplorer-media/ui-reference/`.
+> 2. **`docs/MEDIA_PLAYER_HANDOVER.md`** — the player internals: what works, the
+>    three architectures already ruled out **with evidence**, and the as-built
+>    record of the libmpv render API. Read before touching playback.
+>
+> **Next session (exactly one item):** WP1 of `docs/MEDIA_UI_SPEC.md` — design
+> tokens (`src/styles/media-tokens.css`) + the app shell (icon rail, top bar,
+> icon set). Gate: `npx tsc --noEmit && npx vitest run src/components/media`,
+> then hand the built `.app` to the user for a screenshot check against
+> `crop-rail.png` / `crop-topbar.png`.
 
 ### What exists (all verified live in the installed app)
 
@@ -30,7 +43,7 @@ item per session — never batched.**
 | 3 | `c73a1a0`, `35f05fa` | In-app playback: `PlayerOverlay` (design-matched dark HTML5 video, space/←/→/m/Esc keys, seek bar, volume, buffering spinner, error card) for direct HTTP/HLS URLs; `media_play` command detects external player (IINA > VLC > mpv > default; VLC on this machine, verified with real network stream). Rows: `▶ Play` (in-app) + `↗ External`. |
 | 4 | `dde5c1e` | Debrid integration (`src-tauri/src/debrid.rs`): Real-Debrid + TorBox APIs convert torrent info-hashes to direct stream URLs (`media_debrid_resolve`), config persisted in app data `debrid-config.json` (`save/get/test_key` commands). Torrent rows show `▶ Stream` button. |
 | 4b | `torrent.rs` | Embedded **librqbit** torrent engine (`media_torrent_start`/`media_torrent_status`) + librqbit's built-in HTTP stream server on `127.0.0.1:18081`. `▶ Stream` works with **no debrid key**; range/seek verified live with Sintel. |
-| 4c | `mpv.rs`, `player.rs` | Native **libmpv** playback embedded into the app window (NSView + mpv `wid`), replacing the HTML5 `<video>`. Plays MKV/HEVC/AC3/DTS — what the webview refused. Needs mpv **master** (`brew install mpv --HEAD`); `media_player_diagnostics` reports support. |
+| 4c | `mpv.rs`, `player.rs` | Native **libmpv** playback replacing the HTML5 `<video>`. ⚠️ This row originally claimed in-window embedding via mpv's `wid` option — **that was wrong** (macOS ignores `wid`; video opened in mpv's own window). Superseded by 4d. Plays MKV/HEVC/AC3/DTS — what the webview refused. Needs mpv **master** (`brew install mpv --HEAD`); `media_player_diagnostics` reports support. |
 | 4d | `render.rs` (new), `player.rs`, `PlayerOverlay.tsx` | **Video now renders inside the app window** via the libmpv **render API** (`MPV_RENDER_API_TYPE_SW` → CGImage on the NSView layer). No second window, no `wid`. Buffering pill (cache % + MB/s) + buffered span on the seek bar. Headless proof: `cargo test --lib live_sw_render_paints_pixels -- --ignored --nocapture` → `non_black_pixels=67769/76800`. |
 | 4e | `torrent.rs`, `player.rs`, `PlayerOverlay.tsx` | **Blank-player fixes + live stats.** The stream URL is now Range-probed before it reaches mpv (librqbit answered HTTP 500 while a torrent was still setting up, and mpv's own "couldn't resolve" retry made it look random). The native surface starts hidden and is revealed on `file-loaded`, so the spinner/error card is never covered by a black rectangle. Header shows `↓ speed · Ns buffered · N peers`; stream rows show speed + peers while resolving; `framedrop=vo` keeps A/V in sync on a slow SW render; render fps is logged every 5 s. |
 
@@ -95,7 +108,30 @@ rules, and six work packages — is **`docs/MEDIA_UI_SPEC.md`**. Reference image
 It supersedes `Maxplorer Media UI Concept.html` for the media area only; the
 file-explorer chrome is out of scope. Implement it WP by WP, one per session.
 
+### Verified state of this build (2026-11-21)
+
+- `cd src-tauri && cargo test --lib` → **110 passed / 6 ignored**; live proofs:
+  `live_sw_render_paints_pixels` (render API paints pixels),
+  `live_stream_gate` (torrent URL serves 206 before the player gets it),
+  `live_engine` (Range seek), `live_decodes_mkv` (MKV/H.264/AC3).
+- `npx tsc --noEmit` clean; `npx vitest run src/components/media` → 14 passed.
+- Build + install: `npm run tauri build` (background, ~6–8 min), then copy
+  `src-tauri/target/release/bundle/macos/MAXplorer.app` to `/Applications`.
+- **Live torrent tests need the app quit first** (a second librqbit session fails
+  with `error initializing persistent DHT`).
+- Unknown/unverified by the agent: what the picture actually looks like on screen
+  (this box composites blank) — the user confirms visually; ask for
+  `~/Library/Application Support/com.replica.win11explorer/logs/maxplorer.log`
+  (`media.render` fps lines answer "slow" vs "no data").
+- Deferred by measurement: the GL render backend. Logs show the SW renderer
+  matching source frame rate at 4K (`render: 24.0 fps` / `60.0 fps` at
+  3024x1458), so do **not** start it unless a future log shows fps below the
+  source rate.
+
 ### Remaining media roadmap (one per session)
+
+**0. (current) The Stremio-parity UI redesign — `docs/MEDIA_UI_SPEC.md` WP1…WP6,
+   one work package per session.** The numbered roadmap below resumes after WP6.
 
 5. Addon manager UI (install/remove by manifest URL, pinned-addons rail)
 6. Library & sync (My Library, progress, Trakt; self-hostable sync)
@@ -104,9 +140,10 @@ file-explorer chrome is out of scope. Implement it WP by WP, one per session.
    local HTTP JSON API so TV/mobile stream from the desktop/LAN box, never P2P on TV;
    D-pad + TV-safe UI are acceptance criteria)
 
-Optional engineering follow-up (not a roadmap phase): swap the SW render backend for
-`MPV_RENDER_API_TYPE_OPENGL` if 4K software rendering drops frames. Plan and rules
-are in `docs/MEDIA_PLAYER_HANDOVER.md` §4.3 Option A.
+Optional engineering follow-up (not a roadmap phase): swapping the SW render backend
+for `MPV_RENDER_API_TYPE_OPENGL`. **Do not start it without new evidence** — see the
+deferred-by-measurement note above. Plan and rules: `docs/MEDIA_PLAYER_HANDOVER.md`
+§4.3 Option A.
 
 ---
 
