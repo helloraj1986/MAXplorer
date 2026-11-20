@@ -9,6 +9,7 @@ import {
   type MediaManifest,
   type NativePlayerDiagnostics,
   type NativePlayerStatus,
+  type NativePlayerTick,
   type WatchProgress,
 } from "../components/media/types";
 import { rankStreams } from "../components/media/streams";
@@ -97,6 +98,8 @@ export interface MediaState {
   openPlayer: (url: string, title: string, metaId?: string, quality?: string | null) => void;
   closePlayer: () => void;
   setPlayerStatus: (status: NativePlayerStatus | null) => void;
+  /** Merge the coalesced 250 ms metrics tick into the current status. */
+  patchPlayerStatus: (tick: NativePlayerTick) => void;
   loadPlayerDiagnostics: () => Promise<void>;
   streamTorrent: (
     infoHash: string,
@@ -288,6 +291,25 @@ export const useMediaStore = create<MediaState>((set, get) => ({
 
   setPlayerStatus(status) {
     set({ playerStatus: status });
+  },
+
+  // 250 ms tick from the backend: merge the volatile metrics so the seek bar,
+  // buffered span and speed/buffer pills advance without the engine having to
+  // serialise (and the overlay re-render) the entire status at frame rate.
+  patchPlayerStatus(tick) {
+    const current = get().playerStatus;
+    if (!current) return;
+    set({
+      playerStatus: {
+        ...current,
+        position: tick.position,
+        duration: tick.duration > 0 ? tick.duration : current.duration,
+        cachePercent: tick.cachePercent,
+        cacheSeconds: tick.cacheSeconds,
+        cacheSpeed: tick.cacheSpeed,
+        pausedForCache: tick.pausedForCache,
+      },
+    });
   },
 
   async loadPlayerDiagnostics() {

@@ -93,13 +93,43 @@ readiness Range-probe are all unchanged. As-built detail lives in
 
 ---
 
-## ▶ NEXT SESSION — UI WP4b: engine performance (exactly this, nothing else)
+## ▶ ACTIVE — UI WP4b: engine performance (one backlog item per session)
 
 **Branch:** `feature/media-ui-wp4b` off `feature/media-ui-wp4a`.
+**Done:** item 1 (`emit_state` coalescing) — commit on this branch; measured on a
+60 fps fixture: 66 mpv property events/s → **5 IPC messages/s (−92.4 %)**.
+**Next:** item 2 — per-frame full-frame memcpy in `render.rs#present` (3-buffer
+ring + `CGImageCreate`, the single biggest win).
 **Read first:** the backlog below, then `docs/MEDIA_PLAYER_HANDOVER.md` §4.6 and
 `src-tauri/src/player.rs` / `render.rs`. This WP is backend + measurement: every
 item is one measurable change, one per session, before/after numbers in the
 commit message.
+
+### WP4b item 1 — as built (2026-11-21)
+
+- `player.rs`: `is_volatile_property` (`time-pos`, `demuxer-cache-time`,
+  `cache-speed`, `cache-buffering-state`, `paused-for-cache`) now only sets an
+  `AtomicBool` dirty flag; a `mpv-ticks` thread emits the new compact
+  `media-player://tick` payload (`{position, duration, cachePercent,
+  cacheSeconds, cacheSpeed, pausedForCache}`) at most once per 250 ms. Everything
+  discrete (`pause`, `mute`, `volume`, `duration`, `media-title`, `video-format`,
+  `file-loaded`, `eof-reached`, `core-idle`) still sends the full
+  `media-player://state` immediately, as do FILE_LOADED / PLAYBACK_RESTART /
+  END_FILE.
+- Counters `PROP_EVENTS`/`FULL_EMITS`/`TICK_EMITS` log a `media.player.perf` line
+  every 5 s: `state ipc: N mpv property events -> X full + Y coalesced across 5.0s
+  (Z msg/s)`. That is the in-app number to quote; it also seeds item 8.
+- Frontend: `NativePlayerTick` in `types.ts`, `patchPlayerStatus` in
+  `mediaStore` (merges into the existing status, never replaces it so discrete
+  fields survive), second listener in `PlayerOverlay`. Seek-bar width already has
+  `transition: width 250ms linear` (media.css), so 4 Hz ticks look continuous.
+- Proof: `cargo test --lib live_property_event_rate -- --ignored --nocapture`
+  plays an ffmpeg-built 60 fps fixture through the real libmpv with the real
+  observed-property set and asserts the coalesced message count is >5x lower.
+  Observed: `326 volatile + 4 discrete (66/s)` → `25 messages = 5/s (92.4% fewer)`.
+- Gates: `npx tsc --noEmit` clean; `npx vitest run src/components/media` → 91
+  passed; `cargo test --lib` → 110 passed / 7 ignored; built, entitlements checked
+  (all four keys), installed to `/Applications/MAXplorer.app`.
 
 ### WP4b backlog — player engine performance (measured from the code, not guessed)
 

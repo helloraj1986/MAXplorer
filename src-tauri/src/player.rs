@@ -29,7 +29,7 @@ use objc2::msg_send;
 use objc2::runtime::{AnyObject, Bool};
 use serde::Serialize;
 use std::ffi::{c_char, c_double, c_int, c_void, CStr, CString};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 const LOG_TARGET: &str = "media.player";
@@ -88,6 +88,46 @@ pub struct PlayerStatus {
     pub cache_speed: i64,
     pub file_loaded: bool,
     pub error: Option<String>,
+}
+
+/// Volatile playback metrics, pushed on a coalesced tick instead of per frame.
+///
+/// `time-pos`, `demuxer-cache-time` and `cache-speed` change on almost every
+/// decoded frame. Sending the full [`PlayerStatus`] for each of them meant up to
+/// ~60 serialised IPC messages per second — each one re-rendering
+/// `PlayerOverlay` while the native video surface was compositing. Only these
+/// fields are streamed at frame rate; every discrete change (pause, mute,
+/// volume, file-loaded, error, eof) still sends the full state immediately.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerTick {
+    pub position: f64,
+    pub duration: f64,
+    pub cache_percent: i64,
+    pub cache_seconds: f64,
+    pub cache_speed: i64,
+    pub paused_for_cache: bool,
+}
+
+/// How often coalesced metrics are pushed to the webview.
+const TICK_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Measurement counters behind the `media.player.perf` log line.
+static PROP_EVENTS: AtomicU64 = AtomicU64::new(0);
+static FULL_EMITS: AtomicU64 = AtomicU64::new(0);
+static TICK_EMITS: AtomicU64 = AtomicU64::new(0);
+
+/// Properties that change at frame rate. They dirty the tick instead of forcing
+/// an immediate full-state emit.
+fn is_volatile_property(name: &str) -> bool {
+    matches!(
+        name,
+        "time-pos"
+            | "demuxer-cache-time"
+            | "cache-speed"
+            | "cache-buffering-state"
+            | "paused-for-cache"
+    )
 }
 
 /// Diagnostics for the in-app player (shown in Settings and logged).
@@ -451,6 +491,49 @@ fn spawn_event_loop(
             // Raw pointers are not `Send`; carry the handle as an address.
             let handle = handle_addr as MpvHandle;
             logging::debug(LOG_TARGET, "mpv event loop started");
+
+            // Coalescing tick: volatile properties dirty this flag, and a 250 ms
+            // timer pushes at most one compact `PlayerTick` per window. That is
+            // the whole fix for the per-frame full-state emit.
+            let dirty = Arc::new(AtomicBool::new(false));
+            let tick_stop = Arc::new(AtomicBool::new(false));
+            let ticker = {
+                let (tick_app, tick_shared, tick_dirty) =
+                    (app.clone(), shared.clone(), dirty.clone());
+                let tick_stop = tick_stop.clone();
+                std::thread::Builder::new()
+                    .name("mpv-ticks".into())
+                    .spawn(move || {
+                        let mut window = std::time::Instant::now();
+                        while !tick_stop.load(Ordering::Relaxed) {
+                            std::thread::sleep(TICK_INTERVAL);
+                            if GENERATION.load(Ordering::SeqCst) != generation {
+                                break;
+                            }
+                            if tick_dirty.swap(false, Ordering::Relaxed) {
+                                emit_tick(&tick_app, &tick_shared);
+                            }
+                            if window.elapsed() >= std::time::Duration::from_secs(5) {
+                                let secs = window.elapsed().as_secs_f64();
+                                window = std::time::Instant::now();
+                                let props = PROP_EVENTS.swap(0, Ordering::Relaxed);
+                                let full = FULL_EMITS.swap(0, Ordering::Relaxed);
+                                let ticks = TICK_EMITS.swap(0, Ordering::Relaxed);
+                                if props + full + ticks > 0 {
+                                    logging::info(
+                                        "media.player.perf",
+                                        format!(
+                                            "state ipc: {props} mpv property events -> {full} full \
+                                             + {ticks} coalesced across {secs:.1}s ({:.1} msg/s)",
+                                            (full + ticks) as f64 / secs.max(0.001)
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+                    })
+                    .expect("spawn mpv tick thread")
+            };
             while !stop.load(Ordering::SeqCst) {
                 let event = unsafe { (api.mpv_wait_event)(handle, 0.25) };
                 if event.is_null() {
@@ -492,7 +575,14 @@ fn spawn_event_loop(
                         if let Ok(mut status) = shared.lock() {
                             apply_property(&mut status, &name, prop);
                         }
-                        emit_state(&app, &shared);
+                        PROP_EVENTS.fetch_add(1, Ordering::Relaxed);
+                        // Frame-rate properties only dirty the tick; everything
+                        // else is a discrete change the UI must see at once.
+                        if is_volatile_property(&name) {
+                            dirty.store(true, Ordering::Relaxed);
+                        } else {
+                            emit_state(&app, &shared);
+                        }
                     }
                     mpv::MPV_EVENT_FILE_LOADED => {
                         logging::info(LOG_TARGET, "file loaded; decoding started");
@@ -561,6 +651,8 @@ fn spawn_event_loop(
                 }
             }
             logging::debug(LOG_TARGET, "mpv event loop stopped");
+            tick_stop.store(true, Ordering::Relaxed);
+            let _ = ticker.join();
         })
         .expect("spawn mpv event thread")
 }
@@ -634,7 +726,26 @@ fn apply_property(status: &mut PlayerStatus, name: &str, prop: &MpvEventProperty
 fn emit_state(app: &tauri::AppHandle, shared: &Arc<Mutex<PlayerStatus>>) {
     use tauri::Emitter;
     if let Ok(status) = shared.lock() {
+        FULL_EMITS.fetch_add(1, Ordering::Relaxed);
         let _ = app.emit("media-player://state", status.clone());
+    }
+}
+
+/// Compact metrics event: the only thing that rides the frame rate now.
+fn emit_tick(app: &tauri::AppHandle, shared: &Arc<Mutex<PlayerStatus>>) {
+    use tauri::Emitter;
+    if let Ok(status) = shared.lock() {
+        let tick = PlayerTick {
+            position: status.position,
+            duration: status.duration,
+            cache_percent: status.cache_percent,
+            cache_seconds: status.cache_seconds,
+            cache_speed: status.cache_speed,
+            paused_for_cache: status.paused_for_cache,
+        };
+        drop(status);
+        TICK_EMITS.fetch_add(1, Ordering::Relaxed);
+        let _ = app.emit("media-player://tick", &tick);
     }
 }
 
@@ -1103,6 +1214,122 @@ mod tests {
         );
         assert_eq!(video.as_deref(), Some("h264"), "video codec not decoded");
         assert_eq!(audio.as_deref(), Some("ac3"), "AC3 audio not decoded");
+
+        unsafe { (api.mpv_terminate_destroy)(handle) };
+    }
+
+    /// Live (WP4b item 1): measures the real IPC rate of the old per-property
+    /// full-state emit against the coalesced 250 ms tick, using the exact
+    /// observed-property set and classifier the player runs with.
+    ///
+    /// `cargo test --lib live_property_event_rate -- --ignored --nocapture`
+    #[test]
+    #[ignore = "live: needs ffmpeg to build the fixture and libmpv to play it"]
+    fn live_property_event_rate_is_coalesced() {
+        use std::collections::HashSet;
+        use std::time::{Duration, Instant};
+
+        let directory = tempfile::tempdir().unwrap();
+        let fixture = directory.path().join("rate.mp4");
+        let Some(fixture) = fixture.to_str() else {
+            return;
+        };
+        let built = std::process::Command::new("ffmpeg")
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=size=1280x720:rate=60:duration=8",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                fixture,
+            ])
+            .status();
+        match built {
+            Ok(status) if status.success() => {}
+            Ok(status) => {
+                eprintln!("ffmpeg could not build the fixture ({status}); skipping");
+                return;
+            }
+            Err(error) => {
+                eprintln!("ffmpeg unavailable ({error}); skipping");
+                return;
+            }
+        }
+
+        let lib = mpv::libmpv().expect("libmpv should load");
+        let api = &lib.api;
+        let handle = unsafe { (api.mpv_create)() };
+        assert!(!handle.is_null());
+        set_option(api, handle, "config", "no");
+        set_option(api, handle, "terminal", "no");
+        set_option(api, handle, "vo", "null");
+        set_option(api, handle, "ao", "null");
+        assert!(unsafe { (api.mpv_initialize)(handle) } >= 0, "mpv_initialize failed");
+        observe(api, handle);
+        command(api, handle, &["loadfile", fixture, "replace"]).unwrap();
+
+        let mut loaded = false;
+        let load_deadline = Instant::now() + Duration::from_secs(20);
+        while Instant::now() < load_deadline && !loaded {
+            let event = unsafe { (api.mpv_wait_event)(handle, 0.25) };
+            if event.is_null() {
+                break;
+            }
+            loaded = unsafe { (*event).event_id } == mpv::MPV_EVENT_FILE_LOADED;
+        }
+        assert!(loaded, "mpv never reported FILE_LOADED");
+
+        // Sample 5 s of real-time playback.
+        let start = Instant::now();
+        let mut volatile = 0u64;
+        let mut discrete = 0u64;
+        let mut windows: HashSet<u128> = HashSet::new();
+        while start.elapsed() < Duration::from_secs(5) {
+            let event = unsafe { (api.mpv_wait_event)(handle, 0.25) };
+            if event.is_null() {
+                break;
+            }
+            if unsafe { (*event).event_id } != mpv::MPV_EVENT_PROPERTY_CHANGE {
+                continue;
+            }
+            let data = unsafe { (*event).data as *mut MpvEventProperty };
+            if data.is_null() {
+                continue;
+            }
+            let name = cstr_to_string(unsafe { (*data).name });
+            if is_volatile_property(&name) {
+                volatile += 1;
+                windows.insert(start.elapsed().as_millis() / 250);
+            } else {
+                discrete += 1;
+            }
+        }
+        let secs = start.elapsed().as_secs_f64().max(0.001);
+        let before = volatile + discrete;
+        let after = windows.len() as u64 + discrete;
+        eprintln!(
+            "media.player.perf: {secs:.1}s of 60 fps playback -> {volatile} volatile + {discrete} \
+             discrete property events ({:.0}/s)\n  before: {before} full-state IPC ({:.0}/s)\n  \
+             after:  {after} messages = {:.0}/s ({:.1}% fewer)",
+            before as f64 / secs,
+            before as f64 / secs,
+            after as f64 / secs,
+            100.0 * (1.0 - after as f64 / before.max(1) as f64)
+        );
+        assert!(volatile > 0, "no volatile property events observed — cannot measure");
+        assert!(
+            after * 5 < before,
+            "coalescing should cut IPC by more than 5x: {before} -> {after}"
+        );
 
         unsafe { (api.mpv_terminate_destroy)(handle) };
     }

@@ -144,6 +144,19 @@ export interface NativePlayerStatus {
   error: string | null;
 }
 
+/**
+ * Coalesced frame-rate metrics (`media-player://tick`, 4/s). Everything discrete
+ * still arrives as a full {@link NativePlayerStatus}.
+ */
+export interface NativePlayerTick {
+  position: number;
+  duration: number;
+  cachePercent: number;
+  cacheSeconds: number;
+  cacheSpeed: number;
+  pausedForCache: boolean;
+}
+
 /** Whether the in-app player can run, and whether it can embed video. */
 export interface NativePlayerDiagnostics {
   available: boolean;

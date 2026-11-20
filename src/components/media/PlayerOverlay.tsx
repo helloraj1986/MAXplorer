@@ -4,7 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, isTauri, normalizeError } from "../../lib/api";
 import { logDiagnostic } from "../../lib/diagnostics";
 import { useMediaStore } from "../../state/mediaStore";
-import type { NativePlayerStatus } from "./types";
+import type { NativePlayerStatus, NativePlayerTick } from "./types";
 
 /**
  * In-app media player chrome (UI WP4a, docs/MEDIA_UI_SPEC.md §5).
@@ -37,6 +37,7 @@ export function PlayerOverlay() {
   const refreshEngineStats = useMediaStore((state) => state.refreshEngineStats);
   const closePlayer = useMediaStore((state) => state.closePlayer);
   const setPlayerStatus = useMediaStore((state) => state.setPlayerStatus);
+  const patchPlayerStatus = useMediaStore((state) => state.patchPlayerStatus);
   const recordProgress = useMediaStore((state) => state.recordProgress);
 
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -144,11 +145,22 @@ export function PlayerOverlay() {
       if (disposed) cleanup();
       else unlisten = cleanup;
     });
+    // 250 ms coalesced metrics (WP4b item 1). Position/cache used to arrive as a
+    // full status per mpv property event — up to 60 messages a second, each one
+    // re-rendering this overlay while the native surface composited.
+    let unlistenTick: UnlistenFn | undefined;
+    void listen<NativePlayerTick>("media-player://tick", (event) => {
+      patchPlayerStatus(event.payload);
+    }).then((cleanup) => {
+      if (disposed) cleanup();
+      else unlistenTick = cleanup;
+    });
     return () => {
       disposed = true;
       unlisten?.();
+      unlistenTick?.();
     };
-  }, [playerSource, setPlayerStatus]);
+  }, [playerSource, setPlayerStatus, patchPlayerStatus]);
 
   // Watch progress: write the position on the first report and then every 5 s
   // while the file plays, plus a final write when the player closes, so a short
