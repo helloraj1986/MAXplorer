@@ -932,6 +932,10 @@ select:focus-visible,
   color: var(--sidebar-row-color);
 }
 
+.nav-group[aria-expanded="true"] .sidebar-heading-chevron svg {
+  transform: rotate(90deg);
+}
+
 .nav-chevron {
   width: 14px;
   height: 20px;
