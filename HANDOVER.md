@@ -125,6 +125,27 @@ is verified healthy on the installed build (24 fps, 0 dropped, 2 stale in 3516 f
 lag 1). Resume with the spec below when performance work comes back up the queue.
 **The queue now follows the user's priority order, not the WP numbering.**
 
+---
+
+## ▶ ACTIVE — media bundle: library + tracks + player UX
+
+**Branch:** `feature/media-library-tracks` (off `feature/media-ui-wp4b`).
+The user chose to combine three workstreams in one branch, in three ordered phases
+(one commit + one acceptance pass each):
+
+1. **`library.json`** — persistent watch progress, resume-at-position, real
+   "Continue watching" (replaces the in-memory stub).
+2. **Track menus** — `media_player_tracks` / `media_player_set_track`, `TrackMenu`
+   for audio + subtitles, per-title choice persisted.
+3. **Player UX gaps** — subtitle delay/size/visibility, audio delay, speed, local
+   `sub-add`, next episode.
+
+**The contract for the next session is `docs/MEDIA_LIBRARY_TRACKS_SPEC.md`** — data
+shape, commands, files, per-phase acceptance, and the deliberate exclusion (online
+subtitle search). Read it before writing code; append an "As built" block per phase.
+Phase order is not arbitrary: Phase 1 is the substrate for Phase 2's per-title track
+persistence.
+
 ### BUNDLE A — as built (2026-11-21, items 3 + 4)
 
 **Item 3 — SW scaler + render-target cap.**
