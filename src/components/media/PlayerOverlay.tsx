@@ -261,13 +261,15 @@ export function PlayerOverlay() {
   }, [armIdleTimer]);
 
   useEffect(() => {
-    if (paused || eof) {
+    // An open track menu is a modal-ish state: hiding the chrome would collapse
+    // the dock (and the popover with it), so it pins the chrome like a pause.
+    if (paused || eof || trackMenu) {
       clearIdleTimer();
       setChromeVisible(true);
       return;
     }
     armIdleTimer();
-  }, [paused, eof, armIdleTimer, clearIdleTimer]);
+  }, [paused, eof, trackMenu, armIdleTimer, clearIdleTimer]);
 
   useEffect(() => () => clearIdleTimer(), [clearIdleTimer]);
 
@@ -735,6 +737,27 @@ export function PlayerOverlay() {
           ) : null}
         </div>
 
+        {/* Phase 2: the menu is docked in the FOOTER, not floated over the
+            stage. The native video surface sits above the webview, so a popover
+            drawn over the picture would be invisible — the dock grows the footer
+            instead, the stage shrinks, and the ResizeObserver pushes the smaller
+            rect to the surface. */}
+        {trackMenu ? (
+          <div className="media-player-menu-dock">
+            <TrackMenu
+              kind={trackMenu}
+              tracks={trackMenu === "audio" ? audioTracks : subsTracks}
+              activeId={trackMenu === "audio" ? activeAudioId : activeSubsId}
+              onSelect={(id) => {
+                const kind = trackMenu;
+                setTrackMenu(null);
+                if (kind) void setTrack(kind, id);
+              }}
+              onClose={() => setTrackMenu(null)}
+            />
+          </div>
+        ) : null}
+
         <div className="media-player-bar">
           {/* ⏮ / ⏭ need an episode playlist (WP5+), so 4a ships only play/pause
               rather than a dead button. */}
@@ -818,18 +841,6 @@ export function PlayerOverlay() {
               >
                 Audio
               </button>
-              {trackMenu === "audio" ? (
-                <TrackMenu
-                  kind="audio"
-                  tracks={audioTracks}
-                  activeId={activeAudioId}
-                  onSelect={(id) => {
-                    setTrackMenu(null);
-                    void setTrack("audio", id);
-                  }}
-                  onClose={() => setTrackMenu(null)}
-                />
-              ) : null}
             </div>
 
             <div className="media-player-trackwrap">
@@ -856,18 +867,6 @@ export function PlayerOverlay() {
               >
                 CC
               </button>
-              {trackMenu === "sub" ? (
-                <TrackMenu
-                  kind="sub"
-                  tracks={subsTracks}
-                  activeId={activeSubsId}
-                  onSelect={(id) => {
-                    setTrackMenu(null);
-                    void setTrack("sub", id);
-                  }}
-                  onClose={() => setTrackMenu(null)}
-                />
-              ) : null}
             </div>
           </div>
 

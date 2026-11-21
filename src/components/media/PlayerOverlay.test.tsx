@@ -412,6 +412,18 @@ describe("track menus (Phase 2)", () => {
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
+  it("docks the open menu in the footer, never over the video stage", () => {
+    open([audioTrack, frenchTrack]);
+    fireEvent.click(screen.getByRole("button", { name: /Audio tracks/ }));
+    const dock = document.querySelector(".media-player-menu-dock");
+    expect(dock).toBeTruthy();
+    // The footer is the only place the native surface cannot cover: the dock
+    // grows it, the stage shrinks and its ResizeObserver moves the surface.
+    expect(dock?.closest(".media-player-bottom")).toBeTruthy();
+    expect(document.querySelector(".media-player-stage .media-trackmenu")).toBeNull();
+    expect(document.querySelector(".media-player-bottom .media-trackmenu")).toBeTruthy();
+  });
+
   it("opens the subtitle menu with the Off row first", () => {
     open([audioTrack, subTrack]);
     fireEvent.click(screen.getByRole("button", { name: /Subtitles/ }));
