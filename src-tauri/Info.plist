@@ -18,6 +18,8 @@
   <array>
     <string>_smb._tcp</string>
   </array>
+  <key>NSAppleMusicUsageDescription</key>
+  <string>MAXplorer needs access to your Music library so it can browse and preview audio files in your Music folder.</string>
   <key>NSHumanReadableCopyright</key>
   <string>MAXplorer. Independent file manager for macOS. Not affiliated with Microsoft or Apple.</string>
 </dict>

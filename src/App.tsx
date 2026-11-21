@@ -19,9 +19,11 @@ import { Icon } from "./components/Icon";
 import { SearchOverlay } from "./components/search/SearchOverlay";
 import { SearchWorkspace } from "./components/search/SearchWorkspace";
 import { StorageWorkspace } from "./components/storage/StorageWorkspace";
+import { MediaWorkspace } from "./components/media/MediaWorkspace";
 import { useExplorerStore } from "./state/explorerStore";
 import { useSearchStore } from "./state/searchStore";
 import { useStorageStore } from "./state/storageStore";
+import { useMediaStore } from "./state/mediaStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useTheme } from "./hooks/useTheme";
 import { useWindowPersistence } from "./hooks/useWindowPersistence";
@@ -44,6 +46,11 @@ export default function App() {
   const interfaceTheme = useExplorerStore((state) => state.interfaceTheme);
   const searchWorkspaceOpen = useSearchStore((state) => state.workspaceOpen);
   const storageWorkspaceOpen = useStorageStore((state) => state.workspaceOpen);
+  const mediaWorkspaceOpen = useMediaStore((state) => state.workspaceOpen);
+  // Player mode is a full-window takeover (spec §5.1): the reference shows no
+  // chrome at all while playing, and the native surface rect is derived from the
+  // stage, so any leftover explorer chrome would inset the video.
+  const mediaPlayerActive = useMediaStore((state) => state.screen === "player");
   const initializeSearch = useSearchStore((state) => state.initialize);
   const refreshLocations = useExplorerStore((state) => state.refreshLocations);
   const [osDropActive, setOsDropActive] = useState(false);
@@ -130,6 +137,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (mediaWorkspaceOpen) {
+      document.title = `Media - ${PRODUCT_NAME}`;
+      return;
+    }
     if (storageWorkspaceOpen) {
       document.title = `Storage Analyzer - ${PRODUCT_NAME}`;
       return;
@@ -187,19 +198,27 @@ export default function App() {
 
   return (
     <div className={`app-shell ${osDropActive ? "os-drop-active" : ""}`}>
-      <TitleBar />
-      <div className="chrome">
-        <CommandBar />
-      </div>
-      {!dualPane && !searchWorkspaceOpen && !storageWorkspaceOpen ? (
+      {/* Player mode owns the whole window (spec §5.1): the title bar carries the
+          window's own maximize/close, which would sit next to the player's
+          fullscreen control as a second "maximise" button. Exit via the player's
+          ✕ / Esc, and `f` for fullscreen. */}
+      {!mediaPlayerActive ? <TitleBar /> : null}
+      {!mediaPlayerActive ? (
+        <div className="chrome">
+          <CommandBar />
+        </div>
+      ) : null}
+      {!dualPane && !searchWorkspaceOpen && !storageWorkspaceOpen && !mediaWorkspaceOpen ? (
         <div className="single-pane-layers">
           <NavigationBar showSearch />
           <TabBar paneId="left" />
         </div>
       ) : null}
       <div className="main-area">
-        {sidebarVisible ? <Sidebar /> : null}
-        {storageWorkspaceOpen ? (
+        {sidebarVisible && !mediaPlayerActive ? <Sidebar /> : null}
+        {mediaWorkspaceOpen ? (
+          <MediaWorkspace />
+        ) : storageWorkspaceOpen ? (
           <StorageWorkspace />
         ) : searchWorkspaceOpen ? (
           <SearchWorkspace />
@@ -208,7 +227,7 @@ export default function App() {
         )}
       </div>
       <ComparisonPanel />
-      {!storageWorkspaceOpen ? <StatusBar /> : null}
+      {!storageWorkspaceOpen && !mediaPlayerActive ? <StatusBar /> : null}
       <ContextMenu />
       <Dialogs />
       <SearchOverlay />

@@ -4,16 +4,22 @@ mod compare;
 mod error;
 mod listing;
 mod logging;
+mod media;
 mod metadata;
+pub mod mpv;
 mod network_discovery;
 mod network_mount;
 mod operations;
 mod paths;
+pub mod player;
 mod preview;
+mod render;
 pub mod search;
 mod storage;
 mod storage_cache;
 mod storage_maintenance;
+mod debrid;
+mod torrent;
 mod transfer;
 mod types;
 
@@ -171,6 +177,28 @@ pub fn run() {
         .manage(preview::PreviewState::default())
         .invoke_handler(tauri::generate_handler![
             commands::get_platform_info,
+            media::media_addon_manifest,
+            media::media_catalog,
+            media::media_streams,
+            media::media_play,
+            debrid::media_debrid_resolve,
+            debrid::media_debrid_save_config,
+            debrid::media_debrid_get_config,
+            debrid::media_debrid_test_key,
+            torrent::media_torrent_start,
+            torrent::media_torrent_status,
+            player::media_player_open,
+            player::media_player_close,
+            player::media_player_set_rect,
+            player::media_player_set_surface_visible,
+            player::media_player_set_pause,
+            player::media_player_seek,
+            player::media_player_seek_relative,
+            player::media_player_set_volume,
+            player::media_player_set_muted,
+            player::media_player_set_fill,
+            player::media_player_status,
+            player::media_player_diagnostics,
             commands::get_sidebar_locations,
             commands::eject_volume,
             commands::connect_network_location,

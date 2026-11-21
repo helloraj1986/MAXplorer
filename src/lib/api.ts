@@ -37,6 +37,13 @@ import type {
   SearchSuggestion,
 } from "./search/types";
 import type {
+  MediaCatalogResponse,
+  MediaManifest,
+  NativePlayerDiagnostics,
+  NativePlayerStatus,
+  StreamsResponse,
+} from "../components/media/types";
+import type {
   CachedStorageScan,
   StorageChildren,
   StorageDeleteOutcome,
@@ -92,6 +99,67 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
 
 export const api = {
   getPlatformInfo: () => call<PlatformInfo>("get_platform_info"),
+  getAddonManifest: (url: string) =>
+    call<MediaManifest>("media_addon_manifest", { url }),
+  getMediaCatalog: (url: string, type: string, catalogId: string) =>
+    call<MediaCatalogResponse>("media_catalog", { url, type, catalogId }),
+  getMediaStreams: (url: string, type: string, id: string) =>
+    call<StreamsResponse>("media_streams", { url, type, id }),
+  playMediaStream: (url: string) => call<{ player: string }>("media_play", { url }),
+  // Native playback engine (libmpv). The video surface is an NSView the backend
+  // places over the rect the UI reports, so playback is not limited by what the
+  // webview can decode (MKV/AC3/DTS all work).
+  playerOpen: (
+    url: string,
+    title: string,
+    rect: { x: number; y: number; width: number; height: number },
+  ) => call<NativePlayerStatus>("media_player_open", { url, title, ...rect }),
+  playerClose: () => call<void>("media_player_close"),
+  playerSetRect: (rect: { x: number; y: number; width: number; height: number }) =>
+    call<void>("media_player_set_rect", { ...rect }),
+  playerSetPause: (paused: boolean) => call<NativePlayerStatus>("media_player_set_pause", { paused }),
+  playerSeek: (seconds: number) => call<NativePlayerStatus>("media_player_seek", { seconds }),
+  playerSeekRelative: (delta: number) =>
+    call<NativePlayerStatus>("media_player_seek_relative", { delta }),
+  playerSetVolume: (volume: number) =>
+    call<NativePlayerStatus>("media_player_set_volume", { volume }),
+  playerSetMuted: (muted: boolean) => call<NativePlayerStatus>("media_player_set_muted", { muted }),
+  // Fit (mpv default, whole frame visible) vs Fill (panscan=1: zoom until the
+  // picture covers the window, cropping the overshoot). Per-title, not persisted.
+  playerSetFill: (fill: boolean) => call<void>("media_player_set_fill", { fill }),
+  playerSetSurfaceVisible: (visible: boolean) =>
+      call<void>("media_player_set_surface_visible", { visible }),
+    playerStatus: () => call<NativePlayerStatus>("media_player_status"),
+  playerDiagnostics: () => call<NativePlayerDiagnostics>("media_player_diagnostics"),
+  startTorrent: (infoHash: string) =>
+      call<{ baseUrl: string }>("media_torrent_start", { infoHash }),
+    torrentStatus: (infoHash: string, baseUrl: string, probe = true) =>
+      call<{
+        registered: boolean;
+        metadataReady: boolean;
+        name: string | null;
+        files: { idx: number; name: string; length: number }[];
+        progress: number;
+        /** MB/s */
+        downloadSpeed: number;
+        /** Connected peers. */
+        peers: number;
+        /** Peers discovered in the swarm. */
+        peersSeen: number;
+        /** librqbit state: initializing | live | paused | error */
+        state: string;
+        /** True only when librqbit can actually serve the stream URL. */
+        streamable: boolean;
+        streamUrl: string | null;
+      }>(
+        "media_torrent_status",
+        { infoHash, baseUrl, probe },
+      ),
+    debridResolve: (infoHash: string) => call<string>("media_debrid_resolve", { infoHash }),
+    debridSaveConfig: (config: { provider: "realdebrid" | "torbox"; apiKey: string }) =>
+      call<void>("media_debrid_save_config", { config }),
+    debridGetConfig: () => call<{ provider: "realdebrid" | "torbox"; apiKey: string } | null>("media_debrid_get_config"),
+    debridTestKey: (provider: "realdebrid" | "torbox", apiKey: string) => call<boolean>("media_debrid_test_key", { provider, apiKey }),
   getSidebarLocations: () => call<Location[]>("get_sidebar_locations"),
   ejectVolume: (path: string) => call<void>("eject_volume", { path }),
   connectNetworkLocation: (

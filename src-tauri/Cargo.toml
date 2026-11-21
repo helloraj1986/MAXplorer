@@ -27,6 +27,15 @@ sha2 = "0.10"
 walkdir = "2"
 flate2 = "1"
 libc = "0.2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+librqbit = { version = "8", default-features = false, features = ["rust-tls", "http-api", "tracing-subscriber-utils"] }
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+bytes = "1"
+libloading = "0.8"
+objc2 = "0.6"
+objc2-foundation = "0.3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"

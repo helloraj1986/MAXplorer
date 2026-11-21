@@ -2,12 +2,453 @@
 
 | Field | Value |
 | --- | --- |
-| Document version | 1.2 |
-| Handover date | 2026-10-29 |
-| Project version | 0.2.0 (universal DMG release, includes the MAXplorer identity, storage analyzer and search overhaul) |
+| Document version | 1.4 |
+| Handover date | 2026-11-21 |
+| Project version | 0.2.1 (aarch64 DMG) + media feature on `feature/stremio-compat` |
 | Repository | https://github.com/helloraj1986/MAXplorer (private) |
 | Release | https://github.com/helloraj1986/MAXplorer/releases/latest |
-| Current branch | `main` (premium icon system merged 2026-10-29) |
+| Current branch | `feature/media-ui-wp4a` (branched from `feature/media-ui-wp3`) — read the head with `git log --oneline -1` (a fixed SHA here goes stale the moment anything is committed). Last installable build: 2026-11-21, installed at `/Applications/MAXplorer.app`. **`feature/stremio-compat`, `feature/media-ui-wp1`, `-wp2`, `-wp3` and `-wp4a` are not yet on origin** (`git push origin <branch>`). |
+
+---
+
+## 0. ACTIVE WORK — Media feature (Stremio-compatible) — READ FIRST
+
+**This is the live workstream. Canonical roadmap: `docs/STREMIO_MEDIA.md`. One roadmap
+item per session — never batched.**
+
+> ### ▶ START HERE — two documents
+>
+> 1. **`docs/MEDIA_UI_SPEC.md`** — the *next workstream*. Stremio-parity redesign of
+>    the media workspace + player, derived from the user's screenshots: tokens,
+>    three screens, component/file inventory, data mapping, keyboard/a11y rules and
+>    six work packages (WP1 tokens+shell → WP6 polish; WP4 is split into WP4a
+>    chrome / WP4b engine performance). **Implement one WP per session; WP1, WP2,
+>    WP3 and WP4a are done, WP4b is next.** Reference images (not in git):
+>    `~/hermes-workspace/maxplorer-media/ui-reference/`.
+> 2. **`docs/MEDIA_PLAYER_HANDOVER.md`** — the player internals: what works, the
+>    three architectures already ruled out **with evidence**, and the as-built
+>    record of the libmpv render API. Read before touching playback.
+>
+> **WP1 (tokens + shell), WP2 (the board), WP3 (detail + streams panel) and WP4a
+> (player chrome) are DONE** — components and the as-built notes are in
+> `docs/MEDIA_UI_SPEC.md` §10. Gates green: `npx tsc --noEmit`; vitest
+> `src/components/media` → 91 passed. WP3 lives on `feature/media-ui-wp3` @
+> `cb138ae` (pushed); WP4a lives on `feature/media-ui-wp4a`.
+
+---
+
+## ✅ UI WP4a DONE — player chrome (branch `feature/media-ui-wp4a`, off `feature/media-ui-wp3`)
+
+Frontend only: `src-tauri/src/player.rs` and `render.rs` were **not** touched, so
+`framedrop=vo`, the `fileLoaded` → `set_surface_visible` gate and the torrent
+readiness Range-probe are all unchanged. As-built detail lives in
+`docs/MEDIA_UI_SPEC.md` §10 "WP4a as built"; the load-bearing points:
+
+- **Three strips, no overlay on the stage.** Top strip 72 px (close, title, codec ·
+  resolution chip, right cluster = stats pill + fullscreen), bottom region
+  = 40 px state row + 88 px bar (transport, elapsed, seek, total, volume,
+  fullscreen) + the 2 px hairline. Chrome is a flex sibling of
+  `.media-player-stage`, **never** absolutely positioned over it.
+- **The stage is what the native surface covers**, so the chrome collapsing is
+  what gives the video the full window: idle → strips `display:none`, stage grows,
+  the ResizeObserver pushes the new rect to `media_player_set_rect`, and only the
+  2 px hairline (progress width) stays. Deliberately **no height transition** —
+  animating the height would re-send the native rect every frame (that is WP4b
+  item 1 territory).
+- **Autohide contract:** visible on mousemove / pause / eof / `Tab`, hides 3 s
+  after the last input while playing; `cursor: none` while idle; reduced motion
+  drops the seek/volume transitions.
+- **Seek:** optimistic drag (local scrub, `player_seek` only on release — one per
+  gesture), buffered span from `cacheSeconds`, hover → 7 px track + 14 px knob +
+  text time tooltip, `role="slider"` with `aria-valuetext="12:34 of 1:44:59"`,
+  arrows ±5 s, Home/End. `−10s`/`+10s` ripple for keyboard seeks.
+- **Volume:** icon mutes, slider expands to 90 px on hover/focus, `↑/↓` ±5, `M`
+  mute, ephemeral "Volume 40%" readout in the **state row** (not the stage).
+- **States:** buffering pill `Buffering 42% · 1.5 MB/s` (from `cacheSummary`),
+  `Connecting to the swarm… 37% · 12 peers` while the engine resolves, error card
+  (`role="alert"`, reason, `↗ Open in external player`, `Retry` → re-opens the
+  player), ended → play icon + chrome pinned, audio-only → poster + title art on
+  `--m-bg`.
+- **No dead buttons:** `⏮`/`⏭` need an episode playlist and the audio/subtitle/
+  speed menus need WP5's `media_player_tracks`, so the bar ships play/pause only
+  and its right cluster ends at fullscreen.
+- **Store:** `playerSource` gained `poster` (audio-only art) and `quality` (codec
+  chip); `openPlayer`/`streamTorrent` take an optional quality and read the poster
+  from the selected meta, so no call site fabricates either.
+- **Known gap (needs backend, deferred):** the native NSView has no
+  `ignoresMouseEvents`/`hitTest` override, so a pointer over the video may never
+  reach the webview — the mousemove wake-up is then only reliable over the strips
+  and the 2 px hairline, and `Tab` is the guaranteed path. `PlayerOverlay` already
+  listens for `media-player://pointer`; emitting it from the NSView's
+  `mouseMoved` is a one-line backend change for WP4b/WP5. Confirm behaviour on the
+  installed build before deciding.
+  **RESOLVED 2026-11-21 (second attempt):** the user reported "I don't see the UI for
+  the player". Over the video the NSView was the hit-test target, so `mousemove`
+  never arrived and the autohidden chrome never woke. The first fix
+  (`setIgnoresMouseEvents: YES`) **crashed the app on the next open** — that property
+  belongs to `NSWindow`, not `NSView`, so the selector raised
+  `NSInvalidArgumentException` inside the main-thread run-loop callback and aborted
+  with SIGABRT (no Rust panic log; only `crash report → asi: abort() called`). The
+  correct fix is an NSView subclass whose `hitTest:` returns nil
+  (`video_surface_class()` in `player.rs`, built with `ClassBuilder` because this
+  crate has objc2-foundation only, no typed `NSView`), plus click-the-picture →
+  play/pause. `player::surface_tests::video_surface_class_is_registered` asserts the
+  class overrides `hitTest:` rather than inheriting it.
+- Gates: `npx tsc --noEmit` clean; `npx vitest run src/components/media` → **91
+  passed** (74 before; `PlayerOverlay.test.tsx` grew 17 cases: autohide with fake
+  timers, key map → `api.*` calls, seek ratio math, buffered-span width, error
+  card, slider `aria-valuetext`, single-seek-per-gesture, audio-only art).
+- Handover path used: build (background) → `grep -c "media-player-hairline"
+  dist/assets/*.js` → install `/Applications/MAXplorer.app` → user compares to
+  `crop-player-bottom.png` (which shows **no chrome at all** while playing — the
+  idle state is the acceptance shot).
+
+---
+
+## ▶ ACTIVE — UI WP4b: engine performance (one backlog item per session)
+
+**Branch:** `feature/media-ui-wp4b` off `feature/media-ui-wp4a`.
+**Done:** item 1 (`emit_state` coalescing) — commit `d325b4b`; measured on a
+60 fps fixture: 66 property events/s → **5 IPC messages/s (−92.4 %)**; live
+in-app: ~25 events/s → 3.9 msg/s. Item 2 (zero-copy frame ring — see below,
+includes the **fps regression fix**: the first cut dropped ~50 % of frames).
+Item 8's numbers (mpv `container-fps` / `estimated-vf-fps` / vo+decoder drop
+counters, render ms/frame, presenter lag) landed with it.
+Also on this branch: `886a629` player-mode takeover fix and `bf5b5a1` fullscreen
+de-duplication — **4b itself is 2 of 8 items, NOT finished.**
+**DONE: BUNDLE A — items 3 + 4** (render cost), same session, two commits, one
+measurement each — the numbers are in the as-built section below.
+**DEFERRED by the user (2026-11-21): BUNDLE B — items 5 + 6 + 7** (prewarm,
+per-source cache, hr-seek). WP4b is **4 of 8 items done** (1, 2, 3, 4, plus item 8's
+telemetry); 5/6/7 are parked, not abandoned — nothing depends on them, and playback
+is verified healthy on the installed build (24 fps, 0 dropped, 2 stale in 3516 frames,
+lag 1). Resume with the spec below when performance work comes back up the queue.
+**The queue now follows the user's priority order, not the WP numbering.**
+
+---
+
+## ▶ ACTIVE — media bundle: library + tracks + player UX
+
+**Branch:** `feature/media-library-tracks` (off `feature/media-ui-wp4b`).
+The user chose to combine three workstreams in one branch, in three ordered phases
+(one commit + one acceptance pass each):
+
+1. **`library.json`** — persistent watch progress, resume-at-position, real
+   "Continue watching" (replaces the in-memory stub).
+2. **Track menus** — `media_player_tracks` / `media_player_set_track`, `TrackMenu`
+   for audio + subtitles, per-title choice persisted.
+3. **Player UX gaps** — subtitle delay/size/visibility, audio delay, speed, local
+   `sub-add`, next episode.
+
+**The contract for the next session is `docs/MEDIA_LIBRARY_TRACKS_SPEC.md`** — data
+shape, commands, files, per-phase acceptance, and the deliberate exclusion (online
+subtitle search). Read it before writing code; append an "As built" block per phase.
+Phase order is not arbitrary: Phase 1 is the substrate for Phase 2's per-title track
+persistence.
+
+### BUNDLE A — as built (2026-11-21, items 3 + 4)
+
+**Item 3 — SW scaler + render-target cap.**
+- `player.rs`: `scale=bilinear` / `dscale=bilinear` set with the rest of the option
+  block, **before `mpv_initialize`** (beside `vo=libmpv`).
+- `render.rs`: `TARGET_MAX_WIDTH = 2560` and `cap_target(w, h)` (width-clamped,
+  aspect preserved, degrades to a passthrough for zero/under-cap sizes). It is
+  applied in **both** `SwRenderer::create` and `set_size`, and `set_size` compares
+  the **capped** geometry — comparing raw backing pixels would reallocate the whole
+  5-buffer ring on every resize tick.
+- The NSView frame stays the full stage: `CALayer.contentsGravity` defaults to
+  resize, so the layer upscales the smaller `CGImage` at composite time for free.
+- **Measured** (`cargo test --release --lib bench_render_target_cap -- --ignored
+  --nocapture`, 3840x2160 source, 35 frames after 5 warm-up, `untimed=yes` so the
+  VO is not pacing to the frame clock):
+
+  | target | scaler | ms/frame (mean) | peak | MB/frame |
+  |---|---|---|---|---|
+  | 3416x1700 | mpv default (spline) | 16.00 | 21.33 | 22.2 |
+  | 2560x1274 | bilinear | 13.58 | 19.21 | 12.4 |
+
+  −15 % render time, −44 % frame memory. The remaining cost is the 4K→`rgb0`
+  conversion inside mpv, which a smaller target does not remove — so do not expect
+  the cap alone to open big headroom; it buys the memory and the scale work.
+- Live path unchanged: `live_ring_renders_in_place` still paints 24/24 frames from
+  5 distinct surfaces.
+- Watch subtitle softness: mpv rasterises subs into the capped buffer. If they look
+  bad, **raise the cap**, do not add a second render pass.
+
+**Item 4 — drop stale frames before dispatch.**
+- `render.rs`: `queued: AtomicU64` (dispatched, not yet presented) + the gate
+  `may_dispatch(queued)` (= `queued == 0`), plus `stale_frames: AtomicU64`. When the
+  gate refuses, the rendered frame is skipped, counted as **stale** and its `Frame`
+  drop returns the slot through the normal `release` grace. `queued` is decremented
+  on the main thread right after `setContents` (and on a failed dispatch, so a
+  broken main-thread hop cannot wedge the pipeline).
+- `stale` is deliberately a **separate counter** from `dropped` — `dropped` still
+  means "no buffer was free" (real backpressure), `stale` means "the main thread
+  had not presented the previous frame yet".
+- The 5 s `media.render` line now reads e.g.
+  `render: 24.0 fps at 2560x1274 px (12.4 MB/frame, zero-copy), 41.6 ms/frame in
+  mpv, 0 dropped (all buffers busy), 0 stale (main thread busy), lag 1`.
+  Acceptance: `lag 1` never > 1 and `stale 0` at steady state; during a window drag
+  `stale` may tick while fps holds.
+- Unit contract: `only_one_frame_is_dispatched_at_a_time`.
+
+**Cleanup in the same build:** `media.player.perf` no longer logs `vo-drops` or
+`osd … bars l/t/r/b` — those properties do not exist in mpv v0.42.0-173 and always
+printed `n/a`. The line is now
+`playback: source 24.0 fps, vf 24.0 fps, decoder-drops 0, osd 2560x1274, pos 12.3`.
+
+**Gates:** `cargo test --lib` 116 passed / 10 ignored; `cargo test --release --lib
+bench_render_target_cap` (numbers above); `live_ring_renders_in_place` paints
+24/24; no frontend change in this bundle (`tsc`/vitest untouched).
+
+### Ultrawide Fit/Fill + surface-rect diagnostics (2026-11-21, after the takeover fix)
+
+- The user's ultrawide (3440×1440) showed the video boxed on all four sides. The
+  source (`Black.Doves` S01, ffprobe) is **3840×2160, DAR 16:9, square pixels**,
+  so in a 2.44:1 window **left/right bars are correct** — mpv is doing its job.
+- **New control:** `media_player_set_fill(fill)` sets mpv `panscan` 1/0;
+  `PlayerOverlay` ships a labelled `Fill`/`Fit` button in the bottom bar
+  (aria-pressed, default **Fit**, per-title, not persisted). Fill crops ~14 % of
+  the frame height for a 16:9 source in this window — the user asked for the
+  toggle rather than a default.
+- **Diagnostics for the remaining question** (why the picture also sat ~136 px
+  below the window top): every `media_player_set_rect` now logs
+  `surface rect: css=(…) content_h=… frame=(…) backing=(WxH) view_flipped=…`, and
+  the 5 s `media.player.perf` line carries mpv's `osd WxH` (its own fitted picture
+  size). If `frame.y + frame.h == content_h` while a black band persists, mpv is
+  fitting a stale surface size; if it does not, the NSView frame/offset is wrong.
+  The per-side margin properties (`osd-dimensions/margins-*`) do not exist in this
+  mpv build — they only ever printed `n/a`, so they are no longer logged.
+
+### Player-mode takeover bug (fixed 2026-11-21, `886a629`)
+
+Screenshot of live torrent playback showed the media rail, CommandBar and status
+bar around the video. Root cause: **`mediaStore.streamTorrent` set `playerSource`
+without setting `screen: "player"`** (only `openPlayer` did), so `MediaShell` kept
+the rail/top bar and the native surface opened at `rect x=72` (inset by the 72 px
+rail) — the log line `open requested … rect=(72,88,3368,1096)` is the tell.
+Any new path that sets `playerSource` MUST also set `screen: "player"`.
+`App.tsx` now hides CommandBar/Sidebar/StatusBar while in player mode (TitleBar
+stays for window controls + drag). `capabilities/default.json` gained
+`core:window:allow-set-fullscreen`/`allow-is-fullscreen`: F and the fullscreen
+button were no-ops (`not allowed by ACL` in `maxplorer.log`).
+**Read first:** the backlog below, then `docs/MEDIA_PLAYER_HANDOVER.md` §4.6 and
+`src-tauri/src/player.rs` / `render.rs`. This WP is backend + measurement: every
+item is one measurable change, one per session, before/after numbers in the
+commit message.
+
+### WP4b item 1 — as built (2026-11-21)
+
+- `player.rs`: `is_volatile_property` (`time-pos`, `demuxer-cache-time`,
+  `cache-speed`, `cache-buffering-state`, `paused-for-cache`) now only sets an
+  `AtomicBool` dirty flag; a `mpv-ticks` thread emits the new compact
+  `media-player://tick` payload (`{position, duration, cachePercent,
+  cacheSeconds, cacheSpeed, pausedForCache}`) at most once per 250 ms. Everything
+  discrete (`pause`, `mute`, `volume`, `duration`, `media-title`, `video-format`,
+  `file-loaded`, `eof-reached`, `core-idle`) still sends the full
+  `media-player://state` immediately, as do FILE_LOADED / PLAYBACK_RESTART /
+  END_FILE.
+- Counters `PROP_EVENTS`/`FULL_EMITS`/`TICK_EMITS` log a `media.player.perf` line
+  every 5 s: `state ipc: N mpv property events -> X full + Y coalesced across 5.0s
+  (Z msg/s)`. That is the in-app number to quote; it also seeds item 8.
+- Frontend: `NativePlayerTick` in `types.ts`, `patchPlayerStatus` in
+  `mediaStore` (merges into the existing status, never replaces it so discrete
+  fields survive), second listener in `PlayerOverlay`. Seek-bar width already has
+  `transition: width 250ms linear` (media.css), so 4 Hz ticks look continuous.
+- Proof: `cargo test --lib live_property_event_rate -- --ignored --nocapture`
+  plays an ffmpeg-built 60 fps fixture through the real libmpv with the real
+  observed-property set and asserts the coalesced message count is >5x lower.
+  Observed: `326 volatile + 4 discrete (66/s)` → `25 messages = 5/s (92.4% fewer)`.
+- Gates: `npx tsc --noEmit` clean; `npx vitest run src/components/media` → 91
+  passed; `cargo test --lib` → 110 passed / 7 ignored; built, entitlements checked
+  (all four keys), installed to `/Applications/MAXplorer.app`.
+
+### WP4b item 2 — as built (2026-11-21)
+
+`src-tauri/src/render.rs` + a telemetry line in `player.rs`.
+
+- **`Ring`** = `RING_SIZE = 5` × 64-byte-aligned `rgb0` `FrameBuffer`s, each in a
+  `Mutex`, plus a **consumer-driven free list** (`VecDeque`, FIFO) and a `recent`
+  queue. `present` builds `CGDataProviderCreateWithData(.., release = None)` +
+  `CGImage` **over the rendered memory in place** — no `Vec::to_vec`, no per-frame
+  allocation. `Frame` (which carries an `Arc<Ring>` + the raw pointer) releases its
+  slot on `Drop`; a slot stays out of the free list for `RELEASE_LAG = 2`
+  presents (compositor grace), and `acquire` waits up to 40 ms for a slot before
+  dropping the frame as real backpressure.
+- **⚠️ Regression the first cut shipped, and why the design changed:** the initial
+  version guessed from the producer side (`presented_seq >= slot_seq + 2`) with 3
+  buffers — zero slack, so *every* frame the presenter landed one behind was
+  refused. Measured live: `24.0 fps` before → **4–6 fps, ~50 % dropped**. Buffers
+  needed = 1 rendering + `RELEASE_LAG` + presenter lag. A LIFO free list also
+  starved the deepest buffer (ring cycled 3 of 4 forever), hence FIFO.
+- Numbers (`cargo test --release --lib bench_present_path -- --ignored --nocapture`,
+  3416×1700 = 22.2 MB/frame): copy path **0.97 ms/frame** → zero-copy **<0.01 ms**;
+  ~1.3 GB/s of allocator churn at 60 fps returned.
+- **Telemetry, so "fps is dropping" is a number** (`media.player.perf`, every 5 s,
+  logged from the mpv control thread): `playback: source <container-fps> fps, vf
+  <estimated-vf-fps> fps, vo-drops, decoder-drops, pos`. `media.render` now adds
+  `ms/frame in mpv` and `lag` (rendered − presented) next to its fps/drop counters.
+  Attributing a loss: source 24 + both mpv drop counters flat + `media.render` 5
+  fps ⇒ ours; drop counters climbing ⇒ decode/VO starvation.
+- Proof: `live_ring_renders_in_place` → `24 frames, 5 distinct surface addresses,
+  24 painted`; new `ring_absorbs_a_presenter_lagging_one_or_two_frames`;
+  `live_sw_render_paints_pixels` still `67769/76800`; `cargo test --lib` →
+  113 passed / 9 ignored.
+
+### WP4b backlog — player engine performance (measured from the code, not guessed)
+
+Reading `src-tauri/src/player.rs` + `render.rs` on 2026-11-21 found these; each is
+a separate, measurable change. Do them one per session maximum, with before/after
+numbers in the commit message.
+
+1. **`emit_state` fires per frame.** `MPV_EVENT_PROPERTY_CHANGE` → `emit_state()`
+   for every change, and `time-pos`/`cache-speed`/`demuxer-cache-time` change
+   ~per frame → a full `PlayerStatus` JSON to the webview up to 60×/s, each
+   re-rendering `PlayerOverlay` while video is compositing. Fix: dirty-flag +
+   250 ms coalesced "tick" event `{position, cachePercent, cacheSeconds,
+   cacheSpeed}`; immediate full event only for discrete changes (pause, mute,
+   volume, file-loaded, error, eof, playback-restart). Expect ~95 % less IPC and
+   React work; the bar stays smooth via a CSS transition.
+2. ~~**Per-frame full-frame memcpy in `render.rs#present`.**~~ **DONE (item 2 as
+   built, above).** `buffer.snapshot()` copied the whole RGB frame (~23 MB at
+   3416×1700@2x) plus a fresh `CGDataProvider` + `CGImage` per frame, posted to
+   the main thread. Now a 5-buffer ring (free list + two-present grace) with
+   `CGImageCreate` over the raw buffer
+   and a two-frame lease.
+3. **SW scaler / render-target size.** The SW renderer scales in CPU at
+   bicubic/lanczos into the full backing size. Set `scale=bilinear`,
+   `dscale=bilinear` for the `vo=libmpv` path and cap the target at
+   `min(stage backing, 2560 px wide)` — CALayer scales the rest for free.
+4. **Main-thread dispatch per frame** — frame-generation counter, drop stale
+   frames before dispatch, one reusable block.
+5. **Prewarm the session** — create the mpv core + render context when the detail
+   screen opens (or keep one idle core), `loadfile` on Play; on torrent rows start
+   mpv paused+hidden while the swarm resolves. ~100–300 ms off first frame.
+6. **Per-source cache policy** — torrent: `demuxer-readahead-secs=120`,
+   `cache-pause-wait=2`, 512 MiB forward; direct HTTP/debrid: `cache=no` (CDN
+   links are seekable; buffering only delays start).
+7. **Seek path** — `hr-seek=yes` for short jumps; throttle/deduplicate seeks.
+8. **Telemetry** — log `vo-drop-frame-count`, `decoder-frame-drop-count` and
+   render ms/frame to `media.player.perf` every 5 s, so "it feels slow" is a number.
+
+Acceptance for WP4b: webview CPU during 4K playback, `media.player.perf` drop
+counts, time-to-first-frame and seek latency recorded before/after; plus the
+existing headless proofs (`cargo test --lib live_sw_render_paints_pixels`,
+`live_stream_gate`) still green.
+
+### What exists (all verified live in the installed app)
+
+| Phase | Commit | What ships |
+| --- | --- | --- |
+| 1 | `67c7cc2` | Stremio addon protocol client (`src-tauri/src/media.rs`: `media_addon_manifest`, `media_catalog` via reqwest) + `MediaWorkspace` discover UI rendering **live Cinemeta** catalogs with real posters. Opened via CommandBar Media toggle (play icon). |
+| 2 | `7f388d3`, `e8882d4`, `41b4139` | `media_streams` command + ranked streams sheet. Click a poster → ranked rows (quality → direct/debrid → size), HDR/4K flags, size parsed from release titles. **Torrentio moved to `torrentio.strem.fun`** (`.strem.io` no longer resolves) — fixed mid-phase. |
+| 3 | `c73a1a0`, `35f05fa` | In-app playback: `PlayerOverlay` (design-matched dark HTML5 video, space/←/→/m/Esc keys, seek bar, volume, buffering spinner, error card) for direct HTTP/HLS URLs; `media_play` command detects external player (IINA > VLC > mpv > default; VLC on this machine, verified with real network stream). Rows: `▶ Play` (in-app) + `↗ External`. |
+| 4 | `dde5c1e` | Debrid integration (`src-tauri/src/debrid.rs`): Real-Debrid + TorBox APIs convert torrent info-hashes to direct stream URLs (`media_debrid_resolve`), config persisted in app data `debrid-config.json` (`save/get/test_key` commands). Torrent rows show `▶ Stream` button. |
+| 4b | `torrent.rs` | Embedded **librqbit** torrent engine (`media_torrent_start`/`media_torrent_status`) + librqbit's built-in HTTP stream server on `127.0.0.1:18081`. `▶ Stream` works with **no debrid key**; range/seek verified live with Sintel. |
+| 4c | `mpv.rs`, `player.rs` | Native **libmpv** playback replacing the HTML5 `<video>`. ⚠️ This row originally claimed in-window embedding via mpv's `wid` option — **that was wrong** (macOS ignores `wid`; video opened in mpv's own window). Superseded by 4d. Plays MKV/HEVC/AC3/DTS — what the webview refused. Needs mpv **master** (`brew install mpv --HEAD`); `media_player_diagnostics` reports support. |
+| 4d | `render.rs` (new), `player.rs`, `PlayerOverlay.tsx` | **Video now renders inside the app window** via the libmpv **render API** (`MPV_RENDER_API_TYPE_SW` → CGImage on the NSView layer). No second window, no `wid`. Buffering pill (cache % + MB/s) + buffered span on the seek bar. Headless proof: `cargo test --lib live_sw_render_paints_pixels -- --ignored --nocapture` → `non_black_pixels=67769/76800`. |
+| 4e | `torrent.rs`, `player.rs`, `PlayerOverlay.tsx` | **Blank-player fixes + live stats.** The stream URL is now Range-probed before it reaches mpv (librqbit answered HTTP 500 while a torrent was still setting up, and mpv's own "couldn't resolve" retry made it look random). The native surface starts hidden and is revealed on `file-loaded`, so the spinner/error card is never covered by a black rectangle. Header shows `↓ speed · Ns buffered · N peers`; stream rows show speed + peers while resolving; `framedrop=vo` keeps A/V in sync on a slow SW render; render fps is logged every 5 s. |
+| UI WP3 | `feature/media-ui-wp3` | Screen B per §4: `MediaDetail` (dimmed backdrop, logo art, meta + IMDb pill, synopsis, GENRES/CAST/DIRECTORS chips, action row), `StreamsPanel` (docked at ≥1600 px / slide-over below, filter `All · Cached/Instant · 4K · 1080p · Torrents`, `Show all` past 60 rows, skeletons + retry) and the 7-line `StreamRow` on `--m-*` tokens with in-row engine states; `streams.ts` now parses bitrate, runtime, audio formats/channels, HDR, release group and the addon's flag-emoji languages, and the old inline sheet is gone. |
+| UI WP1 | (this branch) | Media app shell per `docs/MEDIA_UI_SPEC.md` §1–2: `media-tokens.css` (violet `#7051F3` token set scoped to `.media-app`), `MediaShell`/`MediaRail`/`MediaTopBar`/`icons.tsx`; the old title bar and 216 px side nav are gone, the status strip moved into the board, and the store gained `screen` + `searchQuery`. |
+| UI WP2 | `feature/media-ui-wp2` | The board per §3: `MediaHero` (full-bleed Cinemeta art upgraded to the `large` metahub variant, logo art with text fallback, meta line + gold IMDb pill, 2-line synopsis, accent Watch pill + library/episodes circles), `MediaCarousel` + `MediaPosterCard` (0.7 posters, in-art progress, NEW badges, snap scroll with edge fade, hover play overlay, skeletons, per-row Retry), a 57 %-height hero that bleeds under the floating top bar, Continue watching first from the progress stub store, the pinned-addons panel folded into quiet footer chips, and `media.rs` now passing `genres`/`runtime`/`cast`/`director`/`released` through `CatalogMeta`. |
+
+### ⚠️ CRITICAL USER FEEDBACK (why the next session exists)
+
+**Debrid must be OPTIONAL.** The user rejected "Stream requires a paid debrid key".
+Torrentio without a key returns only torrent hashes, so `▶ Stream` used to do nothing
+without debrid configured. **Phase 4b fixed this**: the embedded librqbit engine is the
+missing free path, and debrid is now a per-row accelerator, never a requirement.
+
+### Phase 4b — torrent engine (DONE)
+
+`src-tauri/src/torrent.rs` embeds **librqbit 8.1.1** and runs librqbit's **built-in
+`HttpApi`** server on `127.0.0.1:18081` (started lazily on first use). `▶ Stream` on
+a torrent row now resolves to a local, seekable URL with **no debrid key** — the
+free path the user demanded. Debrid stays a per-row accelerator.
+
+API facts that were re-confirmed against the vendored 8.1.1 source:
+
+- `TorrentIdOrHash::parse(&str)` handles 40-char hex; there is NO `InfoHash` variant.
+- `Api::api_torrent_list/api_torrent_details/api_stats_v1` are **synchronous**;
+  `api_add_torrent` is async. `Api::new(session, rust_log_tx, line_broadcast)` takes
+  **three** args once librqbit's `tracing-subscriber-utils` feature is on (see below).
+- `TorrentDetailsResponse.files = Option<Vec<TorrentDetailsResponseFile { name, length, .. }>>`
+  (index = position, `None` until metadata resolves).
+- **Feature set matters:** `http-api` pulls in handlers that call the
+  `tracing-subscriber-utils`-gated `api_log_lines_stream`, so librqbit must be pulled
+  with `default-features = false, features = ["rust-tls", "http-api",
+  "tracing-subscriber-utils"]` — without the last one librqbit itself fails to build
+  (`no method api_log_lines_stream`).
+- `HttpApi::new(api, Some(HttpApiOptions { read_only: false, basic_auth: None }))`
+  + `make_http_api_and_run(listener, None)` gives the full server, including
+  `GET /torrents/{id_or_hash}/stream/{file_idx}`. **Range caveat:** it honours only
+  the open-ended `bytes=N-` form; a closed `bytes=0-1023` is ignored and returns 200 +
+  the full body. Open-ended is what media elements send to seek, so playback/seeking
+  works; don't "fix" a closed-range 200 as a bug.
+
+Verified live from the Rust test harness (no UI needed):
+`cargo test --lib live_engine -- --ignored --nocapture` boots a real session, adds
+webtorrent **Sintel** (`08ada5a7a6183aae1e09d831df6748d566095a10`), waits for metadata,
+and gets `HTTP 206 Partial Content`, `Content-Range: bytes 5000000-129241751/129241752`.
+
+### Build & environment quirks learned
+
+- DMG bundling fails with `hdiutil: couldn't unmount diskN - Resource busy` when stale
+  `rw.*` DMG mounts linger → `hdiutil detach /Volumes/dmg.* -force`, rerun
+  `npm run tauri build -- --bundles dmg`.
+- App requires macOS 12+, Tauri 2; frontend gates: `npx tsc --noEmit` +
+  `npx vitest run src/components/media` (10 tests); Rust gates: `cargo test --lib media` (5)
+  + debrid tests.
+- Media test files need `// @vitest-environment jsdom` header (default env is node).
+- `fireEvent.click` required in tests — plain `.click()` does not trigger React synthetic
+  events reliably here.
+
+### UI redesign (Stremio-parity) — READ BEFORE ANY MEDIA UI WORK
+
+The media workspace + player are being redesigned to match Stremio's desktop UI
+(user-supplied 3440x1410 screenshots). The complete implementable spec — tokens,
+layout, three screens, component/file inventory, data mapping, keyboard + a11y
+rules, and six work packages — is **`docs/MEDIA_UI_SPEC.md`**. Reference images
+(not in git) live in `~/hermes-workspace/maxplorer-media/ui-reference/`.
+It supersedes `Maxplorer Media UI Concept.html` for the media area only; the
+file-explorer chrome is out of scope. Implement it WP by WP, one per session.
+
+### Verified state of this build (2026-11-21)
+
+- `cd src-tauri && cargo test --lib` → **110 passed / 6 ignored**; live proofs:
+  `live_sw_render_paints_pixels` (render API paints pixels),
+  `live_stream_gate` (torrent URL serves 206 before the player gets it),
+  `live_engine` (Range seek), `live_decodes_mkv` (MKV/H.264/AC3).
+- `npx tsc --noEmit` clean; `npx vitest run src/components/media` → 21 passed (UI WP1).
+- Build + install: `npm run tauri build` (background, ~6–8 min), then copy
+  `src-tauri/target/release/bundle/macos/MAXplorer.app` to `/Applications`.
+- **Live torrent tests need the app quit first** (a second librqbit session fails
+  with `error initializing persistent DHT`).
+- Unknown/unverified by the agent: what the picture actually looks like on screen
+  (this box composites blank) — the user confirms visually; ask for
+  `~/Library/Application Support/com.replica.win11explorer/logs/maxplorer.log`
+  (`media.render` fps lines answer "slow" vs "no data").
+- Deferred by measurement: the GL render backend. Logs show the SW renderer
+  matching source frame rate at 4K (`render: 24.0 fps` / `60.0 fps` at
+  3024x1458), so do **not** start it unless a future log shows fps below the
+  source rate.
+
+### Remaining media roadmap (one per session)
+
+**0. (current) The Stremio-parity UI redesign — `docs/MEDIA_UI_SPEC.md` WP1…WP6,
+   one work package per session.** The numbered roadmap below resumes after WP6.
+
+5. Addon manager UI (install/remove by manifest URL, pinned-addons rail)
+6. Library & sync (My Library, progress, Trakt; self-hostable sync)
+7. ⭐ VERY IMPORTANT — TV/mobile remote-friendly (Android TV via Tauri 2 Android,
+   iOS/Apple TV via Tauri 2 iOS or RN/web client; prerequisite: media-core exposed as a
+   local HTTP JSON API so TV/mobile stream from the desktop/LAN box, never P2P on TV;
+   D-pad + TV-safe UI are acceptance criteria)
+
+Optional engineering follow-up (not a roadmap phase): swapping the SW render backend
+for `MPV_RENDER_API_TYPE_OPENGL`. **Do not start it without new evidence** — see the
+deferred-by-measurement note above. Plan and rules: `docs/MEDIA_PLAYER_HANDOVER.md`
+§4.3 Option A.
 
 ---
 
@@ -314,28 +755,28 @@ npm run build         # tsc -b && vite build
 ### Build the macOS app and DMG locally (on a Mac)
 
 ```bash
-bash scripts/build-macos-dmg.sh
+bash scripts/build-macos-dmg.sh        # alias: npm run build:mac
 ```
 
-This script refuses to run on non-macOS, checks for Xcode CLT/Node/Rust, installs deps,
-runs all checks, builds `universal-apple-darwin`, verifies the DMG with `hdiutil`, and
-writes a `.sha256`. Artifacts land in
+This is the single build entry point — there is no separate `tauri build` step to remember,
+and CI runs the same script. It refuses to run on non-macOS, checks Xcode CLT/Node/Rust,
+resolves the signing identity from `tauri.conf.json` (and verifies the certificate is in the
+keychain), installs deps, runs all checks, builds `universal-apple-darwin`, produces the
+`.dmg` and `.app.zip`, verifies signature and disk image, then stages everything into
+`dist-macos/` with `SHA256SUMS.txt`.
+
+Faster loops: `--native`, `--skip-tests`, `--skip-install`, `--no-zip`, `--out <dir>`.
+Raw bundler output stays in
 `src-tauri/target/universal-apple-darwin/release/bundle/{macos,dmg}/`.
-
-Manual equivalent:
-
-```bash
-rustup target add aarch64-apple-darwin x86_64-apple-darwin
-npm run tauri build -- --target universal-apple-darwin
-```
 
 ### CI
 
-`.github/workflows/macos-build.yml` runs on `macos-14` for pushes/PRs to `main` that touch
-code or build configuration (docs-only and `reference/`-only changes are ignored), and on
-demand. Steps: checkout → Node 22 → Rust stable with both Apple targets → `npm ci` →
-typecheck → frontend tests → Rust tests → universal `tauri build` → `hdiutil verify` →
-SHA-256 → upload artifacts (`windows11-explorer-macos`, `windows11-explorer-app`).
+`.github/workflows/macos-build.yml` runs on `macos-latest` for pushes/PRs to `main` that
+touch code or build configuration (docs-only and `reference/`-only changes are ignored), and
+on demand. Steps: checkout → Node 22 → Rust stable with both Apple targets →
+`bash scripts/build-macos-dmg.sh` with `APPLE_SIGNING_IDENTITY="-"` (CI holds no certificate,
+so it signs ad-hoc) → upload `dist-macos/*.dmg` + `SHA256SUMS.txt` and `dist-macos/*.app.zip`
+as artifacts (`maxplorer-macos`, `maxplorer-app`).
 Typical duration ~6 minutes; macOS runners can queue.
 
 `.github/workflows/macos-smoke.yml` is manual (`workflow_dispatch`). It downloads the
