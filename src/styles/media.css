@@ -1087,23 +1087,26 @@
   margin-top: var(--m-space-1);
 }
 
+/* Bare glyphs, like the reference: no disc, no ring — the dark fill inside the
+   circle made the icons read as solid black buttons. The 44 px hit area stays. */
 .media-detail-circle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 44px;
   height: 44px;
-  border: 1px solid var(--m-hairline);
+  border: 0;
   border-radius: 50%;
-  background: rgba(27, 27, 36, 0.7);
-  color: var(--m-text-dim);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.92);
   cursor: pointer;
   transition: color var(--m-dur-hover) ease-out, background var(--m-dur-hover) ease-out;
 }
 
+/* Affordance lives on hover/focus only. */
 .media-detail-circle:hover {
-  color: var(--m-text);
-  background: var(--m-surface-hover);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.10);
 }
 
 .media-detail-circle:focus-visible,
