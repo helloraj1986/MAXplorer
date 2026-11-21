@@ -129,9 +129,10 @@ lag 1). Resume with the spec below when performance work comes back up the queue
 
 ## ▶ ACTIVE — media bundle: library + tracks + player UX
 
-**Branch:** `feature/media-library-tracks` (off `feature/media-ui-wp4b`).
-The user chose to combine three workstreams in one branch, in three ordered phases
-(one commit + one acceptance pass each):
+**Branch:** plan merged to `main` @ `f42afd9`; implementation runs on
+`feature/media-library-p1` (Phase 1), then `p2` (tracks) and `p3` (player UX) off
+main. The user chose to combine three workstreams in one plan, in three ordered
+phases (one commit + one acceptance pass each):
 
 1. **`library.json`** — persistent watch progress, resume-at-position, real
    "Continue watching" (replaces the in-memory stub).
@@ -143,6 +144,8 @@ The user chose to combine three workstreams in one branch, in three ordered phas
 **The contract for the next session is `docs/MEDIA_LIBRARY_TRACKS_SPEC.md`** — data
 shape, commands, files, per-phase acceptance, and the deliberate exclusion (online
 subtitle search). Read it before writing code; append an "As built" block per phase.
+**Start with Phase 1 only** (`library.json` + resume + real Continue watching); do
+not carry tracks or player UX into that session.
 Phase order is not arbitrary: Phase 1 is the substrate for Phase 2's per-title track
 persistence.
 
