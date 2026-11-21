@@ -15,6 +15,7 @@ import {
   Disc3,
   Download,
   Ellipsis,
+  ExternalLink,
   Eye,
   Film,
   Gauge,
@@ -88,6 +89,7 @@ export type MediaIconName =
   | "speed"
   | "pip"
   | "more"
+  | "external"
   | "peers"
   | "ready"
   // detail action row + stream-row line glyphs (WP3)
@@ -149,6 +151,7 @@ const GLYPHS: Record<MediaIconName, (props: GlyphProps) => ReactElement> = {
   speed: (p) => <Gauge {...p} />,
   pip: (p) => <PictureInPicture2 {...p} />,
   more: (p) => <Ellipsis {...p} />,
+  external: (p) => <ExternalLink {...p} />,
   peers: (p) => <Package {...p} />,
   ready: (p) => <Zap {...p} />,
   quality: (p) => <Clapperboard {...p} />,
