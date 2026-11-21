@@ -241,6 +241,22 @@ with no hover wash — i.e. the reference's own measured 85 % white. The honest
 signal for an unavailable control is now the tooltip plus "nothing happens",
 not a grey smudge that reads as a rendering fault.
 
+**Contrast pass 2 (user screenshot: ghost subtitle menu + grey square behind the
+icons).** Root cause was not a colour value: **`.media-player` renders OUTSIDE
+`.media-app`** — player mode is a full-window takeover (`MediaWorkspace` early-
+returns `<PlayerOverlay/>` and MediaShell is unmounted) — while every `--m-*`
+token is scoped to `.media-app`. So inside the chrome `var(--m-bg-elevated)`,
+`var(--m-text-dim)`, `var(--m-hairline)`, `var(--m-accent)` all resolved to
+*nothing*: popovers painted transparent (the movie showed through the subtitle
+rows), and the seek fill / knob / hairline lost their violet. Fixed by scoping
+the token block to `.media-app, .media-player`. Two more real defects found in
+the same pass: a **stale WP4a `.media-player-volume-slider { width: 96px }`
+rule later in `media.css` overrode the 180 px track** (duplicate selector, order
+wins), and the icon `:hover` wash painted a grey square that reads as a shadow
+behind the glyph. Now: one volume rule (180 px), hover brightens the glyph only,
+player popovers are `rgba(18,17,24,.97)` + 18 px blur, menu rows are
+`rgba(255,255,255,.92)`.
+
 **Still unverified:** the live pixel comparison against
 `ref-icons-right.png`. `computer_use` can capture the window on this box but
 background input is refused (`off_space_or_ax_unresolved`) and foreground clicks
