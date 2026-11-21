@@ -196,6 +196,7 @@ pub fn run() {
             player::media_player_seek_relative,
             player::media_player_set_volume,
             player::media_player_set_muted,
+            player::media_player_set_fill,
             player::media_player_status,
             player::media_player_diagnostics,
             commands::get_sidebar_locations,

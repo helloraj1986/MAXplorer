@@ -124,6 +124,9 @@ export const api = {
   playerSetVolume: (volume: number) =>
     call<NativePlayerStatus>("media_player_set_volume", { volume }),
   playerSetMuted: (muted: boolean) => call<NativePlayerStatus>("media_player_set_muted", { muted }),
+  // Fit (mpv default, whole frame visible) vs Fill (panscan=1: zoom until the
+  // picture covers the window, cropping the overshoot). Per-title, not persisted.
+  playerSetFill: (fill: boolean) => call<void>("media_player_set_fill", { fill }),
   playerSetSurfaceVisible: (visible: boolean) =>
       call<void>("media_player_set_surface_visible", { visible }),
     playerStatus: () => call<NativePlayerStatus>("media_player_status"),

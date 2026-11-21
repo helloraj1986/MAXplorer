@@ -108,6 +108,24 @@ de-duplication — **4b itself is 2 of 8 items, NOT finished.**
 `dscale=bilinear` for `vo=libmpv`, cap the target at `min(stage backing, 2560 px)`
 wide and let CALayer scale the rest).
 
+### Ultrawide Fit/Fill + surface-rect diagnostics (2026-11-21, after the takeover fix)
+
+- The user's ultrawide (3440×1440) showed the video boxed on all four sides. The
+  source (`Black.Doves` S01, ffprobe) is **3840×2160, DAR 16:9, square pixels**,
+  so in a 2.44:1 window **left/right bars are correct** — mpv is doing its job.
+- **New control:** `media_player_set_fill(fill)` sets mpv `panscan` 1/0;
+  `PlayerOverlay` ships a labelled `Fill`/`Fit` button in the bottom bar
+  (aria-pressed, default **Fit**, per-title, not persisted). Fill crops ~14 % of
+  the frame height for a 16:9 source in this window — the user asked for the
+  toggle rather than a default.
+- **Diagnostics for the remaining question** (why the picture also sat ~136 px
+  below the window top): every `media_player_set_rect` now logs
+  `surface rect: css=(…) content_h=… frame=(…) backing=(WxH) view_flipped=…`, and
+  the 5 s `media.player.perf` line gained mpv's own picture rect
+  `osd WxH bars l t r b`. If `bars t/b` are 0 while the black band persists, the
+  bug is the NSView frame/offset; if `bars t` is ~136, mpv is fitting a stale
+  surface size.
+
 ### Player-mode takeover bug (fixed 2026-11-21, `886a629`)
 
 Screenshot of live torrent playback showed the media rail, CommandBar and status

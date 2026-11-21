@@ -241,11 +241,18 @@ fn log_playback_perf(api: &MpvApi, handle: MpvHandle) {
     logging::info(
         "media.player.perf",
         format!(
-            "playback: source {} fps, vf {} fps, vo-drops {}, decoder-drops {}, pos {}",
+            "playback: source {} fps, vf {} fps, vo-drops {}, decoder-drops {}, osd {}x{} \
+             bars l{} t{} r{} b{}, pos {}",
             read("container-fps"),
             read("estimated-vf-fps"),
             read("vo-drop-frame-count"),
             read("decoder-frame-drop-count"),
+            read("osd-dimensions/w"),
+            read("osd-dimensions/h"),
+            read("osd-dimensions/margins-l"),
+            read("osd-dimensions/margins-t"),
+            read("osd-dimensions/margins-r"),
+            read("osd-dimensions/margins-b"),
             read("time-pos"),
         ),
     );
@@ -953,12 +960,25 @@ pub async fn media_player_set_rect(
     };
     let Some(view) = view else { return Ok(()) };
     let window = ns_window(&app)? as usize;
-    let (width_px, height_px) = with_main_thread(&app, move || unsafe {
+    let (width_px, height_px, trace) = with_main_thread(&app, move || unsafe {
         let window = window as *mut AnyObject;
         let rect = frame_from_css(window, x, y, width, height);
         set_view_frame(view as *mut AnyObject, rect);
-        backing_size(window, x, y, width, height)
+        let backing = backing_size(window, x, y, width, height);
+        // Diagnostics for the "video is not where the stage is" class of bug:
+        // the CSS rect, the content-view height used to flip it, and the frame
+        // AppKit actually got. Without these numbers a mismatch is guesswork.
+        let height_css = content_view_height(window);
+        let flipped: bool = msg_send![view as *mut AnyObject, isFlipped];
+        let trace = format!(
+            "css=({x:.0},{y:.0},{width:.0},{height:.0}) content_h={height_css:.0} \
+             frame=({:.0},{:.0},{:.0},{:.0}) backing=({}x{}) view_flipped={flipped}",
+            rect.origin.x, rect.origin.y, rect.size.width, rect.size.height,
+            backing.0, backing.1,
+        );
+        (backing.0, backing.1, trace)
     })?;
+    logging::info(LOG_TARGET, format!("surface rect: {trace}"));
     // The surface must track the stage size, or the video is letterboxed into a
     // stale buffer after a resize.
     let slot = session_slot().lock().unwrap();
@@ -1055,6 +1075,27 @@ pub fn media_player_set_muted(muted: bool) -> Result<PlayerStatus, AppError> {
         let mut status = shared.lock().unwrap();
         status.muted = muted;
         Ok(status.clone())
+    })
+}
+
+/// Fit vs Fill. `panscan=1` zooms the video until it covers the surface and
+/// crops the overshoot; `0` is mpv's default (whole frame visible, letterboxed).
+///
+/// This is what an ultrawide window needs: a 16:9 source cannot fill a 2.44:1
+/// window without cropping, so the choice belongs to the user per title rather
+/// than baked into the layout.
+#[tauri::command]
+pub fn media_player_set_fill(fill: bool) -> Result<(), AppError> {
+    with_session(|api, handle, _shared| {
+        let code = set_property_double(api, handle, "panscan", if fill { 1.0 } else { 0.0 });
+        if code < 0 {
+            return Err(perr(format!(
+                "could not set panscan: {}",
+                mpv::error_string(api, code)
+            )));
+        }
+        logging::info(LOG_TARGET, format!("video mode: {}", if fill { "fill" } else { "fit" }));
+        Ok(())
     })
 }
 

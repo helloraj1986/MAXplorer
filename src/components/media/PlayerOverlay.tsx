@@ -55,6 +55,11 @@ export function PlayerOverlay() {
   const [curtain, setCurtain] = useState<string | null>(null);
   const [ripple, setRipple] = useState<{ label: string; id: number } | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
+  // Fit (whole frame, letterboxed) vs Fill (panscan: zoom until the picture
+  // covers the window). Per-title on purpose: a 16:9 source in a 2.44:1
+  // ultrawide window cannot do both, so this is the user's call, not a default.
+  const [fillVideo, setFillVideo] = useState(false);
+  const fillRef = useRef(false);
 
   const status: NativePlayerStatus | null = playerStatus;
   const position = status?.position ?? 0;
@@ -106,6 +111,11 @@ export function PlayerOverlay() {
       .then((initial) => {
         if (cancelled) return;
         setPlayerStatus(initial);
+        // panscan is per-session state: re-apply it so reopening a title keeps
+        // the mode the user last picked within this player mount.
+        if (fillRef.current) {
+          void api.playerSetFill(true).catch(() => undefined);
+        }
       })
       .catch((caught) => {
         if (cancelled) return;
@@ -359,6 +369,15 @@ export function PlayerOverlay() {
         logDiagnostic("warn", `mute failed: ${normalizeError(caught).message}`, "media.player");
       });
   }, [setPlayerStatus, revealChrome]);
+
+  const toggleFill = useCallback(() => {
+    const next = !fillRef.current;
+    fillRef.current = next;
+    setFillVideo(next);
+    void api.playerSetFill(next).catch((caught) => {
+      logDiagnostic("warn", `fill mode failed: ${normalizeError(caught).message}`, "media.player");
+    });
+  }, []);
 
   const toggleFullscreen = useCallback(() => {
     if (!isTauri) return;
@@ -724,6 +743,19 @@ export function PlayerOverlay() {
               />
             </div>
           </div>
+
+          {/* Fill/Fit: the ultrawide answer. `panscan` crops to fill; fit keeps the
+              whole frame. Labelled by what it switches TO, like a player's zoom key. */}
+          <button
+            type="button"
+            className="media-player-btn is-toggle"
+            onClick={toggleFill}
+            aria-pressed={fillVideo}
+            aria-label={fillVideo ? "Fit the whole frame" : "Fill the screen (crop)"}
+            title={fillVideo ? "Fit — show the whole frame" : "Fill — crop to fill the screen"}
+          >
+            {fillVideo ? "Fit" : "Fill"}
+          </button>
 
           <button
             type="button"

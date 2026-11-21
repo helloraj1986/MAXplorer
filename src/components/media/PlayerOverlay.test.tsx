@@ -99,6 +99,7 @@ vi.mock("../../lib/api", () => ({
     playerSeekRelative: vi.fn(() => Promise.resolve(undefined)),
     playerSetVolume: vi.fn(() => Promise.resolve(undefined)),
     playerSetMuted: vi.fn(() => Promise.resolve(undefined)),
+    playerSetFill: vi.fn(() => Promise.resolve(undefined)),
     playerSetSurfaceVisible: vi.fn(() => Promise.resolve(undefined)),
     playMediaStream: vi.fn(() => Promise.resolve({ player: "VLC" })),
   },
@@ -236,6 +237,23 @@ describe("PlayerOverlay chrome", () => {
 
     fireEvent.keyDown(window, { key: "m" });
     expect(api.playerSetMuted).toHaveBeenCalledWith(true);
+  });
+
+  it("toggles fit/fill via the labelled button and calls panscan", () => {
+    render(<PlayerOverlay />);
+    const toggle = document.querySelector(".media-player-btn.is-toggle") as HTMLButtonElement;
+    expect(toggle).toBeTruthy();
+    expect(toggle.textContent).toBe("Fill");
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(toggle);
+    expect(api.playerSetFill).toHaveBeenLastCalledWith(true);
+    expect(toggle.textContent).toBe("Fit");
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(toggle);
+    expect(api.playerSetFill).toHaveBeenLastCalledWith(false);
+    expect(toggle.textContent).toBe("Fill");
   });
 
   it("hides the chrome on Esc, then closes the player on the second press", () => {

@@ -1994,6 +1994,17 @@
   color: var(--m-text);
 }
 
+.media-player-btn.is-toggle {
+  min-width: 52px;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.media-player-btn.is-toggle[aria-pressed="true"] {
+  border-color: var(--m-accent);
+  color: var(--m-text);
+}
+
 .media-player-btn.is-icon {
   width: 32px;
   padding: 0;

@@ -614,6 +614,15 @@ episode strip for series; TV/D-pad layout (roadmap 7).
   passed** (49 before; new: `MediaDetail.test.tsx`, `StreamsPanel.test.tsx`,
   `StreamRow.test.tsx`, and parsing/filter cases in `streams.test.tsx`).
 
+### Fit/Fill toggle (added 2026-11-21, after WP4a)
+
+The bottom bar's right cluster gained a labelled **Fill/Fit** button
+(`.media-player-btn.is-toggle`, `aria-pressed`) next to fullscreen. It calls
+`media_player_set_fill`, which sets mpv `panscan` 1/0, and applies on player open
+too. Default is **Fit** (whole frame, letterboxed) because Fill crops: for a 16:9
+source in a 2.44:1 ultrawide window that is ~14 % of the frame height. The label
+states what a click does ("Fill" while fitting), matching a player's zoom key.
+
 ### WP4a as built (2026-11-21, branch `feature/media-ui-wp4a`)
 
 - **Layout consequence of the native surface.** The chrome is a flex sibling of
