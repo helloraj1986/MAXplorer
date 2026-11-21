@@ -118,7 +118,12 @@ Also on this branch: `886a629` player-mode takeover fix and `bf5b5a1` fullscreen
 de-duplication — **4b itself is 2 of 8 items, NOT finished.**
 **DONE: BUNDLE A — items 3 + 4** (render cost), same session, two commits, one
 measurement each — the numbers are in the as-built section below.
-**Next: BUNDLE B — items 5 + 6 + 7** (prewarm, per-source cache, hr-seek), then WP5.
+**DEFERRED by the user (2026-11-21): BUNDLE B — items 5 + 6 + 7** (prewarm,
+per-source cache, hr-seek). WP4b is **4 of 8 items done** (1, 2, 3, 4, plus item 8's
+telemetry); 5/6/7 are parked, not abandoned — nothing depends on them, and playback
+is verified healthy on the installed build (24 fps, 0 dropped, 2 stale in 3516 frames,
+lag 1). Resume with the spec below when performance work comes back up the queue.
+**The queue now follows the user's priority order, not the WP numbering.**
 
 ### BUNDLE A — as built (2026-11-21, items 3 + 4)
 
