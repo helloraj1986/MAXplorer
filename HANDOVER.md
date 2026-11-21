@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Document version | 1.4 |
+| Document version | 1.5 |
 | Handover date | 2026-11-21 |
 | Project version | 0.2.1 (aarch64 DMG) + media feature on `feature/stremio-compat` |
 | Repository | https://github.com/helloraj1986/MAXplorer (private) |
 | Release | https://github.com/helloraj1986/MAXplorer/releases/latest |
-| Current branch | `feature/media-tracks-p2` (off `main`; carries Phase 2 + the chrome parity pass) — read the head with `git log --oneline -1` (a fixed SHA here goes stale the moment anything is committed). Last installable build: 2026-11-21, installed at `/Applications/MAXplorer.app`. **`feature/stremio-compat`, `feature/media-ui-wp1`, `-wp2`, `-wp3` and `-wp4a` are not yet on origin** (`git push origin <branch>`). |
+| Current branch | **`main`** — Phase 2 (tracks), the player chrome overlay, the icon/control parity pass and five contrast fixes are merged (`18b43d9`, 2026-11-21) and the working branch is gone: **start the next session on a fresh branch off `main`** (`git checkout -b feature/media-player-p3`). Read the head with `git log --oneline -1` — a fixed SHA goes stale the moment anything is committed. Last installable build: 2026-11-21 19:18, binary `94b7a396…`, installed at `/Applications/MAXplorer.app`. `feature/media-ui-wp1`, `-wp2`, `-wp3`, `-wp4a`, `-wp4b` are still local-only (superseded by main). |
 
 ---
 
@@ -16,24 +16,24 @@
 **This is the live workstream. Canonical roadmap: `docs/STREMIO_MEDIA.md`. One roadmap
 item per session — never batched.**
 
-> ### ▶ START HERE — two documents
+> ### ▶ START HERE — three documents
 >
-> 1. **`docs/MEDIA_UI_SPEC.md`** — the *next workstream*. Stremio-parity redesign of
->    the media workspace + player, derived from the user's screenshots: tokens,
->    three screens, component/file inventory, data mapping, keyboard/a11y rules and
->    six work packages (WP1 tokens+shell → WP6 polish; WP4 is split into WP4a
->    chrome / WP4b engine performance). **Implement one WP per session; WP1, WP2,
->    WP3 and WP4a are done, WP4b is next.** Reference images (not in git):
->    `~/hermes-workspace/maxplorer-media/ui-reference/`.
-> 2. **`docs/MEDIA_PLAYER_HANDOVER.md`** — the player internals: what works, the
+> 1. **`docs/MEDIA_LIBRARY_TRACKS_SPEC.md`** — Phases 1–2 are built (§As built).
+>    **Phase 3** (speed, subtitle delay/size/visibility, audio delay, `sub-add`,
+>    next episode) is the next work item and is specified there.
+> 2. **`docs/MEDIA_PLAYER_CHROME_SPEC.md`** — the icon/control parity work order,
+>    now delivered; §As built carries the measured geometry and the five contrast
+>    rules that must not regress.
+> 3. **`docs/MEDIA_PLAYER_HANDOVER.md`** — the player internals: what works, the
 >    three architectures already ruled out **with evidence**, and the as-built
 >    record of the libmpv render API. Read before touching playback.
 >
-> **WP1 (tokens + shell), WP2 (the board), WP3 (detail + streams panel) and WP4a
-> (player chrome) are DONE** — components and the as-built notes are in
-> `docs/MEDIA_UI_SPEC.md` §10. Gates green: `npx tsc --noEmit`; vitest
-> `src/components/media` → 91 passed. WP3 lives on `feature/media-ui-wp3` @
-> `cb138ae` (pushed); WP4a lives on `feature/media-ui-wp4a`.
+> **UI WP1 (tokens + shell), WP2 (board), WP3 (detail + streams panel), WP4a
+> (player chrome), the chrome parity pass and Phases 1–2 are DONE and on `main`.**
+> WP4b (engine performance) is **4 of 8 items**, items 5–7 parked. Gates at the
+> merge: `npx tsc --noEmit` clean; vitest `src/components/media` + mediaStore →
+> **128 passed**; `cargo test --lib` green. Reference images (not in git):
+> `~/hermes-workspace/maxplorer-media/ui-reference/`.
 
 > ### Player chrome is an OVERLAY now (2026-11-21)
 >
@@ -49,23 +49,67 @@ item per session — never batched.**
 > required for the transparent window — that rules out the App Store, not local
 > builds.
 
-> ### ▶ NEXT: Phase 3 — player UX (speed / delays / subtitles)
+> ### ▶ NEXT SESSION: Phase 3 — player UX (speed / delays / subtitles)
 >
-> **Phases 1 and 2 are DONE** (`docs/MEDIA_LIBRARY_TRACKS_SPEC.md` §As built), the
-> player chrome is a true **overlay** (`ad63812`), and the **icon + control parity
-> pass is DONE** (`docs/MEDIA_PLAYER_CHROME_SPEC.md` §As built): SVG icons only,
-> 26 px glyphs in 28 px boxes at 76 px centres, cluster order speed / cast /
-> subtitles / audio / PiP / more, 0–200 volume with the warm boost half,
-> fullscreen in the top-right corners slot, Fill/Fit and playback info in the
-> more menu. Speed, cast and PiP ship **disabled with a reason** — no backend
-> exists for any of them yet.
+> **Main is up to date through the chrome parity pass** (merge `18b43d9`).
+> Everything below is on `main`: Phase 1 (`library.json` + resume), Phase 2
+> (track menus + per-title choice), the overlay player (`ad63812`), the
+> icon/control parity pass (`6280556`) and five contrast fixes (`428771a`,
+> `8e90bb1`, `21c1756`, `bb81a99`, `7d3c450`).
 >
-> **Phase 3 next** (one phase per session): subtitle delay / size / visibility,
-> audio delay, playback speed, local `sub-add`, next episode. It is what gives the
-> already-drawn speedometer icon and the right-edge episode tab something real to
-> do, so start by wiring `speed` (`mpv` property + `media_player_set_speed`) and
-> the episode queue, then the delay/size properties. WP4b items 5–7 (prewarm /
-> per-source cache / hr-seek) stay **parked**.
+> **Phase 3 next** — branch `feature/media-player-p3` off `main`, one phase per
+> session, per `docs/MEDIA_LIBRARY_TRACKS_SPEC.md` (§ Phase 3): subtitle delay /
+> size / visibility, audio delay, playback speed, local `sub-add`, next episode.
+> Order that pays off fastest:
+> 1. **speed** — `mpv` `speed` property + a `media_player_set_speed` command +
+>    `speed` in `NativePlayerStatus`; this makes the already-drawn speedometer
+>    icon live instead of disabled.
+> 2. **subtitle delay/size/visibility** (`sub-delay`, `sub-font-size`,
+>    `sub-visibility`) and **audio delay** (`audio-delay`) — same setter shape as
+>    `media_player_set_track`.
+> 3. **local `sub-add`** — file picker → `mpv` `sub-add <path>`; the
+>    `media_player_tracks` re-read already handles the new track appearing.
+> 4. **next episode** — gives the right-edge pull tab (spec'd, not rendered) and
+>    the `⏮`/`⏭` transport buttons something real to do.
+>
+> WP4b items 5–7 (prewarm / per-source cache / hr-seek) stay **parked**.
+
+> ### What the chrome pass changed, and the five contrast bugs it cost
+>
+> Read `docs/MEDIA_PLAYER_CHROME_SPEC.md` §As built before touching player chrome;
+> the condensed contract:
+> - **Icons are `MediaIcon`** (`src/components/media/icons.tsx`, lucide-react
+>   behind a namespaced map, `strokeWidth = 1.8` → overridden to 2 in the player).
+>   Do not add a second icon set; extend the union + `GLYPHS` (this pass added
+>   `waveform`, `pip`, `more`, `volume-low`, `external`, and a `fill` prop for
+>   solid play/pause).
+> - **Geometry:** 28 px boxes / 26 px glyphs, `.media-player-controls-right
+>   { gap: 48px }` = the reference's 76 px centres; cluster order speed / cast /
+>   subtitles / audio / PiP / more; fullscreen owns the top-right corners slot;
+>   Fill/Fit + Playback info live in the more menu; no codec chip, no stats text
+>   in the top bar (they moved into the info panel).
+> - **Speed / cast / PiP are `disabled` with a `title` that says why.** They are
+>   the only controls with no backend. Speed becomes real in Phase 3.
+> - **Contrast rules that must not regress** (each was a user-visible bug):
+>   1. `.media-player-icon { color: #fff }` — never `.85` alpha, which reads grey
+>      over a dark picture; `:disabled` sits at `opacity: .85`, never `.34`.
+>   2. **`--m-*` tokens are scoped to `.media-app, .media-player`** in
+>      `media-tokens.css`. Player mode is a full-window takeover that unmounts
+>      MediaShell, so the chrome renders *outside* `.media-app`; a single-scope
+>      token block makes every popover background and accent resolve to nothing.
+>   3. Player popovers are **fully opaque `#121118`**, no `backdrop-filter` — the
+>      video is a native layer under a transparent window, so alpha shows the
+>      film through and blur has nothing to blur.
+>   4. Detail action icons (`.media-detail-circle`) are **bare glyphs**: no disc,
+>      no ring. A 70 % dark disc made every outline glyph's interior read black.
+>   5. `<MediaIcon name="play" strokeWidth={0} />` is an outline path — it needs
+>      `fill: currentColor` or it paints **nothing** (this is what made the
+>      stream-row play button an empty grey disc). Candidate guard, not yet
+>      applied: `.media-icon[stroke-width="0"] { fill: currentColor; }`.
+> - **Hover brightens the glyph only** — a background wash paints a grey square
+>   that reads as a stray shadow over the picture.
+> - **Stage geometry is off-limits**: no layout bands, no docks, nothing that
+>   changes `.media-player-stage`'s rect (the native surface follows it).
 
 ---
 
