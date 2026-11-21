@@ -11,12 +11,14 @@
 //! The callback itself never calls mpv. Presentation (CGImage → CALayer) is
 //! posted to the main thread, because AppKit must not be touched elsewhere.
 //!
-//! Cost: **zero copies of the frame**. mpv renders into one of a 3-buffer ring
+//! Cost: **zero copies of the frame**. mpv renders into one of a 5-buffer ring
 //! of `rgb0` surfaces and each frame's `CGImage` is created directly over that
 //! raw memory (`CGDataProviderCreateWithData`, no release callback). A buffer is
 //! only handed back to mpv once its image has been replaced on the layer by at
 //! least two newer frames, so the compositor never sees memory that is being
-//! overwritten. Before this ring existed every frame was `memcpy`'d
+//! overwritten. The ring is capped at [`TARGET_MAX_WIDTH`] and the CALayer
+//! upscales the smaller image, which keeps the CPU scale cost bounded on a
+//! ultrawide stage. Before this ring existed every frame was `memcpy`'d
 //! (`Vec::to_vec`, ~23 MB at 3416×1700) and wrapped in a fresh provider, which is
 //! why `framedrop=vo` was needed to keep A/V in sync.
 
@@ -166,6 +168,25 @@ const RELEASE_LAG: usize = 2;
 
 /// How long the render thread waits for a slot before dropping the frame.
 const ACQUIRE_TIMEOUT: Duration = Duration::from_millis(40);
+
+/// Widest surface mpv renders into (WP4b item 3).
+///
+/// The NSView stays the full stage size — `CALayer.contentsGravity` defaults to
+/// resize, so the layer upscales this smaller image for free. A 3416 px ultrawide
+/// stage therefore costs 2560×~1049 (~10.7 MB/frame) instead of 3416×1700 (~22 MB),
+/// and the SW VO's CPU scale work drops by the same ratio. mpv rasterises subtitles
+/// into this buffer, so if they look soft raise the cap rather than adding a second
+/// render pass.
+const TARGET_MAX_WIDTH: u32 = 2560;
+
+/// Clamp a backing-pixel size to [`TARGET_MAX_WIDTH`], preserving aspect ratio.
+fn cap_target(width: u32, height: u32) -> (u32, u32) {
+    if width == 0 || height == 0 || width <= TARGET_MAX_WIDTH {
+        return (width, height);
+    }
+    let scaled = (height as u64 * TARGET_MAX_WIDTH as u64 / width as u64) as u32;
+    (TARGET_MAX_WIDTH, scaled.max(1))
+}
 
 /// The ring of surfaces mpv renders into.
 ///
@@ -340,6 +361,7 @@ impl SwRenderer {
         width: u32,
         height: u32,
     ) -> Result<Self, String> {
+        let (width, height) = cap_target(width, height);
         let ring = Arc::new(Ring::new(width, height)?);
         let shared = Arc::new(Shared {
             app,
@@ -412,6 +434,10 @@ impl SwRenderer {
     /// finish — those closures hold an `Arc` to the buffer they are presenting,
     /// so a resize cannot free memory the main thread is still reading.
     pub fn set_size(&self, width: u32, height: u32) {
+        // Compare the *capped* geometry: the stage sends raw backing pixels on every
+        // resize tick, and comparing those would reallocate the whole ring even when
+        // the capped target did not change (item 3).
+        let (width, height) = cap_target(width, height);
         let mut ring = match self.shared.ring.lock() {
             Ok(ring) => ring,
             Err(_) => return,
@@ -883,6 +909,24 @@ mod tests {
         assert_eq!(buffer.non_black_pixels(), 0);
     }
 
+    /// Item 3's contract: the render target is capped by width, aspect preserved,
+    /// and an already-capped (or smaller) request is returned untouched — that
+    /// last part is what keeps `set_size` idempotent across resize ticks.
+    #[test]
+    fn render_target_is_capped_by_width_keeping_aspect() {
+        assert_eq!(cap_target(3416, 1700), (2560, 1274));
+        assert_eq!(cap_target(3440, 1410), (2560, 1049));
+        // At or under the cap nothing changes (a windowed stage stays 1:1).
+        assert_eq!(cap_target(1920, 1080), (1920, 1080));
+        assert_eq!(cap_target(TARGET_MAX_WIDTH, 720), (TARGET_MAX_WIDTH, 720));
+        // Capping is idempotent — a resize tick cannot reallocate the ring.
+        let (w, h) = cap_target(5120, 2160);
+        assert_eq!(cap_target(w, h), (w, h));
+        assert_eq!(w, TARGET_MAX_WIDTH);
+        // Degenerate sizes are passed through for the caller to reject.
+        assert_eq!(cap_target(0, 0), (0, 0));
+    }
+
     /// The ring's contract: the renderer can only take a slot the presenter has
     /// returned, and a presented slot is held for `RELEASE_LAG` presents before it
     /// comes back. This is the part that was wrong in the first cut (a producer-side
@@ -1025,6 +1069,131 @@ mod tests {
             zero_copy_ms < copy_ms,
             "zero-copy must be cheaper than a full-frame copy"
         );
+    }
+
+    /// WP4b item 3's before/after: the same 4K source through the SW VO into the
+    /// uncapped ultrawide target vs the capped one ([`TARGET_MAX_WIDTH`]).
+    ///
+    /// `cargo test --release --lib bench_render_target_cap -- --ignored --nocapture`
+    /// (a debug build only shows the ratio; absolute ms needs `--release`).
+    #[test]
+    #[ignore = "bench: needs ffmpeg for a 4K fixture; run manually"]
+    fn bench_render_target_cap() {
+        use crate::mpv;
+        use std::time::{Duration, Instant};
+
+        let directory = tempfile::tempdir().unwrap();
+        let fixture = directory.path().join("fixture4k.mkv");
+        let Some(fixture) = fixture.to_str() else {
+            return;
+        };
+        let built = std::process::Command::new("ffmpeg")
+            .args([
+                "-hide_banner", "-loglevel", "error", "-y",
+                "-f", "lavfi", "-i", "testsrc=size=3840x2160:rate=24:duration=6",
+                "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                fixture,
+            ])
+            .status();
+        match built {
+            Ok(status) if status.success() => {}
+            _ => {
+                eprintln!("ffmpeg unavailable; skipping");
+                return;
+            }
+        }
+
+        let lib = mpv::libmpv().expect("libmpv should load");
+        let api = &lib.api;
+        // 3840x2160 at 24 fps: the SW VO's scaling cost is the thing being measured,
+        // and `untimed=yes` renders as fast as the CPU allows instead of pacing to
+        // the frame clock (which is what hides the cost in the live player).
+        // "before" = what shipped through item 2: full 3416 px target and mpv's
+        // default (spline) scaler. "after" = item 3: capped target + bilinear.
+        for (label, width, height, cheap_scaler) in [
+            ("before 3416x1700 default scaler", 3416u32, 1700u32, false),
+            ("after  2560x1274 bilinear      ", 2560u32, 1274u32, true),
+        ] {
+            let handle = unsafe { (api.mpv_create)() };
+            assert!(!handle.is_null());
+            let set = |name: &str, value: &str| {
+                let (n, v) = (CString::new(name).unwrap(), CString::new(value).unwrap());
+                unsafe { (api.mpv_set_option_string)(handle, n.as_ptr(), v.as_ptr()) };
+            };
+            for (name, value) in [
+                ("config", "no"),
+                ("terminal", "no"),
+                ("vo", "libmpv"),
+                ("ao", "null"),
+                ("keep-open", "no"),
+                ("untimed", "yes"),
+            ] {
+                set(name, value);
+            }
+            if cheap_scaler {
+                set("scale", "bilinear");
+                set("dscale", "bilinear");
+            }
+            assert!(unsafe { (api.mpv_initialize)(handle) } >= 0);
+            let api_type = CString::new("sw").unwrap();
+            let mut params = [
+                MpvRenderParam {
+                    type_: MPV_RENDER_PARAM_API_TYPE,
+                    data: api_type.as_ptr() as *mut c_void,
+                },
+                MpvRenderParam {
+                    type_: 0,
+                    data: ptr::null_mut(),
+                },
+            ];
+            let mut ctx: MpvRenderContext = ptr::null_mut();
+            assert!(
+                unsafe { (api.mpv_render_context_create)(&mut ctx, handle, params.as_mut_ptr()) } >= 0,
+                "render context failed"
+            );
+            let mut buffer = FrameBuffer::new(width, height).unwrap();
+            let load = {
+                let (cmd, path) =
+                    (CString::new("loadfile").unwrap(), CString::new(fixture).unwrap());
+                let args = [cmd.as_ptr(), path.as_ptr(), ptr::null()];
+                unsafe { (api.mpv_command)(handle, args.as_ptr()) }
+            };
+            assert!(load >= 0, "loadfile failed");
+
+            let mut loaded = false;
+            let deadline = Instant::now() + Duration::from_secs(30);
+            let mut samples: Vec<f64> = Vec::new();
+            while Instant::now() < deadline && samples.len() < 40 {
+                let event = unsafe { (api.mpv_wait_event)(handle, 0.05) };
+                if !event.is_null() && unsafe { (*event).event_id } == mpv::MPV_EVENT_FILE_LOADED {
+                    loaded = true;
+                }
+                if !loaded {
+                    continue;
+                }
+                let flags = unsafe { (api.mpv_render_context_update)(ctx) };
+                if flags & MPV_RENDER_UPDATE_FRAME == 0 {
+                    continue;
+                }
+                let started = Instant::now();
+                render_into(api, ctx, &mut buffer).expect("render failed");
+                samples.push(started.elapsed().as_secs_f64() * 1000.0);
+            }
+            let measured: Vec<f64> = samples.iter().skip(5).copied().collect();
+            let mean = measured.iter().sum::<f64>() / measured.len().max(1) as f64;
+            let peak = measured.iter().copied().fold(0.0, f64::max);
+            let mb_per_frame =
+                (buffer.stride * buffer.height as usize) as f64 / (1024.0 * 1024.0);
+            println!(
+                "{label}: {mean:.2} ms/frame mean, {peak:.2} ms peak over {} frames, \
+                 {mb_per_frame:.1} MB/frame",
+                measured.len()
+            );
+            assert!(!measured.is_empty(), "{label}: never rendered a frame");
+            assert!(buffer.non_black_pixels() > 1000, "{label}: surface stayed black");
+            unsafe { (api.mpv_render_context_free)(ctx) };
+            unsafe { (api.mpv_terminate_destroy)(handle) };
+        }
     }
 
     /// Live proof that the ring path paints from three rotating surfaces and that

@@ -536,6 +536,12 @@ fn create_mpv(api: &'static MpvApi) -> Result<MpvHandle, AppError> {
     // to exist before the first VO is created). Without that context, mpv opens
     // its own window instead.
     set_option(api, handle, "vo", "libmpv");
+    // The SW VO scales on the CPU. Bilinear is the cheap filter, and the render
+    // target is capped below the window size (render::TARGET_MAX_WIDTH) so
+    // CALayer does the final upscale for free — at these sizes the two-step
+    // result is indistinguishable from a single high-quality scale.
+    set_option(api, handle, "scale", "bilinear");
+    set_option(api, handle, "dscale", "bilinear");
 
     let code = unsafe { (api.mpv_initialize)(handle) };
     if code < 0 {
