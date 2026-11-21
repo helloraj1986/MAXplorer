@@ -77,20 +77,42 @@
   option and command result codes, mpv's own log stream, end-file reason/error),
   so a future playback failure is root-causable from `maxplorer.log` alone.
 
-## ROADMAP (ordered)
+## ROADMAP (ordered — the user's priority order, not WP numbering)
 
-0. **Phase 4d — Embed the player (NEXT)** — video currently renders in mpv's own
-   window; macOS has no `wid` path, so the **libmpv render API** is the only route.
-   Full plan, API constants and acceptance criteria: `docs/MEDIA_PLAYER_HANDOVER.md`.
-   Same doc also lists the pending buffering UI (`PlayerStatus.pausedForCache` etc.
-   are already wired backend-side).
+0. **ACTIVE — bundle: library + tracks + player UX.** Branch
+   `feature/media-library-tracks`; the contract is
+   `docs/MEDIA_LIBRARY_TRACKS_SPEC.md`. One branch, three ordered phases (one
+   commit + one acceptance pass each): (1) `src-tauri/src/library.rs` +
+   `library.json` — persistent watch progress, resume-at-position, real
+   "Continue watching" (replaces the in-memory stub); (2) `media_player_tracks` /
+   `media_player_set_track` + `TrackMenu` — audio/subtitle menus with the per-title
+   choice persisted; (3) player UX — subtitle delay/size/visibility, audio delay,
+   speed, local `sub-add`, next episode. Phase order is load-bearing: per-title
+   track persistence lives in Phase 1's `library.json`.
 1. **Phase 5 — Addon manager UI** — install/remove by manifest URL, pinned-addons rail (from the mock), addon config pages in an iframe/webview tab.
-2. **Phase 6 — Library & sync** — My Library, watch progress, Trakt scrobbling; self-hostable sync profile.
+2. **Phase 6 — Library & sync** — My Library, Trakt scrobbling; self-hostable sync profile.
 3. **Phase 7 — ⭐ TV / mobile (remote-friendly)** — VERY IMPORTANT, do not cut. The addon protocol is pure HTTP+JSON, so the core already works from any client:
    - **Android TV / Android app**: Tauri 2 has Android support (same Rust core; frontend needs D-pad/focus navigation, TV-safe margins, "10-foot" UI density). Stream resolution must run server-side (desktop machine or a small always-on box) so the TV streams a plain HTTP URL — never torrent traffic on the TV itself.
    - **iOS / Apple TV**: Tauri 2 iOS support, or fall back to a lightweight React Native/web client that speaks the same JSON surface exposed by the Rust core.
    - **Architecture prerequisite (build it in Phases 2–6, not after)**: keep a clean `media-core` boundary in the Rust backend so it can be exposed as a local HTTP API (JSON: catalogs, metas, streams, library) that any client consumes. TV/mobile then connects over LAN to the desktop's session (remote-control + secondary-screen style), matching the self-hosted/local-first preference.
    - D-pad remote control, voice-search passthrough, and auto "TV mode" layout are acceptance criteria.
+
+## PARKED (not abandoned)
+
+**Stremio-parity UI WP4b, items 5–7 — engine performance, deferred by the user on
+2026-11-21.** WP4b itself is 4 of 8 items done (1 = IPC coalescing, 2 = zero-copy
+frame ring, 3 = bilinear + 2560 px render-target cap, 4 = one frame in flight /
+stale drops counted separately; 8's telemetry landed with them). The parked items:
+
+| Item | What it buys | Where the spec lives |
+|---|---|---|
+| 5 — session prewarm | ~100–300 ms off time-to-first-frame; mpv core + render context created when the detail screen opens, torrent rows start paused+hidden while the swarm resolves | `HANDOVER.md` § "BUNDLE B (parked)" |
+| 6 — per-source cache policy | torrent: `demuxer-readahead-secs=120`, `cache-pause-wait=2`, 512 MiB forward; direct HTTP/debrid: `cache=no` (CDN links seek fine, buffering only delays start) | same |
+| 7 — seek path | `hr-seek` for short jumps + throttled/de-duplicated seeks (a held arrow key currently emits a seek per repeat) | same |
+
+Nothing depends on them: the installed build is verified healthy on a 4K HEVC
+24 fps source (24.0–24.4 fps, 0 dropped, 2 stale frames in 3516, lag 1, decoder
+drops 0). Resume this list only when performance work comes back up the queue.
 
 ## Non-goals / accepted limits
 - Addons that inject JavaScript into Stremio's own webapp UI can't run natively; iframe escape-hatch is the ceiling.
