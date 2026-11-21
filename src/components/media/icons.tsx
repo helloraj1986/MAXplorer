@@ -14,6 +14,7 @@ import {
   Cpu,
   Disc3,
   Download,
+  Ellipsis,
   Eye,
   Film,
   Gauge,
@@ -25,6 +26,7 @@ import {
   Music,
   Package,
   Pause,
+  PictureInPicture2,
   Play,
   Puzzle,
   Search,
@@ -36,6 +38,7 @@ import {
   Subtitles,
   ThumbsUp,
   Users,
+  Volume1,
   Volume2,
   VolumeX,
   X,
@@ -77,10 +80,14 @@ export type MediaIconName =
   | "prev"
   | "next"
   | "volume"
+  | "volume-low"
   | "muted"
   | "subtitles"
   | "audio"
+  | "waveform"
   | "speed"
+  | "pip"
+  | "more"
   | "peers"
   | "ready"
   // detail action row + stream-row line glyphs (WP3)
@@ -102,6 +109,8 @@ export type MediaIconName =
 interface GlyphProps {
   size?: number;
   strokeWidth?: number;
+  /** Solid fill for the glyphs the player draws filled (play / pause). */
+  fill?: string;
   className?: string;
   style?: CSSProperties;
   "aria-hidden"?: boolean;
@@ -132,10 +141,14 @@ const GLYPHS: Record<MediaIconName, (props: GlyphProps) => ReactElement> = {
   prev: (p) => <SkipBack {...p} />,
   next: (p) => <SkipForward {...p} />,
   volume: (p) => <Volume2 {...p} />,
+  "volume-low": (p) => <Volume1 {...p} />,
   muted: (p) => <VolumeX {...p} />,
   subtitles: (p) => <Subtitles {...p} />,
   audio: (p) => <Languages {...p} />,
+  waveform: (p) => <AudioLines {...p} />,
   speed: (p) => <Gauge {...p} />,
+  pip: (p) => <PictureInPicture2 {...p} />,
+  more: (p) => <Ellipsis {...p} />,
   peers: (p) => <Package {...p} />,
   ready: (p) => <Zap {...p} />,
   quality: (p) => <Clapperboard {...p} />,
@@ -169,6 +182,7 @@ export function MediaIcon({
   strokeWidth = 1.8,
   className,
   style,
+  fill,
   decorative = true,
   title,
 }: MediaIconProps) {
@@ -179,6 +193,7 @@ export function MediaIcon({
       strokeWidth={strokeWidth}
       className={className ? `media-icon ${className}` : "media-icon"}
       style={style}
+      fill={fill}
       aria-hidden={decorative ? true : undefined}
       aria-label={!decorative && title ? title : undefined}
       role={!decorative && title ? "img" : undefined}

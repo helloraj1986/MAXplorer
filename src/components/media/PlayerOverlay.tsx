@@ -5,6 +5,7 @@ import { api, isTauri, normalizeError } from "../../lib/api";
 import { logDiagnostic } from "../../lib/diagnostics";
 import { useMediaStore } from "../../state/mediaStore";
 import { TrackMenu, languageName } from "./TrackMenu";
+import { MediaIcon } from "./icons";
 import type { NativePlayerStatus, NativePlayerTick } from "./types";
 
 /**
@@ -562,10 +563,7 @@ export function PlayerOverlay() {
   const playedPercent = spanPercent(displayPosition, duration);
   const bufferedPercent = bufferedSpanPercent(position, status?.cacheSeconds ?? 0, duration);
   const tooltipRatio = scrub !== null && duration > 0 ? scrub / duration : hoverRatio;
-  const chip = [playerSource.quality, status?.videoFormat?.toUpperCase()]
-    .filter((part): part is string => Boolean(part))
-    .join(" · ");
-  const volumeIcon = muted || volume === 0 ? "🔇" : volume < 50 ? "🔉" : "🔊";
+  const volumeIcon = muted || volume === 0 ? "muted" : volume < 50 ? "volume-low" : "volume";
   const hdr = Boolean(status?.hdr);
 
   // ── Tracks (Phase 2) ──────────────────────────────────────────────────────
@@ -720,34 +718,24 @@ export function PlayerOverlay() {
           aria-label="Back to details"
           title="Back (Esc)"
         >
-          <span aria-hidden="true">‹</span>
+          <MediaIcon name="chevron-left" size={26} />
         </button>
         <h2 className="media-player-title" title={playerSource.title}>
           {playerSource.title}
         </h2>
-        {chip ? <span className="media-player-chip">{chip}</span> : null}
         <div className="media-player-top-right">
           {hdr ? <span className="media-player-hdr" title="High dynamic range source">HDR</span> : null}
-          {fileLoaded ? (
-            <span className="media-player-stats" role="status" aria-label="Stream stats">
-              ↓ {formatSpeed(status?.cacheSpeed ?? 0)}
-              {status && status.cacheSeconds > 0
-                ? ` · ${status.cacheSeconds.toFixed(1)}s buffered`
-                : ""}
-              {engine?.phase === "ready" && engine.peers !== undefined
-                ? ` · ${engine.peers} peers`
-                : ""}
-            </span>
-          ) : null}
+          {/* The reference's corners glyph is fullscreen; the codec chip and the
+              live stats line it used to carry now live in the info panel. */}
           <button
             type="button"
-            className={`media-player-icon${infoOpen ? " is-active" : ""}`}
-            onClick={() => setInfoOpen((value) => !value)}
-            aria-pressed={infoOpen}
-            aria-label="Playback information"
-            title="Playback info"
+            className="media-player-icon"
+            data-icon="fullscreen"
+            onClick={toggleFullscreen}
+            aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+            title={fullscreen ? "Exit fullscreen (F)" : "Fullscreen (F)"}
           >
-            ◎
+            <MediaIcon name="fullscreen" size={26} />
           </button>
         </div>
       </header>
@@ -857,34 +845,71 @@ export function PlayerOverlay() {
             ref={playButtonRef}
             onClick={togglePlay}
             aria-label={paused || eof ? "Play" : "Pause"}
+            title={paused || eof ? "Play (Space)" : "Pause (Space)"}
+            data-icon={paused || eof ? "play" : "pause"}
             disabled={!status}
           >
-            {paused || eof ? "▶" : "❚❚"}
+            <MediaIcon
+              name={paused || eof ? "play" : "pause"}
+              size={26}
+              fill="currentColor"
+              strokeWidth={1.4}
+            />
           </button>
 
           <div className="media-player-volume">
             <button
               type="button"
               className="media-player-icon"
+              data-icon={volumeIcon}
               onClick={toggleMute}
               aria-label={muted ? "Unmute" : "Mute"}
               title={muted ? "Unmute (M)" : "Mute (M)"}
             >
-              {volumeIcon}
+              <MediaIcon name={volumeIcon} size={24} />
             </button>
+            {/* 0-100 % is plain white, 100-200 % the boost zone (mpv accepts
+                both; the warm half of the track is drawn by CSS). */}
             <input
               type="range"
               className="media-player-volume-slider"
               min={0}
-              max={100}
+              max={200}
               step={VOLUME_STEP}
               value={muted ? 0 : Math.round(volume)}
               aria-label="Volume"
+              aria-valuetext={`${Math.round(volume)} percent`}
+              title={`Volume ${Math.round(volume)}%`}
               onChange={(event) => applyVolume(Number(event.target.value))}
             />
           </div>
 
+          {/* Right cluster order is the reference's: speed, cast, subtitles,
+              audio, PiP, more. Speed, cast and PiP ship disabled and say why —
+              a disabled control with an honest reason beats a fake one. */}
           <div className="media-player-controls-right">
+            <button
+              type="button"
+              className="media-player-icon"
+              data-icon="speed"
+              disabled
+              aria-label="Playback speed"
+              title="Playback speed — arrives with the player UX phase"
+            >
+              <MediaIcon name="speed" size={26} />
+            </button>
+
+            <button
+              type="button"
+              className="media-player-icon"
+              data-icon="cast"
+              disabled
+              aria-label="Cast to device"
+              title="Casting is not available in MAXplorer"
+            >
+              <MediaIcon name="cast" size={26} />
+            </button>
+
             {/* Subtitles */}
             <div className="media-player-trackwrap">
               <button
@@ -892,6 +917,7 @@ export function PlayerOverlay() {
                 className={`media-player-icon${subsActive ? " is-active" : ""}${
                   trackMenu === "sub" ? " is-open" : ""
                 }`}
+                data-icon="subtitles"
                 onClick={() => setTrackMenu((open) => (open === "sub" ? null : "sub"))}
                 aria-haspopup="menu"
                 aria-expanded={trackMenu === "sub"}
@@ -908,7 +934,7 @@ export function PlayerOverlay() {
                 }
                 disabled={!tracksReady || subsTracks.length === 0}
               >
-                CC
+                <MediaIcon name="subtitles" size={26} />
               </button>
               {trackMenu === "sub" ? (
                 <TrackMenu
@@ -929,6 +955,7 @@ export function PlayerOverlay() {
               <button
                 type="button"
                 className={`media-player-icon${trackMenu === "audio" ? " is-open" : ""}`}
+                data-icon="audio"
                 onClick={() => setTrackMenu((open) => (open === "audio" ? null : "audio"))}
                 aria-haspopup="menu"
                 aria-expanded={trackMenu === "audio"}
@@ -942,9 +969,7 @@ export function PlayerOverlay() {
                 }
                 disabled={!tracksReady}
               >
-                <span className="media-player-eq" aria-hidden="true">
-                  <i /><i /><i /><i />
-                </span>
+                <MediaIcon name="waveform" size={26} />
               </button>
               {trackMenu === "audio" ? (
                 <TrackMenu
@@ -960,26 +985,15 @@ export function PlayerOverlay() {
               ) : null}
             </div>
 
-            {/* Fit / Fill */}
-            <button
-              type="button"
-              className="media-player-icon is-toggle"
-              onClick={toggleFill}
-              aria-pressed={fillVideo}
-              aria-label={fillVideo ? "Fit the whole frame" : "Fill the screen (crop)"}
-              title={fillVideo ? "Fit — whole frame" : "Fill — crop to fill"}
-            >
-              {fillVideo ? "Fit" : "Fill"}
-            </button>
-
             <button
               type="button"
               className="media-player-icon"
-              onClick={toggleFullscreen}
-              aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-              title={fullscreen ? "Exit fullscreen (F)" : "Fullscreen (F)"}
+              data-icon="pip"
+              disabled
+              aria-label="Picture in picture"
+              title="Picture-in-picture is not available in this player"
             >
-              ⛶
+              <MediaIcon name="pip" size={26} />
             </button>
 
             {/* More: actions that do not each deserve a slot. */}
@@ -987,16 +1001,42 @@ export function PlayerOverlay() {
               <button
                 type="button"
                 className={`media-player-icon${moreOpen ? " is-open" : ""}`}
+                data-icon="more"
                 onClick={() => setMoreOpen((open) => !open)}
                 aria-haspopup="menu"
                 aria-expanded={moreOpen}
                 aria-label="More player actions"
                 title="More"
               >
-                …
+                <MediaIcon name="more" size={26} />
               </button>
               {moreOpen ? (
                 <div className="media-trackmenu is-plain" role="menu" aria-label="More actions">
+                  <button
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked={fillVideo}
+                    className="media-trackmenu-row"
+                    onClick={() => {
+                      setMoreOpen(false);
+                      toggleFill();
+                    }}
+                  >
+                    <span className="media-trackmenu-label">
+                      {fillVideo ? "Fit the whole frame" : "Fill the screen (crop)"}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="media-trackmenu-row"
+                    onClick={() => {
+                      setMoreOpen(false);
+                      setInfoOpen(true);
+                    }}
+                  >
+                    <span className="media-trackmenu-label">Playback info</span>
+                  </button>
                   <button
                     type="button"
                     role="menuitem"
@@ -1013,17 +1053,6 @@ export function PlayerOverlay() {
                     }}
                   >
                     <span className="media-trackmenu-label">Open in external player</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="media-trackmenu-row"
-                    onClick={() => {
-                      setMoreOpen(false);
-                      setInfoOpen(true);
-                    }}
-                  >
-                    <span className="media-trackmenu-label">Playback info</span>
                   </button>
                 </div>
               ) : null}
@@ -1108,7 +1137,8 @@ export function seekSecondsFromPointer(
 
 export function clampVolume(value: number): number {
   if (!Number.isFinite(value)) return 0;
-  return Math.min(100, Math.max(0, Math.round(value)));
+  // mpv accepts 0-200 %: past 100 the volume slider enters its boost zone.
+  return Math.min(200, Math.max(0, Math.round(value)));
 }
 
 function clampSeconds(value: number, duration: number): number {

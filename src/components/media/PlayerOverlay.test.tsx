@@ -80,7 +80,9 @@ describe("player time + span math (WP4a)", () => {
   it("clamps volume to whole percentages", () => {
     expect(clampVolume(45.4)).toBe(45);
     expect(clampVolume(-10)).toBe(0);
-    expect(clampVolume(180)).toBe(100);
+    // mpv takes 0-200: 100-200 % is the boost zone, not a clamp boundary.
+    expect(clampVolume(180)).toBe(180);
+    expect(clampVolume(250)).toBe(200);
     expect(clampVolume(Number.NaN)).toBe(0);
   });
 });
@@ -169,15 +171,60 @@ describe("PlayerOverlay chrome", () => {
     vi.useRealTimers();
   });
 
-  it("renders the top strip, transport and codec chip on --m-* tokens", () => {
+  it("renders the top strip and transport on --m-* tokens", () => {
     render(<PlayerOverlay />);
     expect(document.querySelector(".media-player-top")).toBeTruthy();
     expect(document.querySelector(".media-player-bottom")).toBeTruthy();
     expect(document.querySelector(".media-player-title")?.textContent).toBe("Sintel");
-    // quality + codec chip, both real data (stream badge + mpv video-format).
-    expect(document.querySelector(".media-player-chip")?.textContent).toBe("4K · HEVC");
+    // The reference has no codec chip and no stats line in the bar: the codec
+    // moved into the info panel, the stats are gone from the top strip.
+    expect(document.querySelector(".media-player-chip")).toBeNull();
+    expect(document.querySelector(".media-player-stats")).toBeNull();
     const transport = document.querySelector(".media-player-play");
     expect(transport?.getAttribute("aria-label")).toBe("Pause");
+    expect(transport?.getAttribute("data-icon")).toBe("pause");
+  });
+
+  it("draws every control as an SVG icon from the media set, never a text glyph", () => {
+    render(<PlayerOverlay />);
+    const chrome = document.querySelector(".media-player") as HTMLElement;
+    // No text glyphs survive anywhere in the chrome.
+    for (const glyph of ["CC", "Fill", "Fit", "⛶", "…", "▶", "❚❚", "◎", "🔇", "🔉", "🔊"]) {
+      expect(chrome.textContent).not.toContain(glyph);
+    }
+    const buttons = Array.from(chrome.querySelectorAll(".media-player-icon")) as HTMLElement[];
+    expect(buttons.length).toBeGreaterThanOrEqual(6);
+    for (const button of buttons) {
+      expect(button.querySelector("svg")).toBeTruthy();
+      expect(button.getAttribute("data-icon")).toBeTruthy();
+    }
+  });
+
+  it("orders the right cluster like the reference: speed, cast, subtitles, audio, PiP, more", () => {
+    render(<PlayerOverlay />);
+    const cluster = document.querySelector(".media-player-controls-right") as HTMLElement;
+    const order = Array.from(cluster.querySelectorAll(".media-player-icon")).map((button) =>
+      button.getAttribute("data-icon"),
+    );
+    expect(order).toEqual(["speed", "cast", "subtitles", "audio", "pip", "more"]);
+    // The three capabilities this stack does not have are disabled, not faked,
+    // and each says why in its tooltip.
+    for (const name of ["speed", "cast", "pip"]) {
+      const button = cluster.querySelector(`[data-icon="${name}"]`) as HTMLButtonElement;
+      expect(button.disabled).toBe(true);
+      expect((button.getAttribute("title") ?? "").length).toBeGreaterThan(10);
+    }
+  });
+
+  it("keeps fullscreen in the top-right slot and the HDR badge beside it", () => {
+    openPlayer({ hdr: true });
+    render(<PlayerOverlay />);
+    const topRight = document.querySelector(".media-player-top-right") as HTMLElement;
+    expect(topRight.querySelector(".media-player-hdr")?.textContent).toBe("HDR");
+    const fullscreen = topRight.querySelector('[data-icon="fullscreen"]') as HTMLButtonElement;
+    expect(fullscreen.getAttribute("aria-label")).toBe("Fullscreen");
+    // The corners glyph is the only control there — the old ◎ is gone.
+    expect(topRight.querySelectorAll("button").length).toBe(1);
   });
 
   it("hides the chrome 3 s after the last input while playing, and wakes on mouse move", () => {
@@ -249,21 +296,33 @@ describe("PlayerOverlay chrome", () => {
     expect(api.playerSetMuted).toHaveBeenCalledWith(true);
   });
 
-  it("toggles fit/fill via the labelled button and calls panscan", () => {
+  it("moves Fill/Fit into the more menu and still drives panscan", () => {
     render(<PlayerOverlay />);
-    const toggle = document.querySelector(".media-player-icon.is-toggle") as HTMLButtonElement;
-    expect(toggle).toBeTruthy();
-    expect(toggle.textContent).toBe("Fill");
-    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: "More player actions" }));
+    const toggle = screen.getByRole("menuitemcheckbox", {
+      name: "Fill the screen (crop)",
+    }) as HTMLButtonElement;
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
 
     fireEvent.click(toggle);
     expect(api.playerSetFill).toHaveBeenLastCalledWith(true);
-    expect(toggle.textContent).toBe("Fit");
-    expect(toggle.getAttribute("aria-pressed")).toBe("true");
 
-    fireEvent.click(toggle);
+    // Re-open: the label follows the current mode.
+    fireEvent.click(screen.getByRole("button", { name: "More player actions" }));
+    const back = screen.getByRole("menuitemcheckbox", {
+      name: "Fit the whole frame",
+    }) as HTMLButtonElement;
+    expect(back.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(back);
     expect(api.playerSetFill).toHaveBeenLastCalledWith(false);
-    expect(toggle.textContent).toBe("Fill");
+  });
+
+  it("lets the volume slider reach the 100-200 % boost zone", () => {
+    render(<PlayerOverlay />);
+    const slider = document.querySelector(".media-player-volume-slider") as HTMLInputElement;
+    expect(slider.max).toBe("200");
+    fireEvent.change(slider, { target: { value: "140" } });
+    expect(api.playerSetVolume).toHaveBeenLastCalledWith(140);
   });
 
   it("toggles playback when the picture is clicked", () => {

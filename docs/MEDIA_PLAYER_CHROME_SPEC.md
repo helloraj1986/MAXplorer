@@ -163,16 +163,77 @@ tab is in this spec so the shape is remembered.
 
 ## 4. Acceptance
 
-- [ ] Every bar control is an SVG icon from `PlayerIcon`; **no text glyphs**
+- [x] Every bar control is an SVG icon from `PlayerIcon`; **no text glyphs**
       (`CC`, `Fill`, `⛶`, `…`, emoji) remain in chrome.
-- [ ] Right cluster order is speed / cast / subtitles / audio / PiP / more.
-- [ ] Icon boxes are 26–28 px with ~76 px centre spacing, colour `rgba(255,255,255,.85)`.
-- [ ] Top bar: bare chevron + title + `HDR` (when the source is HDR) + corners glyph;
+- [x] Right cluster order is speed / cast / subtitles / audio / PiP / more.
+- [x] Icon boxes are 26–28 px with ~76 px centre spacing, colour `rgba(255,255,255,.85)`.
+- [x] Top bar: bare chevron + title + `HDR` (when the source is HDR) + corners glyph;
       **no codec chip, no stats text**.
-- [ ] Volume slider spans 0–200 with the orange→red boost zone after 100 %.
-- [ ] "Fill / Fit" lives in the more menu; fullscreen + PiP/cast controls carry
+- [x] Volume slider spans 0–200 with the orange→red boost zone after 100 %.
+- [x] "Fill / Fit" lives in the more menu; fullscreen + PiP/cast controls carry
       correct `aria-label` + `title` (disabled ones explain why).
-- [ ] Right-edge tab not rendered while there is no episode queue.
-- [ ] Gates: `cargo test --lib`, `npx tsc --noEmit`,
+- [x] Right-edge tab not rendered while there is no episode queue.
+- [x] Gates: `cargo test --lib`, `npx tsc --noEmit`,
       `npx vitest run src/components/media src/state/mediaStore.test.ts`,
       build + install, then a screenshot of a playing title against the reference.
+---
+
+## As built (2026-11-21, branch `feature/media-tracks-p2`)
+
+One pass, one commit. Three deliberate deviations from the plan above:
+
+1. **No new `playerIcons.tsx`.** The app already ships a media icon system —
+   `src/components/media/icons.tsx` (`MediaIcon`, lucide-react 1.63,
+   `strokeWidth = 1.8`) — which WP1 added for the rail/top bar, and the player
+   chrome was the only place still drawing text. Added to that set instead:
+   `waveform` (AudioLines), `pip` (PictureInPicture2), `more` (Ellipsis),
+   `volume-low` (Volume1), plus a `fill` prop so `play`/`pause` can render
+   solid. One vocabulary, one stroke weight, no second icon package.
+2. **Fullscreen took the reference's top-right corners slot** and Playback info
+   moved into the "more" menu (where its row already existed). The reference has
+   exactly six bottom-right controls and none of them is fullscreen; burying a
+   primary control in a menu to satisfy a literal 6-item list would have been the
+   worse trade. The `◎` character is gone, the codec chip is gone, and the live
+   stats line moved into the info panel.
+3. **Speed, cast and PiP ship disabled with an honest tooltip**
+   ("Playback speed — arrives with the player UX phase", "Casting is not
+   available in MAXplorer", "Picture-in-picture is not available in this
+   player"). No backend exists for any of the three; a disabled control that
+   says why beats a fake one.
+
+As built, in detail:
+
+- **Icons:** 28 px boxes, 26 px glyph, `strokeWidth 1.8`, colour
+  `rgba(255,255,255,.85)` → `#fff` on hover, 6 px radius, hover wash
+  `rgba(255,255,255,.10)`. Every control carries `data-icon="<name>"` so tests
+  read the icon, not the text.
+- **Right cluster:** `gap: 48px` with 28 px boxes = the measured **76 px
+  centre-to-centre**; order speed / cast / subtitles / audio / PiP / more.
+- **Left group:** play (solid triangle / solid pause, 26 px in a 36 px disc) →
+  speaker → **180 px volume track**.
+- **Volume:** `clampVolume` widened to 0–200 (mpv's range), the input's
+  `max=200`, and the track is a static `linear-gradient(90deg, #fff 0 50%,
+  #F5A623 50%, #FF3B30 100%)` with a 14 px white thumb — the warm half is a
+  property of the scale, so it stays visible whichever way the knob moves.
+- **Top bar:** bare 26 px chevron (no 36 px disc), title, borderless
+  letter-spaced `HDR`, single fullscreen corners glyph on the right.
+- **More menu:** Fill/Fit (`role="menuitemcheckbox"`, label follows the current
+  mode), Playback info, Open in external player.
+- **Right-edge episode tab:** not rendered (no episode queue until Phase 3).
+- **Stage geometry untouched:** no Rust change in this commit — `player.rs`,
+  `render.rs` and the `fileLoaded → set_surface_visible` gate are byte-identical.
+
+Gates: `npx tsc --noEmit` clean; `npx vitest run src/components/media
+src/state/mediaStore.test.ts` → **128 passed** (PlayerOverlay 32, up from 26:
+icon-only chrome, cluster order + disabled reasons, fullscreen/HDR slot,
+0–200 slider, Fill/Fit through the menu). No `cargo test` run — no Rust change.
+Built and installed at `/Applications/MAXplorer.app` (`grep -c 'Casting is not
+available' dist/assets/*.js` → 1, entitlements 4/4).
+
+**Still unverified:** the live pixel comparison against
+`ref-icons-right.png`. `computer_use` can capture the window on this box but
+background input is refused (`off_space_or_ax_unresolved`) and foreground clicks
+posted to the window do not move it to Media mode — so the click-through stopped
+at "open the workspace". Geometry rests on the measured spec + the CSS
+arithmetic (28 + 48 = 76 px centres). Compare on screen: Files → play icon in
+the toolbar → any title → ▶ Stream.

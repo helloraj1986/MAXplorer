@@ -7,7 +7,7 @@
 | Project version | 0.2.1 (aarch64 DMG) + media feature on `feature/stremio-compat` |
 | Repository | https://github.com/helloraj1986/MAXplorer (private) |
 | Release | https://github.com/helloraj1986/MAXplorer/releases/latest |
-| Current branch | `feature/media-ui-wp4a` (branched from `feature/media-ui-wp3`) — read the head with `git log --oneline -1` (a fixed SHA here goes stale the moment anything is committed). Last installable build: 2026-11-21, installed at `/Applications/MAXplorer.app`. **`feature/stremio-compat`, `feature/media-ui-wp1`, `-wp2`, `-wp3` and `-wp4a` are not yet on origin** (`git push origin <branch>`). |
+| Current branch | `feature/media-tracks-p2` (off `main`; carries Phase 2 + the chrome parity pass) — read the head with `git log --oneline -1` (a fixed SHA here goes stale the moment anything is committed). Last installable build: 2026-11-21, installed at `/Applications/MAXplorer.app`. **`feature/stremio-compat`, `feature/media-ui-wp1`, `-wp2`, `-wp3` and `-wp4a` are not yet on origin** (`git push origin <branch>`). |
 
 ---
 
@@ -49,20 +49,23 @@ item per session — never batched.**
 > required for the transparent window — that rules out the App Store, not local
 > builds.
 
-> ### ▶ NEXT: player chrome icon + control parity (then Phase 3)
+> ### ▶ NEXT: Phase 3 — player UX (speed / delays / subtitles)
 >
-> **Phases 1 and 2 are DONE** (as-built in `docs/MEDIA_LIBRARY_TRACKS_SPEC.md`
-> §As built) and the player chrome is now a true **overlay** (`ad63812`). What is
-> still wrong is the chrome *itself*: the controls are text glyphs (`CC`, `Fill`,
-> `⛶`, `…`), cramped at a 4 px gap, and three of the reference's six right-side
-> controls are missing. The work order — measured sizes, the exact glyph list,
-> the cluster order, the 0–200 volume boost slider, CSS tokens, tests and
-> acceptance — is **`docs/MEDIA_PLAYER_CHROME_SPEC.md`**. Do that in one pass.
+> **Phases 1 and 2 are DONE** (`docs/MEDIA_LIBRARY_TRACKS_SPEC.md` §As built), the
+> player chrome is a true **overlay** (`ad63812`), and the **icon + control parity
+> pass is DONE** (`docs/MEDIA_PLAYER_CHROME_SPEC.md` §As built): SVG icons only,
+> 26 px glyphs in 28 px boxes at 76 px centres, cluster order speed / cast /
+> subtitles / audio / PiP / more, 0–200 volume with the warm boost half,
+> fullscreen in the top-right corners slot, Fill/Fit and playback info in the
+> more menu. Speed, cast and PiP ship **disabled with a reason** — no backend
+> exists for any of them yet.
 >
-> After it: **Phase 3** of the tracks bundle (subtitle delay/size/visibility,
-> audio delay, playback speed, local `sub-add`, next episode) — which also gives
-> the speedometer icon and the right-edge episode tab something real to do.
-> WP4b items 5–7 (prewarm / per-source cache / hr-seek) stay **parked**.
+> **Phase 3 next** (one phase per session): subtitle delay / size / visibility,
+> audio delay, playback speed, local `sub-add`, next episode. It is what gives the
+> already-drawn speedometer icon and the right-edge episode tab something real to
+> do, so start by wiring `speed` (`mpv` property + `media_player_set_speed`) and
+> the episode queue, then the delay/size properties. WP4b items 5–7 (prewarm /
+> per-source cache / hr-seek) stay **parked**.
 
 ---
 

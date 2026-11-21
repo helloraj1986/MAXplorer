@@ -1730,31 +1730,11 @@
   text-overflow: ellipsis;
 }
 
-.media-player-chip {
-  flex: 0 0 auto;
-  padding: 3px 7px;
-  border: 1px solid var(--m-hairline);
-  border-radius: var(--m-radius-sm);
-  color: var(--m-text-dim);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
 .media-player-top-right {
   margin-left: auto;
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-.media-player-stats {
-  color: var(--m-text-dim);
-  font-family: ui-monospace, Menlo, monospace;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
 
 /* ── bottom region: state row (40 px) + bar (88 px) + 2 px hairline ── */
@@ -1982,26 +1962,39 @@
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 4px;
+  gap: 12px;
 }
 
 .media-player-volume-slider {
-  display: flex;
-  align-items: center;
-  width: 0;
-  overflow: hidden;
-  transition: width 160ms var(--m-ease-chrome);
-}
-
-.media-player-volume:hover .media-player-volume-slider,
-.media-player-volume:focus-within .media-player-volume-slider {
-  width: 90px;
-}
-
-.media-player-volume-slider input {
-  width: 90px;
-  accent-color: var(--m-accent);
+  -webkit-appearance: none;
+  appearance: none;
+  width: 180px;
+  height: 6px;
+  margin: 0;
+  border-radius: 3px;
+  /* 0-100 % is plain white; past 100 the track enters the boost zone, so the
+     warm half is a property of the scale, not of the knob's position. */
+  background: linear-gradient(90deg, #ffffff 0 50%, #f5a623 50%, #ff3b30 100%);
   cursor: pointer;
+}
+
+.media-player-volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.22);
+}
+
+.media-player-volume-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
 }
 
 /* ── buttons ── */
@@ -2342,24 +2335,23 @@ html.mx-player-active .media-main {
   background: transparent !important;
 }
 
+/* Bare chevron, no disc behind it — the reference has none. */
 .media-player-back {
   flex: 0 0 auto;
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 50%;
+  border-radius: 6px;
   background: transparent;
   color: rgba(255, 255, 255, 0.9);
-  font-size: 26px;
-  line-height: 1;
   cursor: pointer;
 }
 
 .media-player-back:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.10);
   color: #fff;
 }
 
@@ -2372,36 +2364,37 @@ html.mx-player-active .media-main {
 
 .media-player-hdr {
   flex: 0 0 auto;
-  padding: 2px 7px;
-  border: 1px solid rgba(255, 255, 255, 0.32);
-  border-radius: 4px;
-  color: rgba(255, 255, 255, 0.86);
-  font-size: 10px;
+  padding: 0;
+  border: 0;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.16em;
 }
 
-/* Flat icon buttons: 34 px hit area, a soft hover disc, no border. */
+/* Flat icon buttons: 28 px boxes holding a 26 px 2 px-outline glyph. */
 .media-player-icon {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 50%;
+  border-radius: 6px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.82);
-  font-family: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1;
+  color: rgba(255, 255, 255, 0.85);
   cursor: pointer;
   transition: background 120ms ease-out, color 120ms ease-out;
 }
 
+.media-player-icon svg {
+  display: block;
+  width: 26px;
+  height: 26px;
+}
+
 .media-player-icon:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.10);
   color: #fff;
 }
 
@@ -2413,37 +2406,6 @@ html.mx-player-active .media-main {
   opacity: 0.34;
   cursor: default;
 }
-
-.media-player-icon.is-toggle {
-  width: auto;
-  min-width: 44px;
-  padding: 0 9px;
-  border-radius: 8px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-/* Audio-track glyph: four EQ bars (the reference's equalizer icon). */
-.media-player-eq {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 14px;
-}
-
-.media-player-eq i {
-  display: block;
-  width: 2px;
-  border-radius: 1px;
-  background: currentColor;
-}
-
-.media-player-eq i:nth-child(1) { height: 6px; }
-.media-player-eq i:nth-child(2) { height: 11px; }
-.media-player-eq i:nth-child(3) { height: 14px; }
-.media-player-eq i:nth-child(4) { height: 8px; }
 
 /* Seek row: elapsed at the far left, total at the far right, bar between. */
 .media-player-seekrow {
@@ -2469,32 +2431,35 @@ html.mx-player-active .media-main {
 .media-player-controls {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 18px;
   padding: 0 2px 2px;
 }
 
+/* 28 px boxes + 48 px gap = the reference's 76 px centre-to-centre. */
 .media-player-controls-right {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 48px;
 }
 
 .media-player-play {
   flex: 0 0 auto;
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   border: 0;
   border-radius: 50%;
   background: transparent;
   color: #fff;
-  font-size: 13px;
-  letter-spacing: 0.08em;
   cursor: pointer;
   transition: background 120ms ease-out;
+}
+
+.media-player-play svg {
+  display: block;
 }
 
 .media-player-play:hover {
