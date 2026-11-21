@@ -294,6 +294,13 @@ unsafe fn create_view(window: *mut AnyObject, rect: NSRect) -> *mut AnyObject {
     let _: () = msg_send![view, retain];
     // Layer-back the view so mpv's output composites correctly.
     let _: () = msg_send![view, setWantsLayer: Bool::YES];
+    // **Let the pointer through to the webview.** The surface is composited
+    // ABOVE the webview, so without this it is the hit-test target for the whole
+    // video area: `mousemove` never reaches PlayerOverlay, the autohidden chrome
+    // can never wake up (only `Tab` worked), and clicking the video did nothing.
+    // The surface itself has no interactive content — every control lives in the
+    // chrome strips outside it — so it must be transparent to the mouse.
+    let _: () = msg_send![view, setIgnoresMouseEvents: Bool::YES];
     let _: () = msg_send![content_view, addSubview: view];
     // Hidden until the first file actually loads, so the HTML spinner/error card
     // is visible instead of being covered by a black native rectangle.

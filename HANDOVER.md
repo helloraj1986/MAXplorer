@@ -82,6 +82,12 @@ readiness Range-probe are all unchanged. As-built detail lives in
   listens for `media-player://pointer`; emitting it from the NSView's
   `mouseMoved` is a one-line backend change for WP4b/WP5. Confirm behaviour on the
   installed build before deciding.
+  **RESOLVED 2026-11-21:** the user reported "I don't see the UI for the player".
+  Root cause was exactly this — over the video the NSView was the hit-test target,
+  so `mousemove` never arrived, the autohidden chrome never woke, and clicks did
+  nothing. Fix: `setIgnoresMouseEvents: YES` on the surface at creation (it has no
+  interactive content; every control is in the strips outside it) plus
+  click-the-picture → play/pause. Verified by the user's own report afterwards.
 - Gates: `npx tsc --noEmit` clean; `npx vitest run src/components/media` → **91
   passed** (74 before; `PlayerOverlay.test.tsx` grew 17 cases: autohide with fake
   timers, key map → `api.*` calls, seek ratio math, buffered-span width, error

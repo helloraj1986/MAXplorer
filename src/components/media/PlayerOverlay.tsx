@@ -309,6 +309,17 @@ export function PlayerOverlay() {
     });
   }, [setPlayerStatus]);
 
+  /** Clicking the picture toggles playback, but never when the click landed on a
+   *  control inside it (the error card's Retry / External buttons). */
+  const onStageClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if ((event.target as HTMLElement).closest("button, a, input")) return;
+      if (!useMediaStore.getState().playerStatus) return;
+      togglePlay();
+    },
+    [togglePlay],
+  );
+
   /** One `player_seek` per gesture — called on release, never per pointer move. */
   const commitSeek = useCallback(
     (seconds: number) => {
@@ -553,7 +564,10 @@ export function PlayerOverlay() {
       aria-label={`Playing ${playerSource.title}`}
       onMouseMove={revealChrome}
     >
-      <div className="media-player-stage" ref={stageRef}>
+      {/* Clicking the picture toggles play/pause, like any player. This only
+          works because the backend makes the native surface ignore mouse
+          events (`setIgnoresMouseEvents`), so the click lands here. */}
+      <div className="media-player-stage" ref={stageRef} onClick={onStageClick}>
         {/* The native surface covers this element as soon as a file is loaded.
             Only pre-load notes and the failure card are ever visible here. */}
         {error ? (

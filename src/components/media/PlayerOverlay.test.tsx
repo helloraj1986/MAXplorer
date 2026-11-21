@@ -256,6 +256,14 @@ describe("PlayerOverlay chrome", () => {
     expect(toggle.textContent).toBe("Fill");
   });
 
+  it("toggles playback when the picture is clicked", () => {
+    render(<PlayerOverlay />);
+    const stage = document.querySelector(".media-player-stage") as HTMLElement;
+    expect(stage).toBeTruthy();
+    fireEvent.click(stage);
+    expect(api.playerSetPause).toHaveBeenCalledWith(true);
+  });
+
   it("hides the chrome on Esc, then closes the player on the second press", () => {
     render(<PlayerOverlay />);
     fireEvent.keyDown(window, { key: "Escape" });
