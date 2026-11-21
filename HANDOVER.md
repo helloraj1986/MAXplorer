@@ -96,10 +96,25 @@ readiness Range-probe are all unchanged. As-built detail lives in
 ## ▶ ACTIVE — UI WP4b: engine performance (one backlog item per session)
 
 **Branch:** `feature/media-ui-wp4b` off `feature/media-ui-wp4a`.
-**Done:** item 1 (`emit_state` coalescing) — commit on this branch; measured on a
-60 fps fixture: 66 mpv property events/s → **5 IPC messages/s (−92.4 %)**.
+**Done:** item 1 (`emit_state` coalescing) — commit `d325b4b`; measured on a
+60 fps fixture: 66 property events/s → **5 IPC messages/s (−92.4 %)**; live
+in-app: ~25 events/s → 3.9 msg/s. Also on this branch: `886a629` player-mode
+takeover fix (see below) — **4b itself is 1 of 8 items, NOT finished.**
 **Next:** item 2 — per-frame full-frame memcpy in `render.rs#present` (3-buffer
 ring + `CGImageCreate`, the single biggest win).
+
+### Player-mode takeover bug (fixed 2026-11-21, `886a629`)
+
+Screenshot of live torrent playback showed the media rail, CommandBar and status
+bar around the video. Root cause: **`mediaStore.streamTorrent` set `playerSource`
+without setting `screen: "player"`** (only `openPlayer` did), so `MediaShell` kept
+the rail/top bar and the native surface opened at `rect x=72` (inset by the 72 px
+rail) — the log line `open requested … rect=(72,88,3368,1096)` is the tell.
+Any new path that sets `playerSource` MUST also set `screen: "player"`.
+`App.tsx` now hides CommandBar/Sidebar/StatusBar while in player mode (TitleBar
+stays for window controls + drag). `capabilities/default.json` gained
+`core:window:allow-set-fullscreen`/`allow-is-fullscreen`: F and the fullscreen
+button were no-ops (`not allowed by ACL` in `maxplorer.log`).
 **Read first:** the backlog below, then `docs/MEDIA_PLAYER_HANDOVER.md` §4.6 and
 `src-tauri/src/player.rs` / `render.rs`. This WP is backend + measurement: every
 item is one measurable change, one per session, before/after numbers in the
