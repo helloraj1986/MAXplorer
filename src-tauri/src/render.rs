@@ -86,12 +86,8 @@ pub struct FrameBuffer {
     pub stride: usize,
 }
 
-// The buffer is only used behind the surface mutex.
+// The buffer is only used behind a slot mutex / the ring's free-list discipline.
 unsafe impl Send for FrameBuffer {}
-/// Shared only as "the main thread may read these pixels while the render thread
-/// is not writing them" — which the ring lease enforces (`render_frame` never
-/// re-renders into a slot whose image can still be composited).
-unsafe impl Sync for FrameBuffer {}
 
 impl FrameBuffer {
     pub fn new(width: u32, height: u32) -> Result<Self, String> {
@@ -154,47 +150,125 @@ impl Drop for FrameBuffer {
     }
 }
 
-/// How many surfaces mpv alternates between. Three is the minimum that lets one
-/// buffer be on screen, one be queued for the main thread, and one be rendered
-/// into without ever stalling the decoder.
-const RING_SIZE: usize = 3;
+/// How many surfaces mpv alternates between.
+///
+/// Budget: one being rendered + `RELEASE_LAG` still inside the recycle grace +
+/// the presenter's own lag. Five covers a presenter two frames behind with one
+/// spare; four (the first cut) left **zero** slack, so every present that landed
+/// a frame late cost a rendered frame — measured 24 fps → 4–6 fps with ~50 % of
+/// frames dropped.
+const RING_SIZE: usize = 5;
 
-/// A ring slot. `buffer` is an `Arc` so a presentation closure queued on the main
-/// thread keeps the memory alive even if the stage is resized underneath it.
-struct Slot {
-    buffer: Arc<FrameBuffer>,
-    /// Sequence of the frame whose `CGImage` was made from this buffer
-    /// (0 = never presented). This is the lease clock.
-    seq: u64,
-}
+/// How many presentation steps a slot stays out of the free list. The image just
+/// replaced may still be in flight in Core Animation, so a buffer is only handed
+/// back to mpv once two newer frames have replaced it on the layer.
+const RELEASE_LAG: usize = 2;
 
+/// How long the render thread waits for a slot before dropping the frame.
+const ACQUIRE_TIMEOUT: Duration = Duration::from_millis(40);
+
+/// The ring of surfaces mpv renders into.
+///
+/// Ownership is **consumer-driven**: the render thread takes a slot from `free`,
+/// and the main thread returns it (`Frame::drop` → `release`) after it has set
+/// that image as the layer's contents. `recent` implements the recycle grace.
+/// This replaced a producer-side guess (`presented_seq` vs a frame counter) that
+/// could not tell a busy buffer from a merely-1-frame-behind presenter.
 struct Ring {
-    slots: Vec<Slot>,
-    next: usize,
+    /// Each slot is a `Mutex` purely for interior mutability: only the thread
+    /// holding the index off `free` touches it, so it is never contended.
+    slots: Vec<Mutex<FrameBuffer>>,
+    /// Indices mpv may render into right now (FIFO, so every buffer rotates in).
+    free: Mutex<std::collections::VecDeque<usize>>,
+    /// Slots presented but still inside the recycle grace.
+    recent: Mutex<std::collections::VecDeque<usize>>,
+    /// Wakes the render thread when a slot comes back.
+    released: Condvar,
 }
 
 impl Ring {
     fn new(width: u32, height: u32) -> Result<Self, String> {
         let mut slots = Vec::with_capacity(RING_SIZE);
         for _ in 0..RING_SIZE {
-            slots.push(Slot {
-                buffer: Arc::new(FrameBuffer::new(width, height)?),
-                seq: 0,
-            });
+            slots.push(Mutex::new(FrameBuffer::new(width, height)?));
         }
-        Ok(Self { slots, next: 0 })
+        Ok(Self {
+            slots,
+            free: Mutex::new((0..RING_SIZE).collect()),
+            recent: Mutex::new(std::collections::VecDeque::new()),
+            released: Condvar::new(),
+        })
+    }
+
+    fn geometry(&self) -> (u32, u32) {
+        self.slots
+            .first()
+            .and_then(|slot| slot.lock().ok())
+            .map(|buffer| (buffer.width, buffer.height))
+            .unwrap_or((0, 0))
+    }
+
+    /// Take a slot for rendering, waiting briefly for the presenter to return one.
+    /// `None` means the presenter is genuinely behind (all buffers busy).
+    fn acquire(&self) -> Option<usize> {
+        let mut free = self.free.lock().ok()?;
+        if let Some(index) = free.pop_front() {
+            return Some(index);
+        }
+        let (mut free, _) = self.released.wait_timeout(free, ACQUIRE_TIMEOUT).ok()?;
+        free.pop_front()
+    }
+
+    /// Return a slot after its image has been replaced on the layer.
+    fn release(&self, index: usize) {
+        let Ok(mut recent) = self.recent.lock() else {
+            return;
+        };
+        recent.push_back(index);
+        while recent.len() > RELEASE_LAG {
+            let oldest = recent.pop_front();
+            if let (Some(oldest), Ok(mut free)) = (oldest, self.free.lock()) {
+                free.push_back(oldest);
+            }
+            self.released.notify_one();
+        }
+    }
+
+    /// Return a slot whose image never reached the layer (render error, dropped
+    /// dispatch) — no grace needed.
+    fn release_now(&self, index: usize) {
+        if let Ok(mut free) = self.free.lock() {
+            free.push_back(index);
+        }
+        self.released.notify_one();
+    }
+
+    #[cfg(test)]
+    fn free_count(&self) -> usize {
+        self.free.lock().map(|free| free.len()).unwrap_or(0)
     }
 }
 
-/// One rendered frame awaiting presentation: the slot it occupies plus the
-/// geometry to wrap it in. Holding `buffer` keeps the memory alive until the
-/// main thread has set it as the layer's contents.
+/// One rendered frame awaiting presentation.
+///
+/// Holding `ring` keeps the surface memory alive while the main thread wraps the
+/// raw pointer in a `CGImage`; dropping the `Frame` returns the slot, so a resize
+/// in between cannot free memory that is still being read.
 struct Frame {
-    buffer: Arc<FrameBuffer>,
+    ring: Arc<Ring>,
+    index: usize,
+    /// Base pointer of the slot's pixels (raw: no `Send` on a pointer field).
+    data: usize,
     width: u32,
     height: u32,
     stride: usize,
     seq: u64,
+}
+
+impl Drop for Frame {
+    fn drop(&mut self) {
+        self.ring.release(self.index);
+    }
 }
 
 // ── Shared state between the mpv callback, the render thread and the UI ─────
@@ -210,14 +284,16 @@ struct Shared {
     view: usize,
     signal: Mutex<Signal>,
     wake: Condvar,
-    /// The ring mpv paints into; `None` while the stage has no usable size.
-    ring: Mutex<Option<Ring>>,
-    /// Monotonic frame sequence — the lease clock for the ring.
+    /// The ring mpv paints into; `None` until the stage has a usable size.
+    ring: Mutex<Option<Arc<Ring>>>,
+    /// Monotonic rendered-frame sequence, used for the lease/lag telemetry.
     frame_seq: AtomicU64,
     /// Highest sequence whose image has been handed to the layer.
     presented_seq: AtomicU64,
-    /// Frames not rendered because the presenter still owned the next buffer.
+    /// Frames not rendered because every buffer was still owned by the presenter.
     dropped_frames: AtomicU64,
+    /// Time spent inside `mpv_render_context_render`, in nanoseconds.
+    render_nanos: AtomicU64,
     rendered: AtomicU64,
     present_failed: AtomicBool,
 }
@@ -264,7 +340,7 @@ impl SwRenderer {
         width: u32,
         height: u32,
     ) -> Result<Self, String> {
-        let ring = Ring::new(width, height)?;
+        let ring = Arc::new(Ring::new(width, height)?);
         let shared = Arc::new(Shared {
             app,
             view,
@@ -278,6 +354,7 @@ impl SwRenderer {
             frame_seq: AtomicU64::new(0),
             presented_seq: AtomicU64::new(0),
             dropped_frames: AtomicU64::new(0),
+            render_nanos: AtomicU64::new(0),
             rendered: AtomicU64::new(0),
             present_failed: AtomicBool::new(false),
         });
@@ -341,12 +418,7 @@ impl SwRenderer {
         };
         let same = ring
             .as_ref()
-            .map(|ring| {
-                ring.slots
-                    .first()
-                    .map(|slot| slot.buffer.width == width && slot.buffer.height == height)
-                    .unwrap_or(false)
-            })
+            .map(|ring| ring.geometry() == (width, height))
             .unwrap_or(false);
         if same {
             return;
@@ -357,10 +429,14 @@ impl SwRenderer {
                     LOG_TARGET,
                     format!(
                         "render ring resized to {width}x{height} px ({RING_SIZE} x {:.1} MB)",
-                        (fresh.slots[0].buffer.byte_len() as f64) / (1024.0 * 1024.0)
+                        (fresh.slots[0]
+                            .lock()
+                            .map(|buffer| buffer.byte_len())
+                            .unwrap_or(0) as f64)
+                            / (1024.0 * 1024.0)
                     ),
                 );
-                *ring = Some(fresh);
+                *ring = Some(Arc::new(fresh));
                 drop(ring);
                 if let Ok(mut signal) = self.shared.signal.lock() {
                     signal.redraw = true;
@@ -442,18 +518,27 @@ fn render_loop(api: &'static MpvApi, ctx: MpvRenderContext, shared: Arc<Shared>)
                 frames_since_report += 1;
                 if last_report.elapsed() >= Duration::from_secs(5) {
                     let elapsed = last_report.elapsed().as_secs_f64();
+                    let nanos = shared.render_nanos.swap(0, Ordering::Relaxed);
+                    let render_ms = if frames_since_report > 0 {
+                        nanos as f64 / 1_000_000.0 / frames_since_report as f64
+                    } else {
+                        0.0
+                    };
                     logging::info(
                         LOG_TARGET,
                         format!(
-                            "render: {:.1} fps at {}x{} px ({:.1} MB/frame, zero-copy), {} \
-                             dropped (presenter behind), seq {} presented {}",
+                            "render: {:.1} fps at {}x{} px ({:.1} MB/frame, zero-copy), \
+                             {:.1} ms/frame in mpv, {} dropped (all buffers busy), lag {}",
                             frames_since_report as f64 / elapsed,
                             frame.width,
                             frame.height,
                             (frame.stride * frame.height as usize) as f64 / (1024.0 * 1024.0),
+                            render_ms,
                             shared.dropped_frames.load(Ordering::Relaxed),
-                            shared.frame_seq.load(Ordering::Relaxed),
-                            shared.presented_seq.load(Ordering::Relaxed),
+                            shared
+                                .frame_seq
+                                .load(Ordering::Relaxed)
+                                .saturating_sub(shared.presented_seq.load(Ordering::Relaxed)),
                         ),
                     );
                     last_report = std::time::Instant::now();
@@ -463,14 +548,12 @@ fn render_loop(api: &'static MpvApi, ctx: MpvRenderContext, shared: Arc<Shared>)
                 let app = shared.app.clone();
                 let failed = shared.present_failed.load(Ordering::Relaxed);
                 let seq = frame.seq;
-                // `frame` carries an `Arc` to its slot, so the pixels stay valid
-                // until the main thread has set them as the layer's contents even
-                // if the stage is resized in between.
+                // `frame` carries the ring, so the pixels stay valid until the main
+                // thread has set them as the layer's contents — and dropping it is
+                // what returns the slot to the ring (two-frame recycle grace).
                 let presented = shared.clone();
                 if let Err(error) = app.run_on_main_thread(move || unsafe {
                     if present(view, &frame) {
-                        // Lease clock: once the layer shows this image, its slot
-                        // may be reused by a frame two sequences later.
                         presented.presented_seq.fetch_max(seq, Ordering::AcqRel);
                     } else if !failed {
                         logging::warn(LOG_TARGET, "could not present the video frame to the layer");
@@ -488,65 +571,61 @@ fn render_loop(api: &'static MpvApi, ctx: MpvRenderContext, shared: Arc<Shared>)
     }
 }
 
-/// Can this slot be handed back to mpv yet?
+/// Render one frame into a free ring slot.
 ///
-/// Its `CGImage` must have been replaced on the layer by `RING_SIZE - 1` newer
-/// frames, i.e. two newer frames for a 3-buffer ring. That grace period is what
-/// lets Core Animation finish compositing before the pixels change underneath it.
-fn slot_is_free(last_seq: u64, presented: u64) -> bool {
-    last_seq == 0 || presented.saturating_sub(last_seq) >= RING_SIZE as u64 - 1
-}
-
-/// Render one frame into the next ring slot that is not still on screen.
-///
-/// `Ok(None)` means "nothing rendered this round": either there is no surface
-/// yet, or the presenter still owns the next buffer. Dropping the frame is the
-/// correct move there — rendering into it would tear, and not rendering hands the
-/// CPU back instead of queueing work the main thread cannot consume.
+/// `Ok(None)` means "nothing rendered this round": no surface yet, or every
+/// buffer was still owned by the presenter after a short wait. Dropping is the
+/// right move there — rendering into a slot still on screen would tear, and
+/// `acquire` already waited for a release, so a drop is real backpressure.
 fn render_frame(
     api: &MpvApi,
     ctx: MpvRenderContext,
     shared: &Shared,
 ) -> Result<Option<Frame>, String> {
-    let mut ring_guard = shared
-        .ring
-        .lock()
-        .map_err(|_| "ring mutex poisoned".to_string())?;
-    let Some(ring) = ring_guard.as_mut() else {
-        return Ok(None);
+    let ring = {
+        let guard = shared
+            .ring
+            .lock()
+            .map_err(|_| "ring mutex poisoned".to_string())?;
+        match guard.as_ref() {
+            Some(ring) => Arc::clone(ring),
+            None => return Ok(None),
+        }
     };
-    if ring.slots.is_empty() {
-        return Ok(None);
-    }
-    let index = ring.next % ring.slots.len();
-    let last_seq = ring.slots[index].seq;
-    let presented = shared.presented_seq.load(Ordering::Acquire);
-    // This buffer's image has not yet been replaced on the layer by two newer
-    // frames, so Core Animation (or a queued present) may still be reading it.
-    if !slot_is_free(last_seq, presented) {
-        shared.dropped_frames.fetch_add(1, Ordering::Relaxed);
-        return Ok(None);
-    }
-    let slot = &mut ring.slots[index];
-    // A presentation closure in flight holds an Arc clone of this buffer.
-    let Some(buffer) = Arc::get_mut(&mut slot.buffer) else {
+    let Some(index) = ring.acquire() else {
         shared.dropped_frames.fetch_add(1, Ordering::Relaxed);
         return Ok(None);
     };
-    let (width, height, stride) = (buffer.width, buffer.height, buffer.stride);
-    render_into(api, ctx, buffer)?;
-    let seq = shared.frame_seq.load(Ordering::Relaxed) + 1;
-    shared.frame_seq.store(seq, Ordering::Release);
-    slot.seq = seq;
-    let frame = Frame {
-        buffer: slot.buffer.clone(),
+    let mut slot = match ring.slots[index].lock() {
+        Ok(slot) => slot,
+        Err(_) => {
+            ring.release_now(index);
+            return Err("slot mutex poisoned".into());
+        }
+    };
+    let (width, height, stride) = (slot.width, slot.height, slot.stride);
+    let started = std::time::Instant::now();
+    let rendered = render_into(api, ctx, &mut slot);
+    shared.render_nanos.fetch_add(
+        started.elapsed().as_nanos() as u64,
+        Ordering::Relaxed,
+    );
+    let data = slot.data_ptr() as usize;
+    drop(slot);
+    if let Err(error) = rendered {
+        ring.release_now(index);
+        return Err(error);
+    }
+    let seq = shared.frame_seq.fetch_add(1, Ordering::Relaxed) + 1;
+    Ok(Some(Frame {
+        ring,
+        index,
+        data,
         width,
         height,
         stride,
         seq,
-    };
-    ring.next = (index + 1) % ring.slots.len();
-    Ok(Some(frame))
+    }))
 }
 
 /// One `mpv_render_context_render` into `buffer` (SW backend params only).
@@ -600,8 +679,8 @@ unsafe fn present(view: usize, frame: &Frame) -> bool {
     if view == 0 || width == 0 || height == 0 {
         return false;
     }
-    let data = frame.buffer.data_ptr() as *const c_void;
-    let size = frame.buffer.byte_len();
+    let data = frame.data as *const c_void;
+    let size = stride * height;
     let provider = CGDataProviderCreateWithData(ptr::null_mut(), data, size, None);
     if provider.is_null() {
         return false;
@@ -804,32 +883,68 @@ mod tests {
         assert_eq!(buffer.non_black_pixels(), 0);
     }
 
-    /// The lease is the whole safety story of the zero-copy path, so pin it down:
-    /// a slot whose image is still on screen must be refused, and must be handed
-    /// back exactly once two newer frames have been presented.
+    /// The ring's contract: the renderer can only take a slot the presenter has
+    /// returned, and a presented slot is held for `RELEASE_LAG` presents before it
+    /// comes back. This is the part that was wrong in the first cut (a producer-side
+    /// counter with no slack dropped half the frames).
     #[test]
-    fn ring_lease_waits_for_two_newer_frames() {
-        assert!(slot_is_free(0, 0), "a never-used slot is always free");
-        assert!(!slot_is_free(5, 5), "the frame just presented is on screen");
-        assert!(!slot_is_free(5, 6), "one newer frame is not enough");
-        assert!(slot_is_free(5, 7), "two newer frames release the slot");
-        assert!(slot_is_free(5, 9));
-        // Presenter restart (resize rebuilds the ring; the clock starts over).
-        assert!(slot_is_free(0, 42));
+    fn ring_returns_slots_only_after_the_release_lag() {
+        let ring = Ring::new(64, 48).unwrap();
+        assert_eq!(ring.free_count(), RING_SIZE);
+
+        let indices: Vec<usize> = (0..RING_SIZE).map(|_| ring.acquire().unwrap()).collect();
+        assert_eq!(ring.free_count(), 0, "all buffers are out with mpv");
+        assert!(ring.acquire().is_none(), "nothing left to render into");
+
+        // Present them in order: the slot stays out of the ring for RELEASE_LAG
+        // presents, then comes back.
+        ring.release(indices[0]);
+        assert_eq!(ring.free_count(), 0, "one present is not enough");
+        ring.release(indices[1]);
+        assert_eq!(ring.free_count(), 0, "the grace is not satisfied yet");
+        ring.release(indices[2]);
+        assert_eq!(ring.free_count(), 1, "the first slot is now recyclable");
+
+        // A frame whose image never reached the layer comes back at once.
+        ring.release_now(indices[3]);
+        assert_eq!(ring.free_count(), 2);
+    }
+
+    #[test]
+    fn ring_absorbs_a_presenter_lagging_one_or_two_frames() {
+        // The regression this guards: the first cut refused a buffer whenever the
+        // presenter was one frame behind — which is *always* — and playback fell from
+        // 24 fps to 4–6 fps with half the frames dropped.
+        for lag in 1..=RELEASE_LAG {
+            let ring = Ring::new(16, 16).unwrap();
+            let mut in_flight: Vec<usize> = Vec::new();
+            let mut acquired = 0;
+            for step in 0..60 {
+                let Some(index) = ring.acquire() else {
+                    panic!("dropped a frame at presenter lag {lag} on step {step}");
+                };
+                acquired += 1;
+                in_flight.push(index);
+                if in_flight.len() > lag {
+                    let oldest = in_flight.remove(0);
+                    ring.release(oldest);
+                }
+            }
+            assert_eq!(acquired, 60, "lag {lag}: every frame got a buffer");
+        }
     }
 
     #[test]
     fn ring_allocates_one_surface_per_slot() {
         let ring = Ring::new(333, 7).unwrap();
         assert_eq!(ring.slots.len(), RING_SIZE);
-        let addresses: Vec<usize> = ring
+        assert_eq!(ring.geometry(), (333, 7));
+        let addresses: std::collections::HashSet<usize> = ring
             .slots
             .iter()
-            .map(|slot| slot.buffer.data_ptr() as usize)
+            .map(|slot| slot.lock().unwrap().data_ptr() as usize)
             .collect();
-        let unique: std::collections::HashSet<_> = addresses.iter().collect();
-        assert_eq!(unique.len(), RING_SIZE, "each slot owns its own memory");
-        assert!(ring.slots.iter().all(|slot| slot.seq == 0));
+        assert_eq!(addresses.len(), RING_SIZE, "each slot owns its own memory");
     }
 
     /// Build a `CGImage` over caller-owned pixels (no release callback).
@@ -976,7 +1091,7 @@ mod tests {
         let mut ctx: MpvRenderContext = ptr::null_mut();
         assert!(unsafe { (api.mpv_render_context_create)(&mut ctx, handle, params.as_mut_ptr()) } >= 0);
 
-        let mut ring = Ring::new(320, 240).unwrap();
+        let ring = Ring::new(320, 240).unwrap();
         let load = {
             let (cmd, path) = (CString::new("loadfile").unwrap(), CString::new(fixture).unwrap());
             let args = [cmd.as_ptr(), path.as_ptr(), ptr::null()];
@@ -1001,18 +1116,19 @@ mod tests {
                 std::thread::sleep(Duration::from_millis(10));
                 continue;
             }
-            let index = ring.next % RING_SIZE;
-            let slot = &mut ring.slots[index];
-            {
-                let buffer = Arc::get_mut(&mut slot.buffer).expect("slot must be free");
-                render_into(api, ctx, buffer).expect("render failed");
-                addresses.push(buffer.data_ptr() as usize);
-                if buffer.non_black_pixels() > 1000 {
-                    painted += 1;
-                }
+            let index = ring.acquire().expect("a slot must be available");
+            let (painted_this_frame, data) = {
+                let mut slot = ring.slots[index].lock().unwrap();
+                render_into(api, ctx, &mut slot).expect("render failed");
+                (slot.non_black_pixels() > 1000, slot.data_ptr() as usize)
+            };
+            addresses.push(data);
+            if painted_this_frame {
+                painted += 1;
             }
-            slot.seq = frames as u64 + 1;
-            ring.next = (index + 1) % RING_SIZE;
+            // Simulate the main-thread present: the slot is returned through the
+            // two-present grace, exactly as `Frame::drop` does it.
+            ring.release(index);
             frames += 1;
         }
 
@@ -1026,7 +1142,7 @@ mod tests {
 
         assert!(loaded, "mpv never loaded the fixture");
         assert!(frames >= 6, "not enough frames rendered: {frames}");
-        assert_eq!(unique.len(), RING_SIZE, "the ring must rotate over 3 buffers");
+        assert_eq!(unique.len(), RING_SIZE, "the ring must rotate over every buffer");
         assert!(painted >= 4, "too few frames actually painted ({painted})");
     }
 }

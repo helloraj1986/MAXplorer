@@ -33,7 +33,8 @@
 ### Not working / open
 
 1. **Software-render cost.** The per-frame full-surface `memcpy` is gone (WP4b
-   item 2): mpv renders into a 3-buffer ring and each `CGImage` is created
+   item 2): mpv renders into a 5-buffer ring (consumer-driven free list) and each
+   `CGImage` is created
    directly over that buffer, so the frame path copies nothing. What is left is
    mpv's own CPU scaler (SW backend) and Core Animation's composite — the GL
    backend (§4.3 Option A) is still the route for 4K headroom, not the copy.
@@ -165,7 +166,7 @@ symptom we have now).
 - **Decisive advantage: it is verifiable headlessly** — after rendering a frame,
   assert the buffer is not uniformly black (count non-zero pixels). That is real
   proof the video is painting, which no GL path can give us in this environment.
-- Cost: zero CPU copy — mpv renders into a 3-buffer ring and the `CGImage` is
+- Cost: zero CPU copy — mpv renders into a ring of buffers and the `CGImage` is
   created over that memory (WP4b item 2). What remains on the SW path is mpv's
   own CPU scaler; 4K headroom later means swapping the backend to GL, not
   removing another copy.
@@ -222,18 +223,17 @@ symptom we have now).
 
 `src-tauri/src/render.rs` (new) + slimmed `player.rs`:
 
-- **Zero-copy ring (WP4b item 2).** `Ring` holds `RING_SIZE = 3` 64-byte-aligned
-  `rgb0` surfaces; mpv alternates between them and `present` wraps the frame's
-  own memory in a `CGDataProviderCreateWithData(…, release = None)` + `CGImage`,
-  so no frame data is ever copied. Safety is a lease: `Slot::seq` records the
-  sequence of the frame whose image was made from that buffer,
-  `Shared::presented_seq` is bumped on the main thread after `setContents`, and
-  `slot_is_free` only returns a slot once `RING_SIZE - 1` (two) newer frames have
-  been presented — the compositor's grace period. A frame whose slot is still
-  leased is **dropped, not rendered**, and counted in
-  `Shared::dropped_frames` (logged with the 5 s `render:` perf line). Buffers are
-  `Arc<FrameBuffer>` so a queued present survives a resize; the old ring is
-  dropped only after its in-flight closures finish.
+- **Zero-copy ring (WP4b item 2).** `Ring` holds `RING_SIZE = 5` 64-byte-aligned
+  `rgb0` surfaces behind a **consumer-driven free list** (`VecDeque`); mpv takes a
+  slot via `acquire()` (40 ms wait, then drop = real backpressure) and `present`
+  wraps that slot's own memory in `CGDataProviderCreateWithData(…, release =
+  None)` + `CGImage`, so no frame data is ever copied. `Frame` releases its slot on
+  `Drop`; `release` keeps it out of the free list for `RELEASE_LAG = 2` presents
+  (compositor grace). The `Arc<Ring>` carried by `Frame` keeps the memory alive
+  across a resize. **Do not go back to a producer-side lease with fewer buffers:**
+  the first cut (`presented_seq >= slot_seq + 2`, 3 buffers) had zero slack and
+  dropped ~50 % of frames — 24 fps became 4–6 fps. Buffers needed = 1 rendering +
+  `RELEASE_LAG` + presenter lag.
 - `MpvApi` resolves the five render symbols: `mpv_render_context_create`,
   `set_update_callback`, `update`, `render`, `free`. A candidate libmpv missing
   any of them fails to load with the symbol named.

@@ -98,7 +98,10 @@ readiness Range-probe are all unchanged. As-built detail lives in
 **Branch:** `feature/media-ui-wp4b` off `feature/media-ui-wp4a`.
 **Done:** item 1 (`emit_state` coalescing) — commit `d325b4b`; measured on a
 60 fps fixture: 66 property events/s → **5 IPC messages/s (−92.4 %)**; live
-in-app: ~25 events/s → 3.9 msg/s. Item 2 (zero-copy frame ring — see below).
+in-app: ~25 events/s → 3.9 msg/s. Item 2 (zero-copy frame ring — see below,
+includes the **fps regression fix**: the first cut dropped ~50 % of frames).
+Item 8's numbers (mpv `container-fps` / `estimated-vf-fps` / vo+decoder drop
+counters, render ms/frame, presenter lag) landed with it.
 Also on this branch: `886a629` player-mode takeover fix and `bf5b5a1` fullscreen
 de-duplication — **4b itself is 2 of 8 items, NOT finished.**
 **Next:** item 3 — SW scaler / render-target size (`scale=bilinear`,
@@ -150,32 +153,35 @@ commit message.
 
 ### WP4b item 2 — as built (2026-11-21)
 
-`src-tauri/src/render.rs` only; `player.rs` untouched (public shape unchanged).
+`src-tauri/src/render.rs` + a telemetry line in `player.rs`.
 
-- **`Ring`** = `RING_SIZE = 3` × 64-byte-aligned `rgb0` `FrameBuffer`s, each in a
-  `Slot { buffer: Arc<FrameBuffer>, seq }`. mpv renders into `ring.next`; `present`
-  builds `CGDataProviderCreateWithData(.., release = None)` + `CGImage` **over that
-  memory in place** — no `Vec::to_vec`, no per-frame allocation.
-- **Lease = the safety story.** `frame_seq` is bumped per rendered frame, the
-  presented sequence is bumped on the main thread after `setContents`, and
-  `slot_is_free(last_seq, presented)` refuses a slot until `RING_SIZE - 1` (two)
-  newer frames have been presented (`CGImage`/compositor grace). A slot that is
-  still leased means the frame is **dropped before rendering** (counted in
-  `dropped_frames`, logged on the 5 s `render:` line) — never torn.
-- `Arc` also fixes resize: a queued present keeps its buffer alive, so
-  `set_size` can swap the ring without freeing memory the main thread is reading.
-  `unsafe impl Sync for FrameBuffer` is the deliberate part of that contract.
+- **`Ring`** = `RING_SIZE = 5` × 64-byte-aligned `rgb0` `FrameBuffer`s, each in a
+  `Mutex`, plus a **consumer-driven free list** (`VecDeque`, FIFO) and a `recent`
+  queue. `present` builds `CGDataProviderCreateWithData(.., release = None)` +
+  `CGImage` **over the rendered memory in place** — no `Vec::to_vec`, no per-frame
+  allocation. `Frame` (which carries an `Arc<Ring>` + the raw pointer) releases its
+  slot on `Drop`; a slot stays out of the free list for `RELEASE_LAG = 2`
+  presents (compositor grace), and `acquire` waits up to 40 ms for a slot before
+  dropping the frame as real backpressure.
+- **⚠️ Regression the first cut shipped, and why the design changed:** the initial
+  version guessed from the producer side (`presented_seq >= slot_seq + 2`) with 3
+  buffers — zero slack, so *every* frame the presenter landed one behind was
+  refused. Measured live: `24.0 fps` before → **4–6 fps, ~50 % dropped**. Buffers
+  needed = 1 rendering + `RELEASE_LAG` + presenter lag. A LIFO free list also
+  starved the deepest buffer (ring cycled 3 of 4 forever), hence FIFO.
 - Numbers (`cargo test --release --lib bench_present_path -- --ignored --nocapture`,
-  real 3416×1700 capture size, 22.2 MB/frame): copy path **0.97 ms/frame**
-  (≈22.8 GB/s of memcpy + a 22 MB alloc/free per frame) → zero-copy **<0.01 ms**.
-  At 60 fps that is ~6 % of a core and ~1.3 GB/s of allocator churn returned.
-- Proof: `cargo test --lib live_ring_renders_in_place -- --ignored --nocapture` →
-  `24 frames, 3 distinct surface addresses, 24 painted` (the ring really rotates
-  over three buffers and every frame had real pixels). `live_sw_render_paints_pixels`
-  still `67769/76800`. `cargo test --lib` → 112 passed / 9 ignored (2 new unit
-  tests: lease arithmetic, one surface per slot; 2 new ignored: the bench and the
-  live ring proof); `npx tsc --noEmit` clean; media vitest 91 passed (unchanged —
-  backend-only).
+  3416×1700 = 22.2 MB/frame): copy path **0.97 ms/frame** → zero-copy **<0.01 ms**;
+  ~1.3 GB/s of allocator churn at 60 fps returned.
+- **Telemetry, so "fps is dropping" is a number** (`media.player.perf`, every 5 s,
+  logged from the mpv control thread): `playback: source <container-fps> fps, vf
+  <estimated-vf-fps> fps, vo-drops, decoder-drops, pos`. `media.render` now adds
+  `ms/frame in mpv` and `lag` (rendered − presented) next to its fps/drop counters.
+  Attributing a loss: source 24 + both mpv drop counters flat + `media.render` 5
+  fps ⇒ ours; drop counters climbing ⇒ decode/VO starvation.
+- Proof: `live_ring_renders_in_place` → `24 frames, 5 distinct surface addresses,
+  24 painted`; new `ring_absorbs_a_presenter_lagging_one_or_two_frames`;
+  `live_sw_render_paints_pixels` still `67769/76800`; `cargo test --lib` →
+  113 passed / 9 ignored.
 
 ### WP4b backlog — player engine performance (measured from the code, not guessed)
 
@@ -194,7 +200,8 @@ numbers in the commit message.
 2. ~~**Per-frame full-frame memcpy in `render.rs#present`.**~~ **DONE (item 2 as
    built, above).** `buffer.snapshot()` copied the whole RGB frame (~23 MB at
    3416×1700@2x) plus a fresh `CGDataProvider` + `CGImage` per frame, posted to
-   the main thread. Now a 3-buffer ring with `CGImageCreate` over the raw buffer
+   the main thread. Now a 5-buffer ring (free list + two-present grace) with
+   `CGImageCreate` over the raw buffer
    and a two-frame lease.
 3. **SW scaler / render-target size.** The SW renderer scales in CPU at
    bicubic/lanczos into the full backing size. Set `scale=bilinear`,

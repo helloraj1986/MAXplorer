@@ -226,6 +226,31 @@ fn get_property_string(api: &MpvApi, handle: MpvHandle, name: &str) -> Option<St
     }
 }
 
+/// Exact playback numbers, logged every 5 s next to the renderer's line.
+///
+/// Without these, "the frame rate is dropping" cannot be attributed: `media.render`
+/// only counts frames *we* rendered. `container-fps` is what the source offers,
+/// `estimated-vf-fps` what the VO filter chain is actually emitting, and mpv's two
+/// drop counters say whether the loss is in the VO or in the decoder.
+///
+/// Must run on the mpv control thread (the event loop) — never from the ticker.
+fn log_playback_perf(api: &MpvApi, handle: MpvHandle) {
+    let read = |name: &str| {
+        get_property_string(api, handle, name).unwrap_or_else(|| "n/a".to_string())
+    };
+    logging::info(
+        "media.player.perf",
+        format!(
+            "playback: source {} fps, vf {} fps, vo-drops {}, decoder-drops {}, pos {}",
+            read("container-fps"),
+            read("estimated-vf-fps"),
+            read("vo-drop-frame-count"),
+            read("decoder-frame-drop-count"),
+            read("time-pos"),
+        ),
+    );
+}
+
 fn command(api: &MpvApi, handle: MpvHandle, args: &[&str]) -> Result<(), AppError> {
     let owned: Vec<CString> = args.iter().map(|a| cstr(a)).collect();
     let mut ptrs: Vec<*const c_char> = owned.iter().map(|c| c.as_ptr()).collect();
@@ -495,6 +520,7 @@ fn spawn_event_loop(
             // Coalescing tick: volatile properties dirty this flag, and a 250 ms
             // timer pushes at most one compact `PlayerTick` per window. That is
             // the whole fix for the per-frame full-state emit.
+            let mut perf_window = std::time::Instant::now();
             let dirty = Arc::new(AtomicBool::new(false));
             let tick_stop = Arc::new(AtomicBool::new(false));
             let ticker = {
@@ -535,6 +561,11 @@ fn spawn_event_loop(
                     .expect("spawn mpv tick thread")
             };
             while !stop.load(Ordering::SeqCst) {
+                // Playback numbers from mpv itself, on the control thread.
+                if perf_window.elapsed() >= std::time::Duration::from_secs(5) {
+                    perf_window = std::time::Instant::now();
+                    log_playback_perf(api, handle);
+                }
                 let event = unsafe { (api.mpv_wait_event)(handle, 0.25) };
                 if event.is_null() {
                     break;
