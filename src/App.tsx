@@ -198,7 +198,11 @@ export default function App() {
 
   return (
     <div className={`app-shell ${osDropActive ? "os-drop-active" : ""}`}>
-      <TitleBar />
+      {/* Player mode owns the whole window (spec §5.1): the title bar carries the
+          window's own maximize/close, which would sit next to the player's
+          fullscreen control as a second "maximise" button. Exit via the player's
+          ✕ / Esc, and `f` for fullscreen. */}
+      {!mediaPlayerActive ? <TitleBar /> : null}
       {!mediaPlayerActive ? (
         <div className="chrome">
           <CommandBar />

@@ -619,14 +619,6 @@ export function PlayerOverlay() {
                 : ""}
             </span>
           ) : null}
-          <button
-            type="button"
-            className="media-player-btn is-icon"
-            onClick={toggleFullscreen}
-            aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-          >
-            ⛶
-          </button>
         </div>
       </header>
 
