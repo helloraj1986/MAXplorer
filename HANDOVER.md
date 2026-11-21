@@ -82,12 +82,18 @@ readiness Range-probe are all unchanged. As-built detail lives in
   listens for `media-player://pointer`; emitting it from the NSView's
   `mouseMoved` is a one-line backend change for WP4b/WP5. Confirm behaviour on the
   installed build before deciding.
-  **RESOLVED 2026-11-21:** the user reported "I don't see the UI for the player".
-  Root cause was exactly this — over the video the NSView was the hit-test target,
-  so `mousemove` never arrived, the autohidden chrome never woke, and clicks did
-  nothing. Fix: `setIgnoresMouseEvents: YES` on the surface at creation (it has no
-  interactive content; every control is in the strips outside it) plus
-  click-the-picture → play/pause. Verified by the user's own report afterwards.
+  **RESOLVED 2026-11-21 (second attempt):** the user reported "I don't see the UI for
+  the player". Over the video the NSView was the hit-test target, so `mousemove`
+  never arrived and the autohidden chrome never woke. The first fix
+  (`setIgnoresMouseEvents: YES`) **crashed the app on the next open** — that property
+  belongs to `NSWindow`, not `NSView`, so the selector raised
+  `NSInvalidArgumentException` inside the main-thread run-loop callback and aborted
+  with SIGABRT (no Rust panic log; only `crash report → asi: abort() called`). The
+  correct fix is an NSView subclass whose `hitTest:` returns nil
+  (`video_surface_class()` in `player.rs`, built with `ClassBuilder` because this
+  crate has objc2-foundation only, no typed `NSView`), plus click-the-picture →
+  play/pause. `player::surface_tests::video_surface_class_is_registered` asserts the
+  class overrides `hitTest:` rather than inheriting it.
 - Gates: `npx tsc --noEmit` clean; `npx vitest run src/components/media` → **91
   passed** (74 before; `PlayerOverlay.test.tsx` grew 17 cases: autohide with fake
   timers, key map → `api.*` calls, seek ratio math, buffered-span width, error

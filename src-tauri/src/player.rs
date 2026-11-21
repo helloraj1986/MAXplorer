@@ -53,6 +53,86 @@ const PROP_FILE_LOADED: u64 = 14;
 /// C layout of NSRect/CGRect comes from objc2-foundation so it implements the
 /// `Encode` trait `msg_send!` requires.
 use objc2_foundation::{NSPoint, NSRect, NSSize};
+use objc2::runtime::{AnyClass, ClassBuilder};
+
+/// The video surface: an `NSView` subclass that is **never the hit-test target**,
+/// so pointer events (move, click, hover) fall through to the webview underneath.
+///
+/// This has to be a subclass. `NSView` does not implement
+/// `setIgnoresMouseEvents:` — that property lives on `NSWindow` — and sending it
+/// to a view raises `NSInvalidArgumentException` inside the main-thread run-loop
+/// callback, which aborts the process with SIGABRT and **no Rust panic log**
+/// (observed 2026-11-21: crash 20 ms after `open requested`). `hitTest:` is the
+/// supported hook, and the surface has nothing to interact with: every control
+/// lives in the chrome strips outside it.
+///
+/// Built with `ClassBuilder` rather than `define_class!` because `NSView` is an
+/// AppKit class and this crate depends on objc2-foundation only (no typed NSView).
+unsafe extern "C" fn surface_hit_test(
+    _view: *mut AnyObject,
+    _cmd: objc2::runtime::Sel,
+    _point: NSPoint,
+) -> *mut AnyObject {
+    std::ptr::null_mut()
+}
+
+unsafe fn video_surface_class() -> &'static AnyClass {
+    use std::sync::OnceLock;
+    static CLASS: OnceLock<&'static AnyClass> = OnceLock::new();
+    CLASS.get_or_init(|| {
+        let superclass = objc2::class!(NSView);
+        // SAFETY: the name is unique in this process; the method's signature
+        // matches `- (nullable NSView *)hitTest:(NSPoint)point`; the class is
+        // registered once and every message we send (`alloc`, `initWithFrame:`,
+        // `setWantsLayer:`, `setHidden:`) is inherited from NSView.
+        unsafe {
+            let Some(mut builder) = ClassBuilder::new(c"MAXplorerVideoSurface", superclass) else {
+                // Already registered by an earlier call — fall back to plain NSView
+                // rather than failing playback; the only loss is pointer pass-through.
+                return superclass;
+            };
+            builder.add_method::<AnyObject, _>(
+                objc2::sel!(hitTest:),
+                surface_hit_test
+                    as unsafe extern "C" fn(*mut AnyObject, objc2::runtime::Sel, NSPoint) -> *mut AnyObject,
+            );
+            builder.register()
+        }
+    })
+}
+
+#[cfg(test)]
+mod surface_tests {
+    use super::video_surface_class;
+
+    /// The surface class must register and inherit everything `create_view` sends.
+    /// This asserts class metadata only (no NSView instance, so no AppKit state and
+    /// no main-thread requirement) — the behavioural proof is that sending
+    /// `setIgnoresMouseEvents:` used to abort the app, and `hitTest:` now returns nil.
+    #[test]
+    fn video_surface_class_is_registered() {
+        unsafe {
+            let class = video_surface_class();
+            assert_eq!(class.name().to_string_lossy(), "MAXplorerVideoSurface");
+            let ns_view = objc2::class!(NSView);
+            assert!(!std::ptr::eq(class, ns_view), "must be a subclass, not NSView");
+            // `hitTest:` must be OUR implementation, not NSView's, or the surface
+            // would keep swallowing the pointer (and the chrome would stay hidden).
+            let ours = class.instance_method(objc2::sel!(hitTest:)).expect("hitTest: installed");
+            let base = ns_view
+                .instance_method(objc2::sel!(hitTest:))
+                .expect("NSView has hitTest:");
+            assert!(
+                !std::ptr::eq(ours, base),
+                "the subclass must override hitTest:, not inherit it"
+            );
+            // Every message create_view sends must be inherited and available.
+            for selector in [objc2::sel!(initWithFrame:), objc2::sel!(setWantsLayer:), objc2::sel!(setHidden:), objc2::sel!(removeFromSuperview)] {
+                assert!(class.responds_to(selector), "missing selector {selector:?}");
+            }
+        }
+    }
+}
 
 impl RectExt for NSRect {
     fn from_points(x: f64, y: f64, width: f64, height: f64) -> Self {
@@ -284,7 +364,7 @@ unsafe fn create_view(window: *mut AnyObject, rect: NSRect) -> *mut AnyObject {
     if content_view.is_null() {
         return std::ptr::null_mut();
     }
-    let view: *mut AnyObject = msg_send![objc2::class!(NSView), alloc];
+    let view: *mut AnyObject = msg_send![video_surface_class(), alloc];
     let view: *mut AnyObject = msg_send![view, initWithFrame: rect];
     if view.is_null() {
         return std::ptr::null_mut();
@@ -294,13 +374,9 @@ unsafe fn create_view(window: *mut AnyObject, rect: NSRect) -> *mut AnyObject {
     let _: () = msg_send![view, retain];
     // Layer-back the view so mpv's output composites correctly.
     let _: () = msg_send![view, setWantsLayer: Bool::YES];
-    // **Let the pointer through to the webview.** The surface is composited
-    // ABOVE the webview, so without this it is the hit-test target for the whole
-    // video area: `mousemove` never reaches PlayerOverlay, the autohidden chrome
-    // can never wake up (only `Tab` worked), and clicking the video did nothing.
-    // The surface itself has no interactive content — every control lives in the
-    // chrome strips outside it — so it must be transparent to the mouse.
-    let _: () = msg_send![view, setIgnoresMouseEvents: Bool::YES];
+    // Pointer transparency comes from `VideoSurface::hitTest:` returning nil —
+    // NOT from `setIgnoresMouseEvents:`, which NSView does not implement (that
+    // raised NSInvalidArgumentException and aborted the app on 2026-11-21).
     let _: () = msg_send![content_view, addSubview: view];
     // Hidden until the first file actually loads, so the HTML spinner/error card
     // is visible instead of being covered by a black native rectangle.
