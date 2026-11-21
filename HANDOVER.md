@@ -98,10 +98,12 @@ readiness Range-probe are all unchanged. As-built detail lives in
 **Branch:** `feature/media-ui-wp4b` off `feature/media-ui-wp4a`.
 **Done:** item 1 (`emit_state` coalescing) — commit `d325b4b`; measured on a
 60 fps fixture: 66 property events/s → **5 IPC messages/s (−92.4 %)**; live
-in-app: ~25 events/s → 3.9 msg/s. Also on this branch: `886a629` player-mode
-takeover fix (see below) — **4b itself is 1 of 8 items, NOT finished.**
-**Next:** item 2 — per-frame full-frame memcpy in `render.rs#present` (3-buffer
-ring + `CGImageCreate`, the single biggest win).
+in-app: ~25 events/s → 3.9 msg/s. Item 2 (zero-copy frame ring — see below).
+Also on this branch: `886a629` player-mode takeover fix and `bf5b5a1` fullscreen
+de-duplication — **4b itself is 2 of 8 items, NOT finished.**
+**Next:** item 3 — SW scaler / render-target size (`scale=bilinear`,
+`dscale=bilinear` for `vo=libmpv`, cap the target at `min(stage backing, 2560 px)`
+wide and let CALayer scale the rest).
 
 ### Player-mode takeover bug (fixed 2026-11-21, `886a629`)
 
@@ -146,6 +148,35 @@ commit message.
   passed; `cargo test --lib` → 110 passed / 7 ignored; built, entitlements checked
   (all four keys), installed to `/Applications/MAXplorer.app`.
 
+### WP4b item 2 — as built (2026-11-21)
+
+`src-tauri/src/render.rs` only; `player.rs` untouched (public shape unchanged).
+
+- **`Ring`** = `RING_SIZE = 3` × 64-byte-aligned `rgb0` `FrameBuffer`s, each in a
+  `Slot { buffer: Arc<FrameBuffer>, seq }`. mpv renders into `ring.next`; `present`
+  builds `CGDataProviderCreateWithData(.., release = None)` + `CGImage` **over that
+  memory in place** — no `Vec::to_vec`, no per-frame allocation.
+- **Lease = the safety story.** `frame_seq` is bumped per rendered frame, the
+  presented sequence is bumped on the main thread after `setContents`, and
+  `slot_is_free(last_seq, presented)` refuses a slot until `RING_SIZE - 1` (two)
+  newer frames have been presented (`CGImage`/compositor grace). A slot that is
+  still leased means the frame is **dropped before rendering** (counted in
+  `dropped_frames`, logged on the 5 s `render:` line) — never torn.
+- `Arc` also fixes resize: a queued present keeps its buffer alive, so
+  `set_size` can swap the ring without freeing memory the main thread is reading.
+  `unsafe impl Sync for FrameBuffer` is the deliberate part of that contract.
+- Numbers (`cargo test --release --lib bench_present_path -- --ignored --nocapture`,
+  real 3416×1700 capture size, 22.2 MB/frame): copy path **0.97 ms/frame**
+  (≈22.8 GB/s of memcpy + a 22 MB alloc/free per frame) → zero-copy **<0.01 ms**.
+  At 60 fps that is ~6 % of a core and ~1.3 GB/s of allocator churn returned.
+- Proof: `cargo test --lib live_ring_renders_in_place -- --ignored --nocapture` →
+  `24 frames, 3 distinct surface addresses, 24 painted` (the ring really rotates
+  over three buffers and every frame had real pixels). `live_sw_render_paints_pixels`
+  still `67769/76800`. `cargo test --lib` → 112 passed / 9 ignored (2 new unit
+  tests: lease arithmetic, one surface per slot; 2 new ignored: the bench and the
+  live ring proof); `npx tsc --noEmit` clean; media vitest 91 passed (unchanged —
+  backend-only).
+
 ### WP4b backlog — player engine performance (measured from the code, not guessed)
 
 Reading `src-tauri/src/player.rs` + `render.rs` on 2026-11-21 found these; each is
@@ -160,12 +191,11 @@ numbers in the commit message.
    cacheSpeed}`; immediate full event only for discrete changes (pause, mute,
    volume, file-loaded, error, eof, playback-restart). Expect ~95 % less IPC and
    React work; the bar stays smooth via a CSS transition.
-2. **Per-frame full-frame memcpy in `render.rs#present`.** `buffer.snapshot()`
-   copies the whole RGB frame (~23 MB at 3416×1700@2x), then a fresh
-   `CGDataProvider` + `CGImage` per frame, posted to the main thread. Fix: a
-   3-buffer ring, `CGImageCreate` over the raw buffer, recycle a buffer only after
-   its image has been replaced two frames ago (avoid tearing). This is the single
-   biggest win and the reason `framedrop=vo` is needed today.
+2. ~~**Per-frame full-frame memcpy in `render.rs#present`.**~~ **DONE (item 2 as
+   built, above).** `buffer.snapshot()` copied the whole RGB frame (~23 MB at
+   3416×1700@2x) plus a fresh `CGDataProvider` + `CGImage` per frame, posted to
+   the main thread. Now a 3-buffer ring with `CGImageCreate` over the raw buffer
+   and a two-frame lease.
 3. **SW scaler / render-target size.** The SW renderer scales in CPU at
    bicubic/lanczos into the full backing size. Set `scale=bilinear`,
    `dscale=bilinear` for the `vo=libmpv` path and cap the target at

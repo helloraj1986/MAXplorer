@@ -32,9 +32,11 @@
 
 ### Not working / open
 
-1. **Software-render cost.** One CPU copy per frame (~8 MB at 1080p, ~33 MB at
-   4K). Acceptable for 1080p; 4K may drop frames on a busy machine. The fix is
-   the GL backend (§4.3 Option A), not more patching of the SW path.
+1. **Software-render cost.** The per-frame full-surface `memcpy` is gone (WP4b
+   item 2): mpv renders into a 3-buffer ring and each `CGImage` is created
+   directly over that buffer, so the frame path copies nothing. What is left is
+   mpv's own CPU scaler (SW backend) and Core Animation's composite — the GL
+   backend (§4.3 Option A) is still the route for 4K headroom, not the copy.
 2. **GUI click-through on this box is unverifiable** (display composites blank).
    The user must confirm pixels inside the window (§4.4 step 6).
 3. Audio/subtitle track selection (mpv exposes `aid`/`sid`) — not wired to any UI.
@@ -163,8 +165,10 @@ symptom we have now).
 - **Decisive advantage: it is verifiable headlessly** — after rendering a frame,
   assert the buffer is not uniformly black (count non-zero pixels). That is real
   proof the video is painting, which no GL path can give us in this environment.
-- Cost: CPU copy per frame. Fine for 1080p; marginal for 4K/HDR — acceptable as
-  a first working version, then swap the backend to GL.
+- Cost: zero CPU copy — mpv renders into a 3-buffer ring and the `CGImage` is
+  created over that memory (WP4b item 2). What remains on the SW path is mpv's
+  own CPU scaler; 4K headroom later means swapping the backend to GL, not
+  removing another copy.
 
 **Option A — `MPV_RENDER_API_TYPE_OPENGL`.** Correct end state, more risk.
 - Needs an `NSOpenGLView` (or NSOpenGLContext + layer) whose pixel format is
@@ -218,16 +222,29 @@ symptom we have now).
 
 `src-tauri/src/render.rs` (new) + slimmed `player.rs`:
 
+- **Zero-copy ring (WP4b item 2).** `Ring` holds `RING_SIZE = 3` 64-byte-aligned
+  `rgb0` surfaces; mpv alternates between them and `present` wraps the frame's
+  own memory in a `CGDataProviderCreateWithData(…, release = None)` + `CGImage`,
+  so no frame data is ever copied. Safety is a lease: `Slot::seq` records the
+  sequence of the frame whose image was made from that buffer,
+  `Shared::presented_seq` is bumped on the main thread after `setContents`, and
+  `slot_is_free` only returns a slot once `RING_SIZE - 1` (two) newer frames have
+  been presented — the compositor's grace period. A frame whose slot is still
+  leased is **dropped, not rendered**, and counted in
+  `Shared::dropped_frames` (logged with the 5 s `render:` perf line). Buffers are
+  `Arc<FrameBuffer>` so a queued present survives a resize; the old ring is
+  dropped only after its in-flight closures finish.
 - `MpvApi` resolves the five render symbols: `mpv_render_context_create`,
   `set_update_callback`, `update`, `render`, `free`. A candidate libmpv missing
   any of them fails to load with the symbol named.
 - `SwRenderer` owns the context and a dedicated **`mpv-render` thread**. All
   `mpv_render_*` calls happen on that thread; the update callback only bumps a
   counter and signals a condvar (it never calls mpv — render.h forbids it).
-  Frames are presented by posting to the main thread, where the RGBA snapshot is
-  wrapped in a `CGImage` (`CGDataProviderCreateWithData`, owned by the layer)
-  and assigned to the view layer's `contents`. CoreGraphics is a system
-  framework — no new crate, so `Cargo.lock` is unchanged.
+  Frames are presented by posting to the main thread, where the frame's ring
+  buffer is wrapped in a `CGImage` (`CGDataProviderCreateWithData`, no copy and
+  no release callback — the ring lease owns the memory) and assigned to the view
+  layer's `contents`. CoreGraphics is a system framework — no new crate, so
+  `Cargo.lock` is unchanged.
 - Surface: `FrameBuffer` is 64-byte-aligned (`render.h` alignment rule), stride
   rounded to 64, format `rgb0`, size in **backing pixels** via
   `convertRectToBacking` (Retina would otherwise play at half resolution).
