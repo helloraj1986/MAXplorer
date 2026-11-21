@@ -2073,12 +2073,14 @@
   cursor: default;
 }
 
-/* A popover over live video must be opaque: --m-bg-elevated alone let the
-   picture show through and the rows looked like ghost text. */
+/* A player popover sits over the native video layer in a TRANSPARENT window:
+   any alpha here lets the picture through and the rows read as ghost text, and
+   `backdrop-filter` has nothing it can blur (the video is not a webview layer).
+   So: fully opaque, no filter, and a hard shadow to separate it from the film. */
 .media-player .media-trackmenu {
-  background: rgba(18, 17, 24, 0.97);
-  backdrop-filter: blur(18px);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.65);
+  background: #121118;
+  backdrop-filter: none;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
 .media-trackmenu {
@@ -2537,4 +2539,19 @@ html.mx-player-active .media-main {
 
 .media-trackmenu.is-plain {
   min-width: 214px;
+}
+
+/* Player menus: white rows over the opaque panel (--m-text-dim read as grey
+   against a bright film even with the panel painted). */
+.media-player .media-trackmenu-row {
+  color: #fff;
+}
+
+.media-player .media-trackmenu-row:hover {
+  background: rgba(255, 255, 255, 0.10);
+  color: #fff;
+}
+
+.media-player .media-trackmenu-badge {
+  color: rgba(255, 255, 255, 0.72);
 }
