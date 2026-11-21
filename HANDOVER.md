@@ -104,9 +104,45 @@ Item 8's numbers (mpv `container-fps` / `estimated-vf-fps` / vo+decoder drop
 counters, render ms/frame, presenter lag) landed with it.
 Also on this branch: `886a629` player-mode takeover fix and `bf5b5a1` fullscreen
 de-duplication — **4b itself is 2 of 8 items, NOT finished.**
-**Next:** item 3 — SW scaler / render-target size (`scale=bilinear`,
-`dscale=bilinear` for `vo=libmpv`, cap the target at `min(stage backing, 2560 px)`
-wide and let CALayer scale the rest).
+**Next: BUNDLE A — items 3 + 4** (render cost). The user authorised batching
+coupled items on 2026-11-21: same code path ⇒ one session, but **one commit and
+one measurement per item**, never one commit for both. Full spec below.
+
+### BUNDLE A spec (items 3 + 4)
+
+**Item 3 — SW scaler + render-target cap.**
+- `player.rs` option set (before `mpv_initialize`, beside `vo=libmpv`):
+  `scale=bilinear`, `dscale=bilinear`. The SW VO scales in CPU; bilinear is the
+  cheap filter and at this size the difference is invisible after CALayer
+  upscaling.
+- `render.rs`: cap the render target. In `set_size` (and the initial create),
+  given backing `(w, h)`, if `w > TARGET_MAX_WIDTH` scale down preserving aspect
+  (`h = h * MAX / w`, `w = MAX`), `TARGET_MAX_WIDTH = 2560`. The NSView frame
+  stays the full stage — `CALayer.contentsGravity` defaults to resize, so the
+  layer upscales the smaller CGImage for free. Keep `set_size` idempotent: compare
+  the **capped** size, else it reallocates the ring on every resize tick.
+- Measure: `media.render` → `ms/frame in mpv` and fps on the same 4K 24 fps
+  torrent; expect fewer pixels (2560×~1049 ≈ 10.7 MB/frame vs 18.5) and lower
+  mpv time. Watch for subtitle softness (mpv rasterises subs into the capped
+  buffer) — if it looks bad, raise the cap, don't add a second render pass.
+- Live proof: `cargo test --lib live_ring_renders_in_place -- --ignored --nocapture`
+  must still paint every frame.
+
+**Item 4 — drop stale frames before dispatch.**
+- Today every rendered frame is posted to the main thread unconditionally; when
+  the main thread lags, a backlog of stale `CGImage`s is composited in order.
+- Add `queued: AtomicU64` (frames dispatched, not yet presented). Before
+  `run_on_main_thread`, if `queued >= 1` **skip the dispatch** and let the `Frame`
+  drop return its slot (count it in a separate `stale_frames` counter — do NOT
+  add it to `dropped_frames`, which means "no buffer available"). Decrement
+  `queued` on the main thread after `setContents`.
+- Acceptance: `media.render` shows `lag 1` (never >1) and 0 stale drops at steady
+  state; during a window drag the stale counter may tick while fps stays 24.
+
+**Cleanup in the same build** (found 2026-11-21): `vo-drops` and
+`osd … bars l/t/r/b` print `n/a` — those properties don't exist in mpv
+v0.42.0-173. Keep `decoder-frame-drop-count` and `osd WxH` (both print), drop the
+dead fields.
 
 ### Ultrawide Fit/Fill + surface-rect diagnostics (2026-11-21, after the takeover fix)
 
