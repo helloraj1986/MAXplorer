@@ -176,7 +176,7 @@ describe("PlayerOverlay chrome", () => {
     expect(document.querySelector(".media-player-title")?.textContent).toBe("Sintel");
     // quality + codec chip, both real data (stream badge + mpv video-format).
     expect(document.querySelector(".media-player-chip")?.textContent).toBe("4K · HEVC");
-    const transport = document.querySelector(".media-player-transport");
+    const transport = document.querySelector(".media-player-play");
     expect(transport?.getAttribute("aria-label")).toBe("Pause");
   });
 
@@ -251,7 +251,7 @@ describe("PlayerOverlay chrome", () => {
 
   it("toggles fit/fill via the labelled button and calls panscan", () => {
     render(<PlayerOverlay />);
-    const toggle = document.querySelector(".media-player-btn.is-toggle") as HTMLButtonElement;
+    const toggle = document.querySelector(".media-player-icon.is-toggle") as HTMLButtonElement;
     expect(toggle).toBeTruthy();
     expect(toggle.textContent).toBe("Fill");
     expect(toggle.getAttribute("aria-pressed")).toBe("false");
@@ -412,16 +412,16 @@ describe("track menus (Phase 2)", () => {
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
-  it("docks the open menu in the footer, never over the video stage", () => {
+  it("floats the open menu above the bar, anchored to its own button", () => {
     open([audioTrack, frenchTrack]);
     fireEvent.click(screen.getByRole("button", { name: /Audio tracks/ }));
-    const dock = document.querySelector(".media-player-menu-dock");
-    expect(dock).toBeTruthy();
-    // The footer is the only place the native surface cannot cover: the dock
-    // grows it, the stage shrinks and its ResizeObserver moves the surface.
-    expect(dock?.closest(".media-player-bottom")).toBeTruthy();
-    expect(document.querySelector(".media-player-stage .media-trackmenu")).toBeNull();
-    expect(document.querySelector(".media-player-bottom .media-trackmenu")).toBeTruthy();
+    const menu = document.querySelector(".media-player-controls .media-trackmenu");
+    expect(menu).toBeTruthy();
+    // The video surface is below the webview now, so a popover composites over
+    // the picture — it must NOT be pushed into the footer flow (which would
+    // shrink the stage, the old workaround).
+    expect(menu?.closest(".media-player-trackwrap")).toBeTruthy();
+    expect(document.querySelector(".media-player-menu-dock")).toBeNull();
   });
 
   it("opens the subtitle menu with the Off row first", () => {

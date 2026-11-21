@@ -200,6 +200,8 @@ pub struct PlayerStatus {
     pub cache_speed: i64,
     pub file_loaded: bool,
     pub error: Option<String>,
+    /// True for a PQ/HLG/BT.2020 source (the `HDR` badge in the chrome).
+    pub hdr: bool,
     /// mpv's `track-list` (audio/subtitle/video). Refreshed on `track-list`,
     /// `aid` and `sid` changes, and re-read after `file-loaded`.
     pub tracks: Vec<PlayerTrack>,
@@ -400,6 +402,19 @@ fn command(api: &MpvApi, handle: MpvHandle, args: &[&str]) -> Result<(), AppErro
 
 /// Create the NSView subview and add it to the window's content view.
 /// Must run on the main thread.
+/// The WKWebView's NSView, captured at startup. The video surface is inserted
+/// **below** it so HTML chrome composites OVER the picture — the transparent
+/// window makes the webview's own background clear during playback.
+static WEBVIEW_VIEW: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+pub fn set_webview_view(address: usize) {
+    WEBVIEW_VIEW.store(address, std::sync::atomic::Ordering::SeqCst);
+}
+
+fn webview_view() -> *mut AnyObject {
+    WEBVIEW_VIEW.load(std::sync::atomic::Ordering::SeqCst) as *mut AnyObject
+}
+
 unsafe fn create_view(window: *mut AnyObject, rect: NSRect) -> *mut AnyObject {
     let content_view: *mut AnyObject = msg_send![window, contentView];
     if content_view.is_null() {
@@ -418,7 +433,37 @@ unsafe fn create_view(window: *mut AnyObject, rect: NSRect) -> *mut AnyObject {
     // Pointer transparency comes from `VideoSurface::hitTest:` returning nil —
     // NOT from `setIgnoresMouseEvents:`, which NSView does not implement (that
     // raised NSInvalidArgumentException and aborted the app on 2026-11-21).
-    let _: () = msg_send![content_view, addSubview: view];
+    // Stack the surface at the BOTTOM of the content view: with a transparent
+    // webview (transparent window) the HTML chrome then composites over the
+    // picture, which is what lets the player controls overlay the video instead
+    // of stealing layout space.
+    //
+    // `relativeTo:` must be nil here — AppKit raises NSInvalidArgumentException
+    // ("view not a subview") when the reference view is not a DIRECT subview of
+    // the receiver, and that exception is an uncatchable SIGABRT from this
+    // callback (crash report: -[NSView addSubview:positioned:relativeTo:] ->
+    // abort). `nil` + `Below` puts the surface under every existing sibling,
+    // including the webview (and any container Tauri wraps it in).
+    let siblings: *mut AnyObject = msg_send![content_view, subviews];
+    let sibling_count: usize = if siblings.is_null() {
+        0
+    } else {
+        msg_send![siblings, count]
+    };
+    let _: () = msg_send![
+        content_view,
+        addSubview: view,
+        positioned: (-1 as isize),
+        relativeTo: std::ptr::null_mut::<AnyObject>()
+    ];
+    logging::info(
+        LOG_TARGET,
+        format!(
+            "video surface stacked below {sibling_count} content-view subview(s) at 0x{:x}              (webview=0x{:x})",
+            view as usize,
+            webview_view() as usize
+        ),
+    );
     // Hidden until the first file actually loads, so the HTML spinner/error card
     // is visible instead of being covered by a black native rectangle.
     let _: () = msg_send![view, setHidden: Bool::YES];
@@ -449,9 +494,51 @@ unsafe fn remove_view(view: *mut AnyObject) {
 }
 
 /// Convert a top-left-origin CSS rect (points) into an NSView frame.
+/// The webview's frame in content-view coordinates. CSS (0,0) is the webview's
+/// top-left corner, which is NOT always the content view's: in macOS fullscreen
+/// (and with an overlay title bar) the webview starts below the title-bar band.
+/// Anchoring the surface rect to this frame is what stops a transparent window
+/// from showing a strip of desktop above the video.
+unsafe fn webview_rect_in_content(window: *mut AnyObject) -> Option<NSRect> {
+    let webview = webview_view();
+    let content: *mut AnyObject = msg_send![window, contentView];
+    if webview.is_null() || content.is_null() {
+        return None;
+    }
+    let bounds: NSRect = msg_send![webview, bounds];
+    let rect: NSRect = msg_send![webview, convertRect: bounds, toView: content];
+    if rect.size.width < 1.0 || rect.size.height < 1.0 {
+        return None;
+    }
+    Some(rect)
+}
+
 unsafe fn frame_from_css(window: *mut AnyObject, x: f64, y: f64, w: f64, h: f64) -> NSRect {
+    if let Some(web) = webview_rect_in_content(window) {
+        return NSRect::from_points(
+            web.origin.x + x,
+            web.origin.y + web.size.height - (y + h),
+            w,
+            h,
+        );
+    }
     let height = content_view_height(window);
     NSRect::from_points(x, height - (y + h), w, h)
+}
+
+/// Opaque black behind every subview: the window itself is transparent (so the
+/// webview can be), and anything the video surface does not cover — a fullscreen
+/// title-bar band, rounded corners — must be black, never the desktop.
+pub fn set_window_background_black(window: *mut std::ffi::c_void) {
+    if window.is_null() {
+        return;
+    }
+    unsafe {
+        let window = window as *mut AnyObject;
+        let color: *mut AnyObject = msg_send![objc2::class!(NSColor), blackColor];
+        let _: () = msg_send![window, setBackgroundColor: color];
+        logging::debug(LOG_TARGET, "window background set to opaque black");
+    }
 }
 
 /// Size of a CSS rect in **backing pixels** (points × display scale factor).
@@ -828,8 +915,10 @@ fn spawn_event_loop(
                             );
                         }
                         let tracks = read_tracks(api, handle);
+                        let hdr = is_hdr_source(api, handle);
                         if let Ok(mut status) = shared.lock() {
                             status.tracks = tracks;
+                            status.hdr = hdr;
                         }
                         // Resume: seek before the UI may reveal the surface. The
                         // restart event below is the signal that the resumed frame
@@ -1103,6 +1192,26 @@ fn read_tracks(api: &MpvApi, handle: MpvHandle) -> Vec<PlayerTrack> {
     // Caller-owned for a `mpv_get_property(..., MPV_FORMAT_NODE)` read.
     unsafe { (api.mpv_free_node_contents)(&mut node as *mut _) };
     tracks
+}
+
+/// HDR detection from mpv's video params: PQ/HLG transfer or a BT.2020
+/// primaries set. The chrome shows the badge only when this is true.
+fn is_hdr_source(api: &MpvApi, handle: MpvHandle) -> bool {
+    let gamma = get_property_string(api, handle, "video-params/gamma")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let primaries = get_property_string(api, handle, "video-params/primaries")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let peak = get_property_string(api, handle, "video-params/sig-peak").unwrap_or_default();
+    let hdr = gamma.contains("pq") || gamma.contains("hlg") || primaries.contains("2020") || {
+        peak.parse::<f64>().map(|value| value > 1.0).unwrap_or(false)
+    };
+    logging::debug(
+        LOG_TARGET,
+        format!("video params: gamma={gamma:?} primaries={primaries:?} sig-peak={peak:?} -> hdr={hdr}"),
+    );
+    hdr
 }
 
 fn set_property_string(api: &MpvApi, handle: MpvHandle, name: &str, value: &str) -> c_int {

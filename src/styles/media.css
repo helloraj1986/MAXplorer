@@ -1660,10 +1660,10 @@
   position: absolute;
   inset: 0;
   z-index: 20;
-  display: flex;
-  flex-direction: column;
   overflow: hidden;
-  background: #000;
+  /* Transparent: the native video surface sits BELOW this webview, so the
+     window shows the picture and every control here composites over it. */
+  background: transparent;
   color: var(--m-text);
   font-family: var(--m-font);
 }
@@ -1675,25 +1675,30 @@
 }
 
 .media-player-stage {
-  position: relative;
-  flex: 1 1 auto;
-  min-height: 0;
+  position: absolute;
+  inset: 0;
   display: grid;
   place-items: center;
   overflow: hidden;
-  background: #000;
+  /* Only pre-load notes / the error card are ever visible here: the native
+     surface is behind this element, so it must stay transparent. */
+  background: transparent;
 }
 
 /* ── strips ── */
 
 .media-player-top {
-  flex: 0 0 auto;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: 14px;
-  height: 72px;
-  padding: 0 20px;
-  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0));
+  padding: 18px 28px 46px;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0));
+  transition: opacity 180ms ease-out;
 }
 
 .media-player-close {
@@ -1755,8 +1760,21 @@
 /* ── bottom region: state row (40 px) + bar (88 px) + 2 px hairline ── */
 
 .media-player-bottom {
-  flex: 0 0 auto;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0));
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  padding: 0 28px 14px;
+  background: linear-gradient(
+    to top,
+    rgba(0, 0, 0, 0.86),
+    rgba(0, 0, 0, 0.55) 40%,
+    rgba(0, 0, 0, 0) 100%
+  );
+  transition: opacity 180ms ease-out;
 }
 
 .media-player.is-idle .media-player-bottom {
@@ -1794,16 +1812,14 @@
   padding: 0 20px;
 }
 
-/* Idle removes the chrome from the layout (the stage grows to full window) and
-   from the tab order. `display: none` rather than a height transition: a
-   transition would re-send the native surface rect every frame. */
+/* Idle fades the chrome out. It is an overlay now, so nothing re-layouts and
+   the native surface rect never changes — no per-frame rect churn. */
+.media-player.is-idle .media-player-top,
 .media-player.is-idle .media-player-state-slot,
-.media-player.is-idle .media-player-bar {
-  display: none;
-}
-
-.media-player.is-idle .media-player-top {
-  display: none;
+.media-player.is-idle .media-player-seekrow,
+.media-player.is-idle .media-player-controls {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .media-player-transport {
@@ -2064,17 +2080,11 @@
   cursor: default;
 }
 
-/* Docked above the player bar, in normal footer flow: opening a menu grows the
-   footer, which shrinks the stage, which the ResizeObserver reports to the
-   native surface. A floated popover would be painted UNDER that surface. */
-.media-player-menu-dock {
-  display: flex;
-  justify-content: flex-end;
-  padding: 0 24px 8px;
-}
-
 .media-trackmenu {
-  position: static;
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: 0;
+  z-index: 8;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -2308,4 +2318,247 @@
   .media-card-caption-skeleton {
     animation: none;
   }
+}
+
+/* ── Production player chrome (overlay redesign) ────────────────────────────
+   The native video surface now sits BELOW the webview (transparent window), so
+   these controls composite over the picture instead of reserving layout space.
+   Layout rule for this section: nothing here may change the stage's geometry. */
+
+/* The app paints full-screen backgrounds for every screen; while the player is
+   open the window is transparent and the video is behind the webview, so those
+   backgrounds must step aside or the picture would be hidden. */
+html.mx-player-active,
+html.mx-player-active body,
+html.mx-player-active #root {
+  background: transparent !important;
+}
+
+html.mx-player-active .app-shell,
+html.mx-player-active .main-area,
+html.mx-player-active .media-app,
+html.mx-player-active .media-app-main,
+html.mx-player-active .media-main {
+  background: transparent !important;
+}
+
+.media-player-back {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.media-player-back:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.media-player-top .media-player-title {
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.94);
+}
+
+.media-player-hdr {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+/* Flat icon buttons: 34 px hit area, a soft hover disc, no border. */
+.media-player-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 120ms ease-out, color 120ms ease-out;
+}
+
+.media-player-icon:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+
+.media-player-icon.is-active {
+  color: var(--m-accent);
+}
+
+.media-player-icon:disabled {
+  opacity: 0.34;
+  cursor: default;
+}
+
+.media-player-icon.is-toggle {
+  width: auto;
+  min-width: 44px;
+  padding: 0 9px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Audio-track glyph: four EQ bars (the reference's equalizer icon). */
+.media-player-eq {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 14px;
+}
+
+.media-player-eq i {
+  display: block;
+  width: 2px;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+.media-player-eq i:nth-child(1) { height: 6px; }
+.media-player-eq i:nth-child(2) { height: 11px; }
+.media-player-eq i:nth-child(3) { height: 14px; }
+.media-player-eq i:nth-child(4) { height: 8px; }
+
+/* Seek row: elapsed at the far left, total at the far right, bar between. */
+.media-player-seekrow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 2px 2px 8px;
+}
+
+.media-player-seekrow .media-player-time {
+  flex: 0 0 auto;
+  min-width: 56px;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.media-player-seekrow .media-player-time:last-child {
+  text-align: right;
+}
+
+.media-player-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 2px 2px;
+}
+
+.media-player-controls-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.media-player-play {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #fff;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: background 120ms ease-out;
+}
+
+.media-player-play:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.media-player-play:disabled {
+  opacity: 0.4;
+}
+
+.media-player-volume {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.media-player-volume-slider {
+  width: 96px;
+  height: 4px;
+  accent-color: var(--m-accent);
+  cursor: pointer;
+}
+
+/* Playback-info panel (the reference's target/reticle control). */
+.media-player-info {
+  position: absolute;
+  top: 62px;
+  right: 28px;
+  z-index: 4;
+  width: 292px;
+  padding: 14px 16px;
+  border: 1px solid var(--m-hairline);
+  border-radius: var(--m-radius-panel);
+  background: rgba(12, 11, 16, 0.92);
+  box-shadow: var(--m-shadow-panel);
+  backdrop-filter: blur(14px);
+}
+
+.media-player-info dl {
+  margin: 0;
+  display: grid;
+  gap: 9px;
+}
+
+.media-player-info div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: 12px;
+}
+
+.media-player-info dt {
+  color: var(--m-text-dim);
+  font-weight: 500;
+}
+
+.media-player-info dd {
+  margin: 0;
+  color: var(--m-text);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.media-trackmenu.is-plain {
+  min-width: 214px;
 }

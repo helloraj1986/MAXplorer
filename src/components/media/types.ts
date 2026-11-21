@@ -221,6 +221,8 @@ export interface NativePlayerStatus {
   audioId?: number | null;
   /** Selected subtitle track id; null = subtitles off. */
   subsId?: number | null;
+  /** PQ/HLG/BT.2020 source — drives the `HDR` badge. */
+  hdr?: boolean;
 }
 
 /**
