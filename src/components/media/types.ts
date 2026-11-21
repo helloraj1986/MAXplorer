@@ -170,6 +170,29 @@ export interface StreamFacts {
 /** Streams-panel filter (docs/MEDIA_UI_SPEC.md §4.3). */
 export type StreamFilter = "all" | "cached" | "4k" | "1080p" | "torrent";
 
+/** One audio or subtitle track from mpv's `track-list` (Phase 2). */
+export interface PlayerTrack {
+  id: number;
+  kind: "audio" | "sub";
+  lang: string | null;
+  title: string | null;
+  codec: string | null;
+  /** `5.1` / `stereo` for audio, null for subtitles. */
+  channels: string | null;
+  selected: boolean;
+  default: boolean;
+  forced: boolean;
+  external: boolean;
+}
+
+/** `media_player_tracks` / `media_player_set_track` result. */
+export interface TrackState {
+  tracks: PlayerTrack[];
+  audioId: number | null;
+  subsId: number | null;
+  secondarySubsId: number | null;
+}
+
 /** Native (libmpv) player state pushed from the backend. */
 export interface NativePlayerStatus {
   loaded: boolean;
@@ -182,7 +205,7 @@ export interface NativePlayerStatus {
   muted: boolean;
   title: string | null;
   videoFormat: string | null;
-  /** mpv is stalled waiting for the network (a torrent stream does this a lot). */
+  /** mpv is stalled waiting for the network (a torrent stream can do this a lot). */
   pausedForCache: boolean;
   /** mpv's cache fill, 0-100. */
   cachePercent: number;
@@ -192,6 +215,14 @@ export interface NativePlayerStatus {
   cacheSpeed: number;
   fileLoaded: boolean;
   error: string | null;
+  /** Audio + subtitle tracks (Phase 2). Empty until the file is loaded. */
+  tracks?: PlayerTrack[];
+  /** Selected audio track id; null = `aid=no`. */
+  audioId?: number | null;
+  /** Selected subtitle track id; null = subtitles off. */
+  subsId?: number | null;
+  /** PQ/HLG/BT.2020 source — drives the `HDR` badge. */
+  hdr?: boolean;
 }
 
 /**

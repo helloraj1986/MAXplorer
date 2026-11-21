@@ -8,7 +8,12 @@
  * (spec §11.8).
  */
 
-.media-app {
+/* `.media-player` is mounted OUTSIDE `.media-app` (player mode is a full-window
+   takeover that replaces MediaShell), so it needs the tokens in its own right —
+   otherwise every var() in the chrome resolves to nothing and popovers paint
+   transparent with inherited text. */
+.media-app,
+.media-player {
   /* 1.1 Colour */
   --m-bg: #0f0e14;
   --m-bg-elevated: #141219;

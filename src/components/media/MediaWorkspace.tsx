@@ -48,6 +48,7 @@ export function MediaWorkspace() {
   const debridConfig = useMediaStore((state) => state.debridConfig);
   const diagnostics = useMediaStore((state) => state.playerDiagnostics);
   const watchProgress = useMediaStore((state) => state.watchProgress);
+  const screen = useMediaStore((state) => state.screen);
   const openPlayer = useMediaStore((state) => state.openPlayer);
   const streamTorrent = useMediaStore((state) => state.streamTorrent);
   const searchQuery = useMediaStore((state) => state.searchQuery);
@@ -151,6 +152,13 @@ export function MediaWorkspace() {
       tone: "info",
     });
   };
+
+  // Player mode is a full-window takeover and the player chrome is transparent
+  // over the video: nothing else may stay mounted behind it (the streams panel
+  // and the detail screen would show through the picture).
+  if (screen === "player") {
+    return <PlayerOverlay />;
+  }
 
   // Detail + streams panel (spec §4): the panel is docked at ≥ 1600 px and a
   // slide-over below it — both are the same component, placement is CSS.

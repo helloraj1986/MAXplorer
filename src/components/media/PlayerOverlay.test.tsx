@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   PlayerOverlay,
@@ -12,7 +12,7 @@ import {
   spanPercent,
 } from "./PlayerOverlay";
 import { useMediaStore } from "../../state/mediaStore";
-import type { NativePlayerStatus } from "./types";
+import type { NativePlayerStatus, PlayerTrack } from "./types";
 
 /**
  * The buffering indicator can't live over the video stage (the native libmpv
@@ -80,7 +80,9 @@ describe("player time + span math (WP4a)", () => {
   it("clamps volume to whole percentages", () => {
     expect(clampVolume(45.4)).toBe(45);
     expect(clampVolume(-10)).toBe(0);
-    expect(clampVolume(180)).toBe(100);
+    // mpv takes 0-200: 100-200 % is the boost zone, not a clamp boundary.
+    expect(clampVolume(180)).toBe(180);
+    expect(clampVolume(250)).toBe(200);
     expect(clampVolume(Number.NaN)).toBe(0);
   });
 });
@@ -105,6 +107,13 @@ vi.mock("../../lib/api", () => ({
     libraryGet: vi.fn(() => Promise.resolve({ version: 1, entries: {} })),
     libraryRecord: vi.fn(() => Promise.resolve({ key: "", entry: null })),
     libraryRemove: vi.fn(() => Promise.resolve(false)),
+    librarySetTracks: vi.fn(() => Promise.resolve({})),
+    playerTracks: vi.fn(() =>
+      Promise.resolve({ tracks: [], audioId: null, subsId: null, secondarySubsId: null }),
+    ),
+    playerSetTrack: vi.fn(() =>
+      Promise.resolve({ tracks: [], audioId: 2, subsId: null, secondarySubsId: null }),
+    ),
   },
 }));
 
@@ -162,15 +171,60 @@ describe("PlayerOverlay chrome", () => {
     vi.useRealTimers();
   });
 
-  it("renders the top strip, transport and codec chip on --m-* tokens", () => {
+  it("renders the top strip and transport on --m-* tokens", () => {
     render(<PlayerOverlay />);
     expect(document.querySelector(".media-player-top")).toBeTruthy();
     expect(document.querySelector(".media-player-bottom")).toBeTruthy();
     expect(document.querySelector(".media-player-title")?.textContent).toBe("Sintel");
-    // quality + codec chip, both real data (stream badge + mpv video-format).
-    expect(document.querySelector(".media-player-chip")?.textContent).toBe("4K · HEVC");
-    const transport = document.querySelector(".media-player-transport");
+    // The reference has no codec chip and no stats line in the bar: the codec
+    // moved into the info panel, the stats are gone from the top strip.
+    expect(document.querySelector(".media-player-chip")).toBeNull();
+    expect(document.querySelector(".media-player-stats")).toBeNull();
+    const transport = document.querySelector(".media-player-play");
     expect(transport?.getAttribute("aria-label")).toBe("Pause");
+    expect(transport?.getAttribute("data-icon")).toBe("pause");
+  });
+
+  it("draws every control as an SVG icon from the media set, never a text glyph", () => {
+    render(<PlayerOverlay />);
+    const chrome = document.querySelector(".media-player") as HTMLElement;
+    // No text glyphs survive anywhere in the chrome.
+    for (const glyph of ["CC", "Fill", "Fit", "⛶", "…", "▶", "❚❚", "◎", "🔇", "🔉", "🔊"]) {
+      expect(chrome.textContent).not.toContain(glyph);
+    }
+    const buttons = Array.from(chrome.querySelectorAll(".media-player-icon")) as HTMLElement[];
+    expect(buttons.length).toBeGreaterThanOrEqual(6);
+    for (const button of buttons) {
+      expect(button.querySelector("svg")).toBeTruthy();
+      expect(button.getAttribute("data-icon")).toBeTruthy();
+    }
+  });
+
+  it("orders the right cluster like the reference: speed, cast, subtitles, audio, PiP, more", () => {
+    render(<PlayerOverlay />);
+    const cluster = document.querySelector(".media-player-controls-right") as HTMLElement;
+    const order = Array.from(cluster.querySelectorAll(".media-player-icon")).map((button) =>
+      button.getAttribute("data-icon"),
+    );
+    expect(order).toEqual(["speed", "cast", "subtitles", "audio", "pip", "more"]);
+    // The three capabilities this stack does not have are disabled, not faked,
+    // and each says why in its tooltip.
+    for (const name of ["speed", "cast", "pip"]) {
+      const button = cluster.querySelector(`[data-icon="${name}"]`) as HTMLButtonElement;
+      expect(button.disabled).toBe(true);
+      expect((button.getAttribute("title") ?? "").length).toBeGreaterThan(10);
+    }
+  });
+
+  it("keeps fullscreen in the top-right slot and the HDR badge beside it", () => {
+    openPlayer({ hdr: true });
+    render(<PlayerOverlay />);
+    const topRight = document.querySelector(".media-player-top-right") as HTMLElement;
+    expect(topRight.querySelector(".media-player-hdr")?.textContent).toBe("HDR");
+    const fullscreen = topRight.querySelector('[data-icon="fullscreen"]') as HTMLButtonElement;
+    expect(fullscreen.getAttribute("aria-label")).toBe("Fullscreen");
+    // The corners glyph is the only control there — the old ◎ is gone.
+    expect(topRight.querySelectorAll("button").length).toBe(1);
   });
 
   it("hides the chrome 3 s after the last input while playing, and wakes on mouse move", () => {
@@ -242,21 +296,33 @@ describe("PlayerOverlay chrome", () => {
     expect(api.playerSetMuted).toHaveBeenCalledWith(true);
   });
 
-  it("toggles fit/fill via the labelled button and calls panscan", () => {
+  it("moves Fill/Fit into the more menu and still drives panscan", () => {
     render(<PlayerOverlay />);
-    const toggle = document.querySelector(".media-player-btn.is-toggle") as HTMLButtonElement;
-    expect(toggle).toBeTruthy();
-    expect(toggle.textContent).toBe("Fill");
-    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: "More player actions" }));
+    const toggle = screen.getByRole("menuitemcheckbox", {
+      name: "Fill the screen (crop)",
+    }) as HTMLButtonElement;
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
 
     fireEvent.click(toggle);
     expect(api.playerSetFill).toHaveBeenLastCalledWith(true);
-    expect(toggle.textContent).toBe("Fit");
-    expect(toggle.getAttribute("aria-pressed")).toBe("true");
 
-    fireEvent.click(toggle);
+    // Re-open: the label follows the current mode.
+    fireEvent.click(screen.getByRole("button", { name: "More player actions" }));
+    const back = screen.getByRole("menuitemcheckbox", {
+      name: "Fit the whole frame",
+    }) as HTMLButtonElement;
+    expect(back.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(back);
     expect(api.playerSetFill).toHaveBeenLastCalledWith(false);
-    expect(toggle.textContent).toBe("Fill");
+  });
+
+  it("lets the volume slider reach the 100-200 % boost zone", () => {
+    render(<PlayerOverlay />);
+    const slider = document.querySelector(".media-player-volume-slider") as HTMLInputElement;
+    expect(slider.max).toBe("200");
+    fireEvent.change(slider, { target: { value: "140" } });
+    expect(api.playerSetVolume).toHaveBeenLastCalledWith(140);
   });
 
   it("toggles playback when the picture is clicked", () => {
@@ -358,5 +424,85 @@ describe("PlayerOverlay chrome", () => {
     expect(img.getAttribute("src")).toBe(
       "https://images.metahub.space/poster/medium/tt1727587/img",
     );
+  });
+});
+
+describe("track menus (Phase 2)", () => {
+  const audioTrack = {
+    id: 1,
+    kind: "audio" as const,
+    lang: "eng",
+    title: null,
+    codec: "eac3",
+    channels: "5.1",
+    selected: true,
+    default: true,
+    forced: false,
+    external: false,
+  };
+  const frenchTrack = { ...audioTrack, id: 2, lang: "fra", selected: false, default: false };
+  const subTrack = { ...audioTrack, id: 1, kind: "sub" as const, lang: "eng", codec: "subrip", channels: null, selected: false, default: false };
+
+  afterEach(cleanup);
+
+  function open(tracks: PlayerTrack[]) {
+    useMediaStore.setState({
+      playerSource: { url: "https://example/stream.mkv", title: "Dune", metaId: "tt1160419" },
+      playerStatus: status({ fileLoaded: true, loaded: true, tracks, audioId: 1, subsId: null }),
+      engine: null,
+    });
+    render(<PlayerOverlay />);
+  }
+
+  it("opens the audio menu and selects a track through the store", async () => {
+    open([audioTrack, frenchTrack]);
+    const button = screen.getByRole("button", { name: /Audio tracks/ });
+    fireEvent.click(button);
+    const menu = screen.getByRole("menu", { name: "Audio tracks" });
+    expect(menu).toBeTruthy();
+    // The active track is checked before the change.
+    expect(
+      screen.getAllByRole("menuitemradio").map((row) => row.getAttribute("aria-checked")),
+    ).toEqual(["true", "false"]);
+
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /French/ }));
+    await waitFor(() => expect(vi.mocked(api.playerSetTrack)).toHaveBeenCalledWith("audio", 2));
+    // The menu closes after a selection.
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("floats the open menu above the bar, anchored to its own button", () => {
+    open([audioTrack, frenchTrack]);
+    fireEvent.click(screen.getByRole("button", { name: /Audio tracks/ }));
+    const menu = document.querySelector(".media-player-controls .media-trackmenu");
+    expect(menu).toBeTruthy();
+    // The video surface is below the webview now, so a popover composites over
+    // the picture — it must NOT be pushed into the footer flow (which would
+    // shrink the stage, the old workaround).
+    expect(menu?.closest(".media-player-trackwrap")).toBeTruthy();
+    expect(document.querySelector(".media-player-menu-dock")).toBeNull();
+  });
+
+  it("opens the subtitle menu with the Off row first", () => {
+    open([audioTrack, subTrack]);
+    fireEvent.click(screen.getByRole("button", { name: /Subtitles/ }));
+    const rows = screen.getAllByRole("menuitemradio");
+    expect(rows[0].textContent).toContain("Off");
+    expect(rows[0].getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("disables the subtitle control when the file has no subtitle tracks", () => {
+    open([audioTrack]);
+    const button = screen.getByRole("button", { name: /Subtitles/ }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute("title")).toContain("No subtitle tracks");
+  });
+
+  it("opens the subtitle menu with S and closes it with Escape", () => {
+    open([audioTrack, subTrack]);
+    fireEvent.keyDown(window, { key: "s" });
+    expect(screen.getByRole("menu", { name: "Subtitles" })).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 });

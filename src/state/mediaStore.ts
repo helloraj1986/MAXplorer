@@ -42,6 +42,11 @@ export interface MediaState {
   watchProgress: Record<string, WatchProgress>;
   /** True once `media_library_get` has answered (or failed) this session. */
   libraryReady: boolean;
+  /**
+   * Per-title audio/subtitle choice, keyed by meta id and hydrated from
+   * `library.json` (Phase 2). Null ids mean "mpv default" / subtitles off.
+   */
+  trackChoices: Record<string, { audioId: number | null; subsId: number | null }>;
   manifest: MediaManifest | null;
   manifestLoading: boolean;
   manifestError: string | null;
@@ -65,6 +70,9 @@ export interface MediaState {
     quality?: string | null;
     /** Resume position: seek on FILE_LOADED, reveal the surface after the seek. */
     startSeconds?: number | null;
+    /** Phase 2: restored audio/subtitle track ids for this title. */
+    audioId?: number | null;
+    subsId?: number | null;
   } | null;
   /** Live state reported by the libmpv engine. */
   playerStatus: NativePlayerStatus | null;
@@ -96,6 +104,8 @@ export interface MediaState {
   recordProgress: (metaId: string, position: number, duration: number) => void;
   /** Hydrates `watchProgress` from `library.json` (Phase 1). */
   loadLibrary: () => Promise<void>;
+  /** Phase 2: select a track and persist it against the open title. */
+  setTrack: (kind: "audio" | "sub", id: number | null) => Promise<void>;
   closeWorkspace: () => void;
   loadManifest: () => Promise<void>;
   loadCatalog: (type: string, id: string, name: string) => Promise<void>;
@@ -148,6 +158,22 @@ function progressMeta(metaId: string, get: () => MediaState): MediaCatalogMeta |
   return null;
 }
 
+/** Phase 2: `library.json` stores subtitle choice as a number or `"off"`. */
+function parseSubsId(raw: number | string | null | undefined): number | null {
+  if (raw === null || raw === undefined || raw === "off") return null;
+  const id = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+/** The stored track choice for `metaId`, ready to spread into `playerSource`. */
+function trackChoiceFor(
+  state: MediaState,
+  metaId: string | undefined,
+): { audioId: number | null; subsId: number | null } {
+  if (!metaId) return { audioId: null, subsId: null };
+  return state.trackChoices[metaId] ?? { audioId: null, subsId: null };
+}
+
 /** `library.json` stores RFC-3339; the board sorts on epoch millis. */
 function parseUpdatedAt(raw: LibraryEntry["updatedAt"]): number {
   const ms = Date.parse(raw);
@@ -164,6 +190,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   searchQuery: "",
   watchProgress: {},
   libraryReady: false,
+  trackChoices: {},
   manifest: null,
   manifestLoading: false,
   manifestError: null,
@@ -286,11 +313,18 @@ export const useMediaStore = create<MediaState>((set, get) => ({
     try {
       const snapshot = await api.libraryGet();
       const progress: Record<string, WatchProgress> = {};
+      const choices: Record<string, { audioId: number | null; subsId: number | null }> = {};
       for (const [key, entry] of Object.entries(snapshot.entries ?? {})) {
         const showId = key.split(":")[0];
         const updatedAt = parseUpdatedAt(entry.updatedAt);
         const existing = progress[showId];
         if (existing && existing.updatedAt > updatedAt) continue;
+        if (entry.audioId || entry.subsId) {
+          choices[showId] = {
+            audioId: entry.audioId ?? null,
+            subsId: parseSubsId(entry.subsId),
+          };
+        }
         progress[showId] = {
           position: entry.positionSec,
           duration: entry.durationSec,
@@ -302,7 +336,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
           poster: entry.poster ?? undefined,
         };
       }
-      set({ watchProgress: progress, libraryReady: true });
+      set({ watchProgress: progress, trackChoices: choices, libraryReady: true });
       logDiagnostic(
         "info",
         `library hydrated: ${Object.keys(snapshot.entries ?? {}).length} entries (version ${snapshot.version})`,
@@ -315,6 +349,59 @@ export const useMediaStore = create<MediaState>((set, get) => ({
         `library could not be read: ${normalizeError(error).message}`,
         "media.library",
       );
+    }
+  },
+
+  /**
+   * Phase 2: pick an audio (`aid`) or subtitle (`sid`) track. `id === null` or
+   * 0 turns subtitles off. The backend is the source of truth for the resulting
+   * list (selection flags, ids), and the choice is written to `library.json`
+   * against the open title.
+   */
+  async setTrack(kind, id) {
+    const metaId = get().playerSource?.metaId ?? null;
+    const optimistic = id ?? null;
+    const current = get().playerStatus;
+    if (current) {
+      set({
+        playerStatus: {
+          ...current,
+          ...(kind === "audio" ? { audioId: optimistic } : { subsId: optimistic }),
+        },
+      });
+    }
+    try {
+      const state = await api.playerSetTrack(kind, id && id > 0 ? id : 0);
+      const latest = get().playerStatus;
+      if (latest) {
+        set({
+          playerStatus: {
+            ...latest,
+            tracks: state.tracks,
+            audioId: state.audioId,
+            subsId: state.subsId,
+          },
+        });
+      }
+      if (!metaId) return;
+      // Persist per title: the show id, not the per-episode key — the choice is
+      // a property of the release, not of one episode.
+      const choice = { audioId: state.audioId ?? null, subsId: state.subsId ?? null };
+      set((store) => ({ trackChoices: { ...store.trackChoices, [metaId]: choice } }));
+      void api.librarySetTracks({ metaId, ...choice }).catch((error) => {
+        logDiagnostic(
+          "warn",
+          `persisting the track choice for ${metaId} failed: ${normalizeError(error).message}`,
+          "media.library",
+        );
+      });
+      logDiagnostic(
+        "info",
+        `${kind} track -> ${choice[kind === "audio" ? "audioId" : "subsId"] ?? "off"} for ${metaId}`,
+        "media.player.settings",
+      );
+    } catch (error) {
+      logDiagnostic("warn", `track change failed: ${normalizeError(error).message}`, "media.player");
     }
   },
 
@@ -409,6 +496,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
         // Resume: the backend seeks on FILE_LOADED and only reveals the native
         // surface once the resumed frame is presented.
         startSeconds: startSeconds && startSeconds > 0.5 ? startSeconds : null,
+        ...trackChoiceFor(get(), metaId),
       },
       playerStatus: null,
       screen: "player",
@@ -511,6 +599,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
               poster: get().selected?.poster ?? null,
               quality: quality ?? null,
               startSeconds: startSeconds && startSeconds > 0.5 ? startSeconds : null,
+              ...trackChoiceFor(get(), metaId),
             },
             // Torrent playback must enter the player screen too, otherwise the
             // media rail + top bar stay in the layout: the native surface is

@@ -224,4 +224,41 @@ control, so this phase is deliberately the cheapest of the three.
   `npx tsc --noEmit` clean; `npx vitest run src/components/media
   src/state/mediaStore.test.ts` → 106 passed (7 new store tests, 2 board, 2 detail).
 
+### Phase 2 — track menus (branch `feature/media-tracks-p2`)
+
+- `src-tauri/src/mpv.rs`: the NODE surface `mpv_get_property` needs for
+  `track-list` — `MPV_FORMAT_NODE/ARRAY/MAP`, `MpvNode`/`MpvNodeUnion`/
+  `MpvNodeList`/`MpvByteArray`, and the `mpv_free_node_contents` symbol.
+- `src-tauri/src/player.rs`: `PlayerTrack` + `TrackState`; `read_tracks()` walks
+  the array-of-maps one level deep (audio + `sub` only, video skipped);
+  `track-list` is observed as *any format* (`MPV_FORMAT_NONE`) and re-read after
+  every change — the event's node payload is never touched, so no node lifetime
+  crosses a call boundary. `aid`/`sid` are observed as INT64 (format NONE = off).
+  Commands `media_player_tracks` (fresh read) and `media_player_set_track(kind,
+  id)` (`sid=no` for id ≤ 0). `PlayerStatus` gained `tracks`/`audioId`/`subsId`.
+  On `FILE_LOADED` the per-title choice is re-applied (`aid=…`, `sid=…`) *before*
+  the resume seek, then the list is read.
+- `media_player_open` gained `audio_id`/`subs_id`; the frontend passes the stored
+  choice from `mediaStore.trackChoices`.
+- `library.rs`: `TrackChoicePatch` + `media_library_set_tracks` (creates a
+  preference-only entry when there is no progress; subs off stored as `"off"`).
+  Retention now keeps an entry that carries a track choice even outside the 2–95 %
+  window — the Continue-watching row still filters on the ratio, so a
+  preference-only entry never shows as a card.
+- Frontend: `TrackMenu.tsx` (pure; `trackRows`/`trackLabel`/`trackBadges`/
+  `languageName` exported for tests), Audio + CC buttons in the player bar with
+  upward popovers, `A`/`S` toggle, Esc closes the menu before the chrome,
+  `mediaStore.setTrack` (optimistic → command → persist). CC is disabled with a
+  "No subtitle tracks in this file" title when the file has none.
+- Live proof (ffmpeg-built MKV, 2 audio + 1 sub):
+  `cargo test --lib live_track_list -- --ignored --nocapture` →
+  `[eng/ac3 selected, fra/ac3, sub eng "English"/subrip]`, `sid=<id>` selects,
+  `sid=no` turns off. mpv 0.42.0-173 does **not** expose `channels`/
+  `demux-channel-count` in `track-list` at `file-loaded`, so the channel label is
+  usually absent — the menu shows `English · AC3`, not a fabricated `5.1`.
+- Gates: `cargo test --lib` → 129 passed / 11 ignored (the new live track
+  test is the extra ignored one); `npx tsc --noEmit` clean;
+  `npx vitest run src/components/media src/state/mediaStore.test.ts` → 123 passed
+  (TrackMenu 9, PlayerOverlay +4, store +5).
+
 _(append one block per phase: commit hash, measurements, gates, deviations)_

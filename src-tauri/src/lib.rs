@@ -110,6 +110,24 @@ pub fn run() {
             let _ = std::fs::create_dir_all(&data_directory);
             logging::init(&data_directory);
             logging::info("app", "Tauri setup started");
+            // The video surface is stacked BELOW this view so the player chrome
+            // (HTML) composites over the picture; the window is transparent and
+            // the webview background is cleared while the player is open.
+            #[cfg(target_os = "macos")]
+            if let Some(window) = app.get_webview_window("main") {
+                let captured = window.with_webview(|webview| {
+                    player::set_webview_view(webview.inner() as usize);
+                });
+                if let Err(error) = captured {
+                    logging::warn(
+                        "app",
+                        format!("could not capture the webview NSView: {error}"),
+                    );
+                }
+                if let Ok(ns_window) = window.ns_window() {
+                    player::set_window_background_black(ns_window);
+                }
+            }
             let identifier = app.config().identifier.clone();
             logging::info(
                 "app",
@@ -190,6 +208,7 @@ pub fn run() {
             media::media_play,
             library::media_library_get,
             library::media_library_record,
+            library::media_library_set_tracks,
             library::media_library_remove,
             debrid::media_debrid_resolve,
             debrid::media_debrid_save_config,
@@ -207,6 +226,8 @@ pub fn run() {
             player::media_player_set_volume,
             player::media_player_set_muted,
             player::media_player_set_fill,
+            player::media_player_tracks,
+            player::media_player_set_track,
             player::media_player_status,
             player::media_player_diagnostics,
             commands::get_sidebar_locations,

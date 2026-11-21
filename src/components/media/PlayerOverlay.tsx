@@ -4,6 +4,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, isTauri, normalizeError } from "../../lib/api";
 import { logDiagnostic } from "../../lib/diagnostics";
 import { useMediaStore } from "../../state/mediaStore";
+import { TrackMenu, languageName } from "./TrackMenu";
+import { MediaIcon } from "./icons";
 import type { NativePlayerStatus, NativePlayerTick } from "./types";
 
 /**
@@ -39,6 +41,7 @@ export function PlayerOverlay() {
   const setPlayerStatus = useMediaStore((state) => state.setPlayerStatus);
   const patchPlayerStatus = useMediaStore((state) => state.patchPlayerStatus);
   const recordProgress = useMediaStore((state) => state.recordProgress);
+  const setTrack = useMediaStore((state) => state.setTrack);
 
   const stageRef = useRef<HTMLDivElement | null>(null);
   const seekBarRef = useRef<HTMLDivElement | null>(null);
@@ -60,6 +63,11 @@ export function PlayerOverlay() {
   // ultrawide window cannot do both, so this is the user's call, not a default.
   const [fillVideo, setFillVideo] = useState(false);
   const fillRef = useRef(false);
+  /** Phase 2: which track popover is open, if any. */
+  const [trackMenu, setTrackMenu] = useState<"audio" | "sub" | null>(null);
+  /** Production chrome: playback-info panel and the "more actions" popover. */
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const status: NativePlayerStatus | null = playerStatus;
   const position = status?.position ?? 0;
@@ -107,7 +115,11 @@ export function PlayerOverlay() {
       "media.player",
     );
     api
-      .playerOpen(playerSource.url, playerSource.title, rect(), playerSource.startSeconds ?? undefined)
+      .playerOpen(playerSource.url, playerSource.title, rect(), {
+        startSeconds: playerSource.startSeconds ?? null,
+        audioId: playerSource.audioId ?? null,
+        subsId: playerSource.subsId ?? null,
+      })
       .then((initial) => {
         if (cancelled) return;
         setPlayerStatus(initial);
@@ -142,6 +154,19 @@ export function PlayerOverlay() {
       window.removeEventListener("resize", onWindowResize);
     };
   }, [playerSource, setPlayerStatus, retryNonce]);
+
+  // The window is transparent and the video surface sits BELOW the webview while
+  // the player is open, so the app's own backgrounds must step aside: the video
+  // shows through everything but the chrome gradients.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (!playerSource) {
+      root.classList.remove("mx-player-active");
+      return;
+    }
+    root.classList.add("mx-player-active");
+    return () => root.classList.remove("mx-player-active");
+  }, [playerSource]);
 
   // ── Live state from the backend ───────────────────────────────────────────
   useEffect(() => {
@@ -253,13 +278,15 @@ export function PlayerOverlay() {
   }, [armIdleTimer]);
 
   useEffect(() => {
-    if (paused || eof) {
+    // An open track menu is a modal-ish state: hiding the chrome would collapse
+    // the dock (and the popover with it), so it pins the chrome like a pause.
+    if (paused || eof || trackMenu || moreOpen || infoOpen) {
       clearIdleTimer();
       setChromeVisible(true);
       return;
     }
     armIdleTimer();
-  }, [paused, eof, armIdleTimer, clearIdleTimer]);
+  }, [paused, eof, trackMenu, moreOpen, infoOpen, armIdleTimer, clearIdleTimer]);
 
   useEffect(() => () => clearIdleTimer(), [clearIdleTimer]);
 
@@ -474,8 +501,26 @@ export function PlayerOverlay() {
             window.requestAnimationFrame(() => playButtonRef.current?.focus());
           }
           break;
+        case "a":
+        case "A":
+          event.preventDefault();
+          setTrackMenu((open) => (open === "audio" ? null : "audio"));
+          revealChrome();
+          break;
+        case "s":
+        case "S":
+          event.preventDefault();
+          setTrackMenu((open) => (open === "sub" ? null : "sub"));
+          revealChrome();
+          break;
         case "Escape":
-          if (chromeVisible) {
+          if (trackMenu || moreOpen || infoOpen) {
+            // Menus are the innermost layer: Esc closes them before the chrome.
+            event.preventDefault();
+            setTrackMenu(null);
+            setMoreOpen(false);
+            setInfoOpen(false);
+          } else if (chromeVisible) {
             event.preventDefault();
             clearIdleTimer();
             setChromeVisible(false);
@@ -493,6 +538,9 @@ export function PlayerOverlay() {
   }, [
     playerSource,
     chromeVisible,
+    trackMenu,
+    moreOpen,
+    infoOpen,
     togglePlay,
     toggleMute,
     toggleFullscreen,
@@ -515,10 +563,22 @@ export function PlayerOverlay() {
   const playedPercent = spanPercent(displayPosition, duration);
   const bufferedPercent = bufferedSpanPercent(position, status?.cacheSeconds ?? 0, duration);
   const tooltipRatio = scrub !== null && duration > 0 ? scrub / duration : hoverRatio;
-  const chip = [playerSource.quality, status?.videoFormat?.toUpperCase()]
-    .filter((part): part is string => Boolean(part))
-    .join(" · ");
-  const volumeIcon = muted || volume === 0 ? "🔇" : volume < 50 ? "🔉" : "🔊";
+  const volumeIcon = muted || volume === 0 ? "muted" : volume < 50 ? "volume-low" : "volume";
+  const hdr = Boolean(status?.hdr);
+
+  // ── Tracks (Phase 2) ──────────────────────────────────────────────────────
+  const tracks = status?.tracks ?? [];
+  const audioTracks = tracks.filter((track) => track.kind === "audio");
+  const subsTracks = tracks.filter((track) => track.kind === "sub");
+  const activeAudioId =
+    status?.audioId ?? audioTracks.find((track) => track.selected)?.id ?? null;
+  const activeSubsId = status?.subsId ?? null;
+  const activeAudioName =
+    languageName(audioTracks.find((track) => track.id === activeAudioId)?.lang ?? null) ??
+    (audioTracks.length > 1 ? "Audio" : "Audio");
+  const subsActive = activeSubsId !== null;
+  /** No container parsed yet ⇒ the menus are meaningless, so keep them disabled. */
+  const tracksReady = fileLoaded && tracks.length > 0;
 
   // ── Seek bar gesture handlers (optimistic: local scrub, one seek on release) ──
   const trackRect = () => seekBarRef.current?.getBoundingClientRect() ?? { left: 0, width: 0 };
@@ -648,33 +708,72 @@ export function PlayerOverlay() {
       </div>
 
       {/* ── Top strip: nothing here may overlap the stage ── */}
-      <header className="media-player-strip media-player-top">
+      {/* Top overlay: a gradient over the picture, never a layout band. The
+          video surface sits BELOW this webview, so this composites on the video. */}
+      <header className="media-player-top">
         <button
           type="button"
-          className="media-player-close"
+          className="media-player-back"
           onClick={closePlayer}
-          aria-label="Close player"
+          aria-label="Back to details"
+          title="Back (Esc)"
         >
-          ✕
+          <MediaIcon name="chevron-left" size={26} />
         </button>
         <h2 className="media-player-title" title={playerSource.title}>
           {playerSource.title}
         </h2>
-        {chip ? <span className="media-player-chip">{chip}</span> : null}
         <div className="media-player-top-right">
-          {fileLoaded ? (
-            <span className="media-player-stats" role="status" aria-label="Stream stats">
-              ↓ {formatSpeed(status?.cacheSpeed ?? 0)}
-              {status && status.cacheSeconds > 0
-                ? ` · ${status.cacheSeconds.toFixed(1)}s buffered`
-                : ""}
-              {engine?.phase === "ready" && engine.peers !== undefined
-                ? ` · ${engine.peers} peers`
-                : ""}
-            </span>
-          ) : null}
+          {hdr ? <span className="media-player-hdr" title="High dynamic range source">HDR</span> : null}
+          {/* The reference's corners glyph is fullscreen; the codec chip and the
+              live stats line it used to carry now live in the info panel. */}
+          <button
+            type="button"
+            className="media-player-icon"
+            data-icon="fullscreen"
+            onClick={toggleFullscreen}
+            aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+            title={fullscreen ? "Exit fullscreen (F)" : "Fullscreen (F)"}
+          >
+            <MediaIcon name="fullscreen" size={26} />
+          </button>
         </div>
       </header>
+
+      {infoOpen ? (
+        <aside className="media-player-info" role="dialog" aria-label="Playback information">
+          <dl>
+            <div>
+              <dt>Picture</dt>
+              <dd>{[playerSource.quality, status?.videoFormat?.toUpperCase()].filter(Boolean).join(" · ") || "—"}</dd>
+            </div>
+            <div>
+              <dt>Dynamic range</dt>
+              <dd>{hdr ? "HDR" : "SDR"}</dd>
+            </div>
+            <div>
+              <dt>Buffer</dt>
+              <dd>{(status?.cacheSeconds ?? 0).toFixed(1)}s · {formatSpeed(status?.cacheSpeed ?? 0)}</dd>
+            </div>
+            <div>
+              <dt>Engine</dt>
+              <dd>
+                {engine?.phase === "ready"
+                  ? `${engine.peers ?? 0} peers · ${((engine.progress ?? 0) * 100).toFixed(0)}% cached`
+                  : playerSource.url.startsWith("http://127.0.0.1:18081")
+                    ? "torrent (local)"
+                    : "direct URL"}
+              </dd>
+            </div>
+            <div>
+              <dt>Tracks</dt>
+              <dd>
+                {audioTracks.length} audio · {subsTracks.length} subtitle
+              </dd>
+            </div>
+          </dl>
+        </aside>
+      ) : null}
 
       <footer className="media-player-bottom">
         <div className="media-player-state-slot">
@@ -687,8 +786,6 @@ export function PlayerOverlay() {
                   }`}
             </span>
           ) : null}
-          {/* Ephemeral volume readout. It lives in the chrome, not the stage:
-              the native surface would cover anything drawn there. */}
           {curtain ? (
             <span className="media-player-curtain" role="status">
               {curtain}
@@ -696,24 +793,10 @@ export function PlayerOverlay() {
           ) : null}
         </div>
 
-        <div className="media-player-bar">
-          {/* ⏮ / ⏭ need an episode playlist (WP5+), so 4a ships only play/pause
-              rather than a dead button. */}
-          <button
-            type="button"
-            className="media-player-transport"
-            ref={playButtonRef}
-            onClick={togglePlay}
-            aria-label={paused || eof ? "Play" : "Pause"}
-            disabled={!status}
-          >
-            {paused || eof ? "▶" : "❚❚"}
-          </button>
-
-          <span className="media-player-time" aria-hidden="true">
-            {formatTime(displayPosition)}
-          </span>
-
+        {/* Seek row: elapsed at the far left, total at the far right, the bar
+            between them — the reference player's layout. */}
+        <div className="media-player-seekrow">
+          <span className="media-player-time">{formatTime(displayPosition)}</span>
           <div
             className="media-player-seek"
             ref={seekBarRef}
@@ -752,54 +835,229 @@ export function PlayerOverlay() {
               </span>
             ) : null}
           </div>
+          <span className="media-player-time">{formatTime(duration)}</span>
+        </div>
 
-          <span className="media-player-time" aria-hidden="true">
-            {formatTime(duration)}
-          </span>
+        <div className="media-player-controls">
+          <button
+            type="button"
+            className="media-player-play"
+            ref={playButtonRef}
+            onClick={togglePlay}
+            aria-label={paused || eof ? "Play" : "Pause"}
+            title={paused || eof ? "Play (Space)" : "Pause (Space)"}
+            data-icon={paused || eof ? "play" : "pause"}
+            disabled={!status}
+          >
+            <MediaIcon
+              name={paused || eof ? "play" : "pause"}
+              size={26}
+              fill="currentColor"
+              strokeWidth={1.4}
+            />
+          </button>
 
           <div className="media-player-volume">
             <button
               type="button"
-              className="media-player-btn is-icon"
+              className="media-player-icon"
+              data-icon={volumeIcon}
               onClick={toggleMute}
               aria-label={muted ? "Unmute" : "Mute"}
+              title={muted ? "Unmute (M)" : "Mute (M)"}
             >
-              {volumeIcon}
+              <MediaIcon name={volumeIcon} size={24} />
             </button>
-            <div className="media-player-volume-slider">
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={VOLUME_STEP}
-                value={muted ? 0 : Math.round(volume)}
-                aria-label="Volume"
-                onChange={(event) => applyVolume(Number(event.target.value))}
-              />
-            </div>
+            {/* 0-100 % is plain white, 100-200 % the boost zone (mpv accepts
+                both; the warm half of the track is drawn by CSS). */}
+            <input
+              type="range"
+              className="media-player-volume-slider"
+              min={0}
+              max={200}
+              step={VOLUME_STEP}
+              value={muted ? 0 : Math.round(volume)}
+              aria-label="Volume"
+              aria-valuetext={`${Math.round(volume)} percent`}
+              title={`Volume ${Math.round(volume)}%`}
+              onChange={(event) => applyVolume(Number(event.target.value))}
+            />
           </div>
 
-          {/* Fill/Fit: the ultrawide answer. `panscan` crops to fill; fit keeps the
-              whole frame. Labelled by what it switches TO, like a player's zoom key. */}
-          <button
-            type="button"
-            className="media-player-btn is-toggle"
-            onClick={toggleFill}
-            aria-pressed={fillVideo}
-            aria-label={fillVideo ? "Fit the whole frame" : "Fill the screen (crop)"}
-            title={fillVideo ? "Fit — show the whole frame" : "Fill — crop to fill the screen"}
-          >
-            {fillVideo ? "Fit" : "Fill"}
-          </button>
+          {/* Right cluster order is the reference's: speed, cast, subtitles,
+              audio, PiP, more. Speed, cast and PiP ship disabled and say why —
+              a disabled control with an honest reason beats a fake one. */}
+          <div className="media-player-controls-right">
+            <button
+              type="button"
+              className="media-player-icon"
+              data-icon="speed"
+              disabled
+              aria-label="Playback speed"
+              title="Playback speed — arrives with the player UX phase"
+            >
+              <MediaIcon name="speed" size={26} />
+            </button>
 
-          <button
-            type="button"
-            className="media-player-btn is-icon"
-            onClick={toggleFullscreen}
-            aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-          >
-            ⛶
-          </button>
+            <button
+              type="button"
+              className="media-player-icon"
+              data-icon="cast"
+              disabled
+              aria-label="Cast to device"
+              title="Casting is not available in MAXplorer"
+            >
+              <MediaIcon name="cast" size={26} />
+            </button>
+
+            {/* Subtitles */}
+            <div className="media-player-trackwrap">
+              <button
+                type="button"
+                className={`media-player-icon${subsActive ? " is-active" : ""}${
+                  trackMenu === "sub" ? " is-open" : ""
+                }`}
+                data-icon="subtitles"
+                onClick={() => setTrackMenu((open) => (open === "sub" ? null : "sub"))}
+                aria-haspopup="menu"
+                aria-expanded={trackMenu === "sub"}
+                aria-label={`Subtitles (${subsTracks.length} tracks)`}
+                title={
+                  !tracksReady
+                    ? "Subtitle tracks appear once the file loads"
+                    : subsTracks.length === 0
+                      ? "No subtitle tracks in this file"
+                      : `Subtitles: ${
+                          languageName(subsTracks.find((track) => track.id === activeSubsId)?.lang ?? null) ??
+                          "On"
+                        } — S`
+                }
+                disabled={!tracksReady || subsTracks.length === 0}
+              >
+                <MediaIcon name="subtitles" size={26} />
+              </button>
+              {trackMenu === "sub" ? (
+                <TrackMenu
+                  kind="sub"
+                  tracks={subsTracks}
+                  activeId={activeSubsId}
+                  onSelect={(id) => {
+                    setTrackMenu(null);
+                    void setTrack("sub", id);
+                  }}
+                  onClose={() => setTrackMenu(null)}
+                />
+              ) : null}
+            </div>
+
+            {/* Audio tracks */}
+            <div className="media-player-trackwrap">
+              <button
+                type="button"
+                className={`media-player-icon${trackMenu === "audio" ? " is-open" : ""}`}
+                data-icon="audio"
+                onClick={() => setTrackMenu((open) => (open === "audio" ? null : "audio"))}
+                aria-haspopup="menu"
+                aria-expanded={trackMenu === "audio"}
+                aria-label={`Audio tracks (${audioTracks.length})`}
+                title={
+                  tracksReady
+                    ? `Audio: ${activeAudioName}${
+                        audioTracks.length > 1 ? ` (${audioTracks.length} tracks)` : ""
+                      } — A`
+                    : "Audio tracks appear once the file loads"
+                }
+                disabled={!tracksReady}
+              >
+                <MediaIcon name="waveform" size={26} />
+              </button>
+              {trackMenu === "audio" ? (
+                <TrackMenu
+                  kind="audio"
+                  tracks={audioTracks}
+                  activeId={activeAudioId}
+                  onSelect={(id) => {
+                    setTrackMenu(null);
+                    void setTrack("audio", id);
+                  }}
+                  onClose={() => setTrackMenu(null)}
+                />
+              ) : null}
+            </div>
+
+            <button
+              type="button"
+              className="media-player-icon"
+              data-icon="pip"
+              disabled
+              aria-label="Picture in picture"
+              title="Picture-in-picture is not available in this player"
+            >
+              <MediaIcon name="pip" size={26} />
+            </button>
+
+            {/* More: actions that do not each deserve a slot. */}
+            <div className="media-player-trackwrap">
+              <button
+                type="button"
+                className={`media-player-icon${moreOpen ? " is-open" : ""}`}
+                data-icon="more"
+                onClick={() => setMoreOpen((open) => !open)}
+                aria-haspopup="menu"
+                aria-expanded={moreOpen}
+                aria-label="More player actions"
+                title="More"
+              >
+                <MediaIcon name="more" size={26} />
+              </button>
+              {moreOpen ? (
+                <div className="media-trackmenu is-plain" role="menu" aria-label="More actions">
+                  <button
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked={fillVideo}
+                    className="media-trackmenu-row"
+                    onClick={() => {
+                      setMoreOpen(false);
+                      toggleFill();
+                    }}
+                  >
+                    <span className="media-trackmenu-label">
+                      {fillVideo ? "Fit the whole frame" : "Fill the screen (crop)"}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="media-trackmenu-row"
+                    onClick={() => {
+                      setMoreOpen(false);
+                      setInfoOpen(true);
+                    }}
+                  >
+                    <span className="media-trackmenu-label">Playback info</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="media-trackmenu-row"
+                    onClick={() => {
+                      setMoreOpen(false);
+                      void api.playMediaStream(playerSource.url).catch((caught) => {
+                        logDiagnostic(
+                          "warn",
+                          `external player failed: ${normalizeError(caught).message}`,
+                          "media.player",
+                        );
+                      });
+                    }}
+                  >
+                    <span className="media-trackmenu-label">Open in external player</span>
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </div>
         </div>
 
         {/* 2 px position hairline: the only chrome left while idle. */}
@@ -879,7 +1137,8 @@ export function seekSecondsFromPointer(
 
 export function clampVolume(value: number): number {
   if (!Number.isFinite(value)) return 0;
-  return Math.min(100, Math.max(0, Math.round(value)));
+  // mpv accepts 0-200 %: past 100 the volume slider enters its boost zone.
+  return Math.min(200, Math.max(0, Math.round(value)));
 }
 
 function clampSeconds(value: number, duration: number): number {

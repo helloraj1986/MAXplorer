@@ -49,6 +49,9 @@ const PROP_CACHE_PERCENT: u64 = 11;
 const PROP_CACHE_TIME: u64 = 12;
 const PROP_CACHE_SPEED: u64 = 13;
 const PROP_FILE_LOADED: u64 = 14;
+const PROP_TRACK_LIST: u64 = 15;
+const PROP_AID: u64 = 16;
+const PROP_SID: u64 = 17;
 
 /// C layout of NSRect/CGRect comes from objc2-foundation so it implements the
 /// `Encode` trait `msg_send!` requires.
@@ -144,6 +147,35 @@ trait RectExt {
     fn from_points(x: f64, y: f64, width: f64, height: f64) -> Self;
 }
 
+/// One entry from mpv's `track-list`. `kind` is `audio`, `video` or `sub`.
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerTrack {
+    pub id: i64,
+    pub kind: String,
+    pub lang: Option<String>,
+    pub title: Option<String>,
+    pub codec: Option<String>,
+    /// `5.1` / `stereo` for audio tracks, `None` for subtitles.
+    pub channels: Option<String>,
+    pub selected: bool,
+    pub default: bool,
+    pub forced: bool,
+    pub external: bool,
+}
+
+/// Track list plus the current audio/subtitle selection, as the UI consumes it.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackState {
+    pub tracks: Vec<PlayerTrack>,
+    /// Selected audio track id, or `None` for `aid=no`.
+    pub audio_id: Option<i64>,
+    /// Selected subtitle track id, or `None` for `sid=no` (subtitles off).
+    pub subs_id: Option<i64>,
+    pub secondary_subs_id: Option<i64>,
+}
+
 /// Playback state pushed to the UI.
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -168,6 +200,15 @@ pub struct PlayerStatus {
     pub cache_speed: i64,
     pub file_loaded: bool,
     pub error: Option<String>,
+    /// True for a PQ/HLG/BT.2020 source (the `HDR` badge in the chrome).
+    pub hdr: bool,
+    /// mpv's `track-list` (audio/subtitle/video). Refreshed on `track-list`,
+    /// `aid` and `sid` changes, and re-read after `file-loaded`.
+    pub tracks: Vec<PlayerTrack>,
+    /// Selected audio track id (`None` = `aid=no`).
+    pub audio_id: Option<i64>,
+    /// Selected subtitle track id (`None` = subtitles off).
+    pub subs_id: Option<i64>,
 }
 
 /// Volatile playback metrics, pushed on a coalesced tick instead of per frame.
@@ -361,6 +402,19 @@ fn command(api: &MpvApi, handle: MpvHandle, args: &[&str]) -> Result<(), AppErro
 
 /// Create the NSView subview and add it to the window's content view.
 /// Must run on the main thread.
+/// The WKWebView's NSView, captured at startup. The video surface is inserted
+/// **below** it so HTML chrome composites OVER the picture — the transparent
+/// window makes the webview's own background clear during playback.
+static WEBVIEW_VIEW: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+pub fn set_webview_view(address: usize) {
+    WEBVIEW_VIEW.store(address, std::sync::atomic::Ordering::SeqCst);
+}
+
+fn webview_view() -> *mut AnyObject {
+    WEBVIEW_VIEW.load(std::sync::atomic::Ordering::SeqCst) as *mut AnyObject
+}
+
 unsafe fn create_view(window: *mut AnyObject, rect: NSRect) -> *mut AnyObject {
     let content_view: *mut AnyObject = msg_send![window, contentView];
     if content_view.is_null() {
@@ -379,7 +433,37 @@ unsafe fn create_view(window: *mut AnyObject, rect: NSRect) -> *mut AnyObject {
     // Pointer transparency comes from `VideoSurface::hitTest:` returning nil —
     // NOT from `setIgnoresMouseEvents:`, which NSView does not implement (that
     // raised NSInvalidArgumentException and aborted the app on 2026-11-21).
-    let _: () = msg_send![content_view, addSubview: view];
+    // Stack the surface at the BOTTOM of the content view: with a transparent
+    // webview (transparent window) the HTML chrome then composites over the
+    // picture, which is what lets the player controls overlay the video instead
+    // of stealing layout space.
+    //
+    // `relativeTo:` must be nil here — AppKit raises NSInvalidArgumentException
+    // ("view not a subview") when the reference view is not a DIRECT subview of
+    // the receiver, and that exception is an uncatchable SIGABRT from this
+    // callback (crash report: -[NSView addSubview:positioned:relativeTo:] ->
+    // abort). `nil` + `Below` puts the surface under every existing sibling,
+    // including the webview (and any container Tauri wraps it in).
+    let siblings: *mut AnyObject = msg_send![content_view, subviews];
+    let sibling_count: usize = if siblings.is_null() {
+        0
+    } else {
+        msg_send![siblings, count]
+    };
+    let _: () = msg_send![
+        content_view,
+        addSubview: view,
+        positioned: (-1 as isize),
+        relativeTo: std::ptr::null_mut::<AnyObject>()
+    ];
+    logging::info(
+        LOG_TARGET,
+        format!(
+            "video surface stacked below {sibling_count} content-view subview(s) at 0x{:x}              (webview=0x{:x})",
+            view as usize,
+            webview_view() as usize
+        ),
+    );
     // Hidden until the first file actually loads, so the HTML spinner/error card
     // is visible instead of being covered by a black native rectangle.
     let _: () = msg_send![view, setHidden: Bool::YES];
@@ -410,9 +494,51 @@ unsafe fn remove_view(view: *mut AnyObject) {
 }
 
 /// Convert a top-left-origin CSS rect (points) into an NSView frame.
+/// The webview's frame in content-view coordinates. CSS (0,0) is the webview's
+/// top-left corner, which is NOT always the content view's: in macOS fullscreen
+/// (and with an overlay title bar) the webview starts below the title-bar band.
+/// Anchoring the surface rect to this frame is what stops a transparent window
+/// from showing a strip of desktop above the video.
+unsafe fn webview_rect_in_content(window: *mut AnyObject) -> Option<NSRect> {
+    let webview = webview_view();
+    let content: *mut AnyObject = msg_send![window, contentView];
+    if webview.is_null() || content.is_null() {
+        return None;
+    }
+    let bounds: NSRect = msg_send![webview, bounds];
+    let rect: NSRect = msg_send![webview, convertRect: bounds, toView: content];
+    if rect.size.width < 1.0 || rect.size.height < 1.0 {
+        return None;
+    }
+    Some(rect)
+}
+
 unsafe fn frame_from_css(window: *mut AnyObject, x: f64, y: f64, w: f64, h: f64) -> NSRect {
+    if let Some(web) = webview_rect_in_content(window) {
+        return NSRect::from_points(
+            web.origin.x + x,
+            web.origin.y + web.size.height - (y + h),
+            w,
+            h,
+        );
+    }
     let height = content_view_height(window);
     NSRect::from_points(x, height - (y + h), w, h)
+}
+
+/// Opaque black behind every subview: the window itself is transparent (so the
+/// webview can be), and anything the video surface does not cover — a fullscreen
+/// title-bar band, rounded corners — must be black, never the desktop.
+pub fn set_window_background_black(window: *mut std::ffi::c_void) {
+    if window.is_null() {
+        return;
+    }
+    unsafe {
+        let window = window as *mut AnyObject;
+        let color: *mut AnyObject = msg_send![objc2::class!(NSColor), blackColor];
+        let _: () = msg_send![window, setBackgroundColor: color];
+        logging::debug(LOG_TARGET, "window background set to opaque black");
+    }
 }
 
 /// Size of a CSS rect in **backing pixels** (points × display scale factor).
@@ -565,7 +691,7 @@ fn create_mpv(api: &'static MpvApi) -> Result<MpvHandle, AppError> {
 }
 
 fn observe(api: &MpvApi, handle: MpvHandle) {
-    let props: [(u64, &str, c_int); 14] = [
+    let props: [(u64, &str, c_int); 17] = [
         (PROP_PAUSE, "pause", mpv::MPV_FORMAT_FLAG),
         (PROP_TIME_POS, "time-pos", mpv::MPV_FORMAT_DOUBLE),
         (PROP_DURATION, "duration", mpv::MPV_FORMAT_DOUBLE),
@@ -582,6 +708,12 @@ fn observe(api: &MpvApi, handle: MpvHandle) {
         (PROP_CACHE_TIME, "demuxer-cache-time", mpv::MPV_FORMAT_DOUBLE),
         (PROP_CACHE_SPEED, "cache-speed", mpv::MPV_FORMAT_INT64),
         (PROP_FILE_LOADED, "file-loaded", mpv::MPV_FORMAT_FLAG),
+        // Phase 2: track menus. `track-list` is a nested array/map, so it is
+        // observed as "any format" and re-read with a NODE property read (the
+        // event payload is never touched — no node lifetime to manage here).
+        (PROP_TRACK_LIST, "track-list", mpv::MPV_FORMAT_NONE),
+        (PROP_AID, "aid", mpv::MPV_FORMAT_INT64),
+        (PROP_SID, "sid", mpv::MPV_FORMAT_INT64),
     ];
     for (id, name, format) in props {
         let n = cstr(name);
@@ -607,6 +739,8 @@ fn spawn_event_loop(
     stop: Arc<std::sync::atomic::AtomicBool>,
     generation: u64,
     start_seconds: Option<f64>,
+    audio_id: Option<i64>,
+    subs_id: Option<i64>,
 ) -> std::thread::JoinHandle<()> {
     let handle_addr = handle as usize;
     std::thread::Builder::new()
@@ -737,6 +871,15 @@ fn spawn_event_loop(
                         if let Ok(mut status) = shared.lock() {
                             apply_property(&mut status, &name, prop);
                         }
+                        // Phase 2: a track change is followed by a fresh read of
+                        // `track-list` — the event payload is a node whose
+                        // lifetime this loop never touches.
+                        if matches!(name.as_str(), "track-list" | "aid" | "sid") {
+                            let tracks = read_tracks(api, handle);
+                            if let Ok(mut status) = shared.lock() {
+                                status.tracks = tracks;
+                            }
+                        }
                         PROP_EVENTS.fetch_add(1, Ordering::Relaxed);
                         // Frame-rate properties only dirty the tick; everything
                         // else is a discrete change the UI must see at once.
@@ -748,6 +891,35 @@ fn spawn_event_loop(
                     }
                     mpv::MPV_EVENT_FILE_LOADED => {
                         logging::info(LOG_TARGET, "file loaded; decoding started");
+                        // Phase 2: re-apply the per-title audio/subtitle choice.
+                        // A track id is only valid once the container has been
+                        // parsed, and this event is that moment.
+                        for (property, wanted) in [("aid", audio_id), ("sid", subs_id)] {
+                            let Some(id) = wanted else { continue };
+                            let code = set_property_string(
+                                api,
+                                handle,
+                                property,
+                                &id.to_string(),
+                            );
+                            logging::info(
+                                LOG_TARGET,
+                                if code < 0 {
+                                    format!(
+                                        "restoring {property}={id} failed: {}",
+                                        mpv::error_string(api, code)
+                                    )
+                                } else {
+                                    format!("restored {property}={id} for this title")
+                                },
+                            );
+                        }
+                        let tracks = read_tracks(api, handle);
+                        let hdr = is_hdr_source(api, handle);
+                        if let Ok(mut status) = shared.lock() {
+                            status.tracks = tracks;
+                            status.hdr = hdr;
+                        }
                         // Resume: seek before the UI may reveal the surface. The
                         // restart event below is the signal that the resumed frame
                         // is actually decoded and being presented.
@@ -893,11 +1065,169 @@ fn cstr_to_string(ptr: *const c_char) -> String {
     }
 }
 
+// ── Track list (Phase 2) ─────────────────────────────────────────────────────
+// `track-list` is an array of maps with mixed value types, so it can only be
+// read as `MPV_FORMAT_NODE`. The event payload of a `track-list` change is
+// deliberately ignored: every consumer re-reads the property instead, which
+// keeps the node's lifetime entirely inside one call.
+
+unsafe fn node_map_get<'a>(list: &'a mpv::MpvNodeList, key: &str) -> Option<&'a mpv::MpvNode> {
+    if list.keys.is_null() || list.values.is_null() || list.num <= 0 {
+        return None;
+    }
+    for index in 0..list.num as isize {
+        let key_ptr = unsafe { *list.keys.offset(index) };
+        if key_ptr.is_null() {
+            continue;
+        }
+        let name = unsafe { CStr::from_ptr(key_ptr) }.to_string_lossy();
+        if name == key {
+            return Some(unsafe { &*list.values.offset(index) });
+        }
+    }
+    None
+}
+
+fn node_string(node: Option<&mpv::MpvNode>) -> Option<String> {
+    let node = node?;
+    if node.format != mpv::MPV_FORMAT_STRING {
+        return None;
+    }
+    let pointer = unsafe { node.u.string };
+    if pointer.is_null() {
+        return None;
+    }
+    Some(unsafe { CStr::from_ptr(pointer) }
+        .to_string_lossy()
+        .into_owned())
+}
+
+fn node_i64(node: Option<&mpv::MpvNode>) -> Option<i64> {
+    let node = node?;
+    match node.format {
+        mpv::MPV_FORMAT_INT64 => Some(unsafe { node.u.int64 }),
+        mpv::MPV_FORMAT_DOUBLE => Some(unsafe { node.u.double } as i64),
+        _ => None,
+    }
+}
+
+fn node_flag(node: Option<&mpv::MpvNode>) -> bool {
+    match node {
+        Some(node) if node.format == mpv::MPV_FORMAT_FLAG => (unsafe { node.u.flag }) != 0,
+        _ => false,
+    }
+}
+
+/// `6` → `5.1`, `2` → `stereo`; the menus show the channel layout, not a count.
+fn channels_label(count: i64) -> Option<String> {
+    Some(match count {
+        0 | 1 => return None,
+        2 => "stereo".to_string(),
+        6 => "5.1".to_string(),
+        8 => "7.1".to_string(),
+        other => format!("{other} ch"),
+    })
+}
+
+/// Fresh read of mpv's `track-list`, audio and subtitle tracks only. Returns an
+/// empty list (never an error) before a file is loaded — the property simply
+/// does not exist yet.
+fn read_tracks(api: &MpvApi, handle: MpvHandle) -> Vec<PlayerTrack> {
+    let name = cstr("track-list");
+    let mut node: mpv::MpvNode = unsafe { std::mem::zeroed() };
+    let code = unsafe {
+        (api.mpv_get_property)(
+            handle,
+            name.as_ptr(),
+            mpv::MPV_FORMAT_NODE,
+            &mut node as *mut _ as *mut c_void,
+        )
+    };
+    if code < 0 {
+        return Vec::new();
+    }
+    let mut tracks: Vec<PlayerTrack> = Vec::new();
+    if node.format == mpv::MPV_FORMAT_NODE_ARRAY {
+        let list = unsafe { node.u.list };
+        if !list.is_null() {
+            let list = unsafe { &*list };
+            for index in 0..list.num.max(0) as isize {
+                if list.values.is_null() {
+                    break;
+                }
+                let entry = unsafe { &*list.values.offset(index) };
+                if entry.format != mpv::MPV_FORMAT_NODE_MAP {
+                    continue;
+                }
+                let map = unsafe { entry.u.list };
+                if map.is_null() {
+                    continue;
+                }
+                let map = unsafe { &*map };
+                let Some(id) = node_i64(unsafe { node_map_get(map, "id") }) else {
+                    continue;
+                };
+                let kind = node_string(unsafe { node_map_get(map, "type") }).unwrap_or_default();
+                // The menus only offer audio and subtitles.
+                if kind != "audio" && kind != "sub" {
+                    continue;
+                }
+                tracks.push(PlayerTrack {
+                    id,
+                    lang: node_string(unsafe { node_map_get(map, "lang") }),
+                    title: node_string(unsafe { node_map_get(map, "title") }),
+                    codec: node_string(unsafe { node_map_get(map, "codec") }),
+                    channels: node_i64(unsafe { node_map_get(map, "channels") })
+                        .or_else(|| node_i64(unsafe { node_map_get(map, "demux-channel-count") }))
+                        .and_then(channels_label),
+                    selected: node_flag(unsafe { node_map_get(map, "selected") }),
+                    default: node_flag(unsafe { node_map_get(map, "default") }),
+                    forced: node_flag(unsafe { node_map_get(map, "forced") }),
+                    external: node_flag(unsafe { node_map_get(map, "external") }),
+                    kind,
+                });
+            }
+        }
+    }
+    // Caller-owned for a `mpv_get_property(..., MPV_FORMAT_NODE)` read.
+    unsafe { (api.mpv_free_node_contents)(&mut node as *mut _) };
+    tracks
+}
+
+/// HDR detection from mpv's video params: PQ/HLG transfer or a BT.2020
+/// primaries set. The chrome shows the badge only when this is true.
+fn is_hdr_source(api: &MpvApi, handle: MpvHandle) -> bool {
+    let gamma = get_property_string(api, handle, "video-params/gamma")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let primaries = get_property_string(api, handle, "video-params/primaries")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let peak = get_property_string(api, handle, "video-params/sig-peak").unwrap_or_default();
+    let hdr = gamma.contains("pq") || gamma.contains("hlg") || primaries.contains("2020") || {
+        peak.parse::<f64>().map(|value| value > 1.0).unwrap_or(false)
+    };
+    logging::debug(
+        LOG_TARGET,
+        format!("video params: gamma={gamma:?} primaries={primaries:?} sig-peak={peak:?} -> hdr={hdr}"),
+    );
+    hdr
+}
+
+fn set_property_string(api: &MpvApi, handle: MpvHandle, name: &str, value: &str) -> c_int {
+    let (name, value) = (cstr(name), cstr(value));
+    unsafe { (api.mpv_set_property_string)(handle, name.as_ptr(), value.as_ptr()) }
+}
+
 fn apply_property(status: &mut PlayerStatus, name: &str, prop: &MpvEventProperty) {
     if prop.format == mpv::MPV_FORMAT_NONE {
         // e.g. time-pos is unavailable before playback starts.
-        if name == "time-pos" {
-            status.position = 0.0;
+        match name {
+            "time-pos" => status.position = 0.0,
+            // `aid`/`sid` read as "no" when the track is disabled.
+            "aid" => status.audio_id = None,
+            "sid" => status.subs_id = None,
+            _ => {}
         }
         return;
     }
@@ -938,6 +1268,12 @@ fn apply_property(status: &mut PlayerStatus, name: &str, prop: &MpvEventProperty
         }
         "demuxer-cache-time" if prop.format == mpv::MPV_FORMAT_DOUBLE => {
             status.cache_seconds = unsafe { *(prop.data as *const c_double) }
+        }
+        "aid" if prop.format == mpv::MPV_FORMAT_INT64 => {
+            status.audio_id = Some(unsafe { *(prop.data as *const i64) })
+        }
+        "sid" if prop.format == mpv::MPV_FORMAT_INT64 => {
+            status.subs_id = Some(unsafe { *(prop.data as *const i64) })
         }
         "cache-speed" if prop.format == mpv::MPV_FORMAT_INT64 => {
             status.cache_speed = unsafe { *(prop.data as *const i64) }
@@ -1034,6 +1370,8 @@ pub async fn media_player_open(
     width: f64,
     height: f64,
     start_seconds: Option<f64>,
+    audio_id: Option<i64>,
+    subs_id: Option<i64>,
 ) -> Result<PlayerStatus, AppError> {
     logging::info(
         LOG_TARGET,
@@ -1119,6 +1457,8 @@ pub async fn media_player_open(
         stop.clone(),
         generation,
         start_seconds,
+        audio_id,
+        subs_id,
     );
 
     {
@@ -1230,6 +1570,72 @@ pub fn media_player_seek(seconds: f64) -> Result<PlayerStatus, AppError> {
         let mut status = shared.lock().unwrap();
         status.position = seconds;
         Ok(status.clone())
+    })
+}
+
+/// Phase 2: a fresh read of mpv's `track-list` (audio + subtitle tracks).
+#[tauri::command]
+pub fn media_player_tracks() -> Result<TrackState, AppError> {
+    with_session(|api, handle, shared| {
+        let tracks = read_tracks(api, handle);
+        let mut status = shared.lock().unwrap();
+        status.tracks = tracks.clone();
+        Ok(TrackState {
+            tracks,
+            audio_id: status.audio_id,
+            subs_id: status.subs_id,
+            secondary_subs_id: None,
+        })
+    })
+}
+
+/// Phase 2: select an audio (`aid`) or subtitle (`sid`) track. `id <= 0` means
+/// off — mpv wants `sid=no` rather than `sid=0`, which some builds reject.
+#[tauri::command]
+pub fn media_player_set_track(kind: String, id: i64) -> Result<TrackState, AppError> {
+    with_session(|api, handle, shared| {
+        let property = match kind.as_str() {
+            "audio" => "aid",
+            "sub" | "subs" => "sid",
+            other => {
+                return Err(perr(format!(
+                    "unknown track kind {other:?}; expected \"audio\" or \"sub\""
+                )))
+            }
+        };
+        let value = if id <= 0 { "no".to_string() } else { id.to_string() };
+        let code = set_property_string(api, handle, property, &value);
+        if code < 0 {
+            let message = format!(
+                "could not set {property} to {value}: {}",
+                mpv::error_string(api, code)
+            );
+            logging::error(LOG_TARGET, &message);
+            return Err(perr(message));
+        }
+        let tracks = read_tracks(api, handle);
+        let mut status = shared.lock().unwrap();
+        status.tracks = tracks.clone();
+        if property == "aid" {
+            status.audio_id = if id <= 0 { None } else { Some(id) };
+        } else {
+            status.subs_id = if id <= 0 { None } else { Some(id) };
+        }
+        logging::info(
+            LOG_TARGET,
+            format!(
+                "{property} -> {value} ({} tracks: {} audio, {} sub)",
+                tracks.len(),
+                tracks.iter().filter(|track| track.kind == "audio").count(),
+                tracks.iter().filter(|track| track.kind == "sub").count()
+            ),
+        );
+        Ok(TrackState {
+            tracks,
+            audio_id: status.audio_id,
+            subs_id: status.subs_id,
+            secondary_subs_id: None,
+        })
     })
 }
 
@@ -1482,6 +1888,135 @@ mod tests {
         );
         assert_eq!(video.as_deref(), Some("h264"), "video codec not decoded");
         assert_eq!(audio.as_deref(), Some("ac3"), "AC3 audio not decoded");
+
+        unsafe { (api.mpv_terminate_destroy)(handle) };
+    }
+
+    /// Live (Phase 2): the `track-list` NODE walk the track menus depend on.
+    /// Builds an MKV with two audio tracks and one subtitle track, then asserts
+    /// the ids/languages/selection flags and that `sid` toggling is reflected.
+    ///
+    /// `cargo test --lib live_track_list -- --ignored --nocapture`
+    #[test]
+    #[ignore = "live: needs ffmpeg to build the fixture and libmpv to read the track list"]
+    fn live_track_list_reports_audio_and_subtitle_tracks() {
+        use std::time::{Duration, Instant};
+
+        let directory = tempfile::tempdir().unwrap();
+        let fixture = directory.path().join("tracks.mkv");
+        let subtitles = directory.path().join("subs.srt");
+        std::fs::write(
+            &subtitles,
+            "1\n00:00:00,200 --> 00:00:01,800\nPhase 2 subtitle track\n",
+        )
+        .unwrap();
+        let (Some(fixture), Some(subtitles)) = (fixture.to_str(), subtitles.to_str()) else {
+            return;
+        };
+
+        let built = std::process::Command::new("ffmpeg")
+            .args([
+                "-hide_banner", "-loglevel", "error", "-y",
+                "-f", "lavfi", "-i", "testsrc=size=320x240:rate=15:duration=3",
+                "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+                "-f", "lavfi", "-i", "sine=frequency=660:duration=3",
+                "-i", subtitles,
+                "-map", "0:v", "-map", "1:a", "-map", "2:a", "-map", "3:s",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                "-c:a", "ac3", "-b:a:0", "128k", "-b:a:1", "96k",
+                "-c:s", "srt",
+                "-metadata:s:a:0", "language=eng",
+                "-metadata:s:a:1", "language=fra",
+                "-metadata:s:s:0", "language=eng",
+                "-metadata:s:s:0", "title=English",
+                fixture,
+            ])
+            .status();
+        match built {
+            Ok(status) if status.success() => {}
+            Ok(status) => {
+                eprintln!("ffmpeg could not build the fixture ({status}); skipping");
+                return;
+            }
+            Err(error) => {
+                eprintln!("ffmpeg unavailable ({error}); skipping");
+                return;
+            }
+        }
+
+        let lib = mpv::libmpv().expect("libmpv should load");
+        let api = &lib.api;
+        let handle = unsafe { (api.mpv_create)() };
+        assert!(!handle.is_null());
+        set_option(api, handle, "config", "no");
+        set_option(api, handle, "terminal", "no");
+        set_option(api, handle, "vo", "null");
+        set_option(api, handle, "ao", "null");
+        let code = unsafe { (api.mpv_initialize)(handle) };
+        assert!(code >= 0, "mpv_initialize failed");
+        observe(api, handle);
+        command(api, handle, &["loadfile", fixture, "replace"]).unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let mut loaded = false;
+        while Instant::now() < deadline && !loaded {
+            let event = unsafe { (api.mpv_wait_event)(handle, 0.25) };
+            if event.is_null() {
+                break;
+            }
+            if unsafe { (*event).event_id } == mpv::MPV_EVENT_FILE_LOADED {
+                loaded = true;
+            }
+        }
+        assert!(loaded, "mpv never reported FILE_LOADED");
+
+        let tracks = read_tracks(api, handle);
+        eprintln!("track-list: {tracks:?}");
+        let audio: Vec<_> = tracks.iter().filter(|track| track.kind == "audio").collect();
+        let subs: Vec<_> = tracks.iter().filter(|track| track.kind == "sub").collect();
+        assert_eq!(audio.len(), 2, "both audio tracks listed: {tracks:?}");
+        assert_eq!(subs.len(), 1, "the subtitle track is listed: {tracks:?}");
+        assert!(
+            audio.iter().any(|track| track.lang.as_deref() == Some("eng")),
+            "english audio language: {tracks:?}"
+        );
+        assert!(
+            audio.iter().any(|track| track.lang.as_deref() == Some("fra")),
+            "french audio language: {tracks:?}"
+        );
+        assert!(
+            audio.iter().all(|track| track.codec.as_deref() == Some("ac3")),
+            "audio codecs: {tracks:?}"
+        );
+        assert_eq!(subs[0].lang.as_deref(), Some("eng"));
+        assert_eq!(subs[0].title.as_deref(), Some("English"));
+        assert!(
+            tracks.iter().filter(|track| track.kind == "audio" && track.selected).count() == 1,
+            "exactly one audio track is selected by default: {tracks:?}"
+        );
+        assert!(!subs[0].selected, "subtitles start off in this fixture");
+
+        // The command path: `sid=<id>` then `sid=no`.
+        let sub_id = subs[0].id;
+        assert!(
+            set_property_string(api, handle, "sid", &sub_id.to_string()) >= 0,
+            "sid={sub_id} rejected"
+        );
+        std::thread::sleep(Duration::from_millis(300));
+        let after = read_tracks(api, handle);
+        assert!(
+            after
+                .iter()
+                .any(|track| track.kind == "sub" && track.id == sub_id && track.selected),
+            "selecting the subtitle track is reflected: {after:?}"
+        );
+        assert!(set_property_string(api, handle, "sid", "no") >= 0, "sid=no rejected");
+        std::thread::sleep(Duration::from_millis(300));
+        let off = read_tracks(api, handle);
+        assert!(
+            !off.iter().any(|track| track.kind == "sub" && track.selected),
+            "sid=no turns subtitles off: {off:?}"
+        );
 
         unsafe { (api.mpv_terminate_destroy)(handle) };
     }

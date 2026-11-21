@@ -12,6 +12,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const libraryGet = vi.fn();
 const libraryRecord = vi.fn();
 const libraryRemove = vi.fn();
+const librarySetTracks = vi.fn();
+const playerSetTrack = vi.fn();
 
 vi.mock("../lib/api", () => ({
   isTauri: false,
@@ -20,6 +22,9 @@ vi.mock("../lib/api", () => ({
     libraryGet: () => libraryGet(),
     libraryRecord: (patch: unknown) => libraryRecord(patch),
     libraryRemove: (metaId: string) => libraryRemove(metaId),
+    librarySetTracks: (choice: unknown) => librarySetTracks(choice),
+    playerSetTrack: (kind: string, id: number) => playerSetTrack(kind, id),
+    playerOpen: vi.fn(() => Promise.resolve(null)),
     getAddonManifest: vi.fn(),
     getMediaCatalog: vi.fn(),
     getMediaStreams: vi.fn(),
@@ -45,14 +50,25 @@ beforeEach(() => {
   libraryGet.mockReset();
   libraryRecord.mockReset();
   libraryRemove.mockReset();
+  librarySetTracks.mockReset();
+  playerSetTrack.mockReset();
+  librarySetTracks.mockResolvedValue({});
+  playerSetTrack.mockResolvedValue({
+    tracks: [],
+    audioId: 2,
+    subsId: null,
+    secondarySubsId: null,
+  });
   libraryRecord.mockResolvedValue({ key: "tt1160419", entry: null });
   libraryRemove.mockResolvedValue(true);
   useMediaStore.setState({
     watchProgress: {},
     libraryReady: false,
+    trackChoices: {},
     catalogs: [],
     selected: null,
     playerSource: null,
+    playerStatus: null,
   });
 });
 
@@ -80,6 +96,33 @@ describe("loadLibrary", () => {
     expect(progress.tt1160419.name).toBe("Dune");
     expect(progress.tt1160419.updatedAt).toBe(Date.parse("2026-11-21T13:40:00Z"));
     expect(useMediaStore.getState().libraryReady).toBe(true);
+  });
+
+  it("hydrates the per-title track choice (Phase 2)", async () => {
+    libraryGet.mockResolvedValue({
+      version: 1,
+      entries: {
+        tt1: {
+          positionSec: 500,
+          durationSec: 1000,
+          updatedAt: "2026-11-21T13:40:00Z",
+          audioId: 2,
+          subsId: "off",
+        },
+        tt2: {
+          positionSec: 500,
+          durationSec: 1000,
+          updatedAt: "2026-11-21T13:40:00Z",
+          subsId: 3,
+        },
+      },
+    });
+
+    await useMediaStore.getState().loadLibrary();
+
+    const choices = useMediaStore.getState().trackChoices;
+    expect(choices.tt1).toEqual({ audioId: 2, subsId: null });
+    expect(choices.tt2).toEqual({ audioId: null, subsId: 3 });
   });
 
   it("aggregates per-episode entries onto the show id, latest episode wins", async () => {
@@ -163,5 +206,79 @@ describe("recordProgress", () => {
   it("ignores a zero-length position", () => {
     useMediaStore.getState().recordProgress("tt1160419", 0, 9330);
     expect(libraryRecord).not.toHaveBeenCalled();
+  });
+});
+
+describe("setTrack (Phase 2)", () => {
+  it("selects through the command, refreshes the list and persists the choice", async () => {
+    useMediaStore.setState({
+      playerSource: { url: "https://example/stream.mkv", title: "Dune", metaId: "tt1160419" },
+      playerStatus: {
+        loaded: true,
+        paused: false,
+        eof: false,
+        idle: false,
+        position: 0,
+        duration: 100,
+        volume: 100,
+        muted: false,
+        title: null,
+        videoFormat: "h264",
+        pausedForCache: false,
+        cachePercent: 0,
+        cacheSeconds: 0,
+        cacheSpeed: 0,
+        fileLoaded: true,
+        error: null,
+        tracks: [],
+        audioId: 1,
+        subsId: null,
+      },
+    });
+
+    await useMediaStore.getState().setTrack("audio", 2);
+
+    expect(playerSetTrack).toHaveBeenCalledWith("audio", 2);
+    expect(useMediaStore.getState().playerStatus?.audioId).toBe(2);
+    expect(useMediaStore.getState().trackChoices.tt1160419).toEqual({
+      audioId: 2,
+      subsId: null,
+    });
+    expect(librarySetTracks).toHaveBeenCalledWith({
+      metaId: "tt1160419",
+      audioId: 2,
+      subsId: null,
+    });
+  });
+
+  it("sends id 0 for the Off row (mpv `sid=no`)", async () => {
+    playerSetTrack.mockResolvedValue({
+      tracks: [],
+      audioId: 1,
+      subsId: null,
+      secondarySubsId: null,
+    });
+    useMediaStore.setState({
+      playerSource: { url: "u", title: "t", metaId: "tt1" },
+      playerStatus: null,
+    });
+
+    await useMediaStore.getState().setTrack("sub", null);
+
+    expect(playerSetTrack).toHaveBeenCalledWith("sub", 0);
+  });
+
+  it("carries the stored choice into the player source", () => {
+    useMediaStore.setState({
+      selected: null,
+      trackChoices: { tt9: { audioId: 2, subsId: 3 } },
+    });
+    useMediaStore.getState().openPlayer("https://example/x", "Title", "tt9", null, 120);
+    expect(useMediaStore.getState().playerSource).toMatchObject({
+      metaId: "tt9",
+      startSeconds: 120,
+      audioId: 2,
+      subsId: 3,
+    });
   });
 });

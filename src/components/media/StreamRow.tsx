@@ -225,7 +225,7 @@ export function StreamRow({ ranked, metaId }: { ranked: RankedStream; metaId: st
             aria-label={`Open ${title} in an external player`}
             title="Open in an external player (VLC / IINA / mpv)"
           >
-            ↗
+            <MediaIcon name="external" size={14} />
           </button>
         ) : null}
       </div>
