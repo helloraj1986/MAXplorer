@@ -376,6 +376,11 @@ export const useMediaStore = create<MediaState>((set, get) => ({
               poster: get().selected?.poster ?? null,
               quality: quality ?? null,
             },
+            // Torrent playback must enter the player screen too, otherwise the
+            // media rail + top bar stay in the layout: the native surface is
+            // positioned from the stage rect, so the video opens inset by the
+            // 72 px rail and the app never goes immersive.
+            screen: "player",
           });
           return;
         }
