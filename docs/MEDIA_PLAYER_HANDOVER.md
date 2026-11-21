@@ -234,6 +234,21 @@ symptom we have now).
   the first cut (`presented_seq >= slot_seq + 2`, 3 buffers) had zero slack and
   dropped ~50 % of frames — 24 fps became 4–6 fps. Buffers needed = 1 rendering +
   `RELEASE_LAG` + presenter lag.
+- **Render-target cap + bilinear (WP4b item 3).** mpv renders at
+  `min(stage_backing_width, TARGET_MAX_WIDTH = 2560)` with the aspect preserved;
+  the NSView keeps the full stage rect and CALayer's default `contentsGravity`
+  (resize) upscales the smaller image. `set_size` compares the **capped** size so a
+  resize tick cannot reallocate the ring. `scale=bilinear` / `dscale=bilinear` are
+  set before `mpv_initialize`. Measured on a 3840x2160 source through the SW VO
+  (`bench_render_target_cap`): 3416x1700 + default scaler = **16.00 ms/frame,
+  22.2 MB/frame**; 2560x1274 + bilinear = **13.58 ms/frame, 12.4 MB/frame**. The
+  remaining cost is 4K→`rgb0` conversion, which the cap does not touch.
+- **One frame in flight to the main thread (WP4b item 4).** `queued` counts frames
+  dispatched but not yet presented; `may_dispatch(queued)` refuses a second one, so
+  a frame rendered while the main thread is behind is dropped as **stale** (its own
+  counter — `dropped` stays "no buffer free") and its slot returns through the
+  normal release grace. `queued` is decremented on the main thread after
+  `setContents`, and on a failed dispatch hop.
 - `MpvApi` resolves the five render symbols: `mpv_render_context_create`,
   `set_update_callback`, `update`, `render`, `free`. A candidate libmpv missing
   any of them fails to load with the symbol named.

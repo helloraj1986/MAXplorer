@@ -188,6 +188,14 @@ fn cap_target(width: u32, height: u32) -> (u32, u32) {
     (TARGET_MAX_WIDTH, scaled.max(1))
 }
 
+/// Item 4's gate: at most one frame is ever in flight to the main thread. A frame
+/// rendered while the previous one has not presented yet is stale by definition —
+/// the main thread is behind, so dispatching it would only build a backlog of old
+/// pictures to composite after the newest one.
+fn may_dispatch(queued: u64) -> bool {
+    queued == 0
+}
+
 /// The ring of surfaces mpv renders into.
 ///
 /// Ownership is **consumer-driven**: the render thread takes a slot from `free`,
@@ -313,6 +321,11 @@ struct Shared {
     presented_seq: AtomicU64,
     /// Frames not rendered because every buffer was still owned by the presenter.
     dropped_frames: AtomicU64,
+    /// Rendered frames skipped because the previous one had not been presented yet
+    /// (item 4). Separate from `dropped_frames`, which means "no buffer available".
+    stale_frames: AtomicU64,
+    /// Frames dispatched to the main thread and not yet presented there.
+    queued: AtomicU64,
     /// Time spent inside `mpv_render_context_render`, in nanoseconds.
     render_nanos: AtomicU64,
     rendered: AtomicU64,
@@ -376,6 +389,8 @@ impl SwRenderer {
             frame_seq: AtomicU64::new(0),
             presented_seq: AtomicU64::new(0),
             dropped_frames: AtomicU64::new(0),
+            stale_frames: AtomicU64::new(0),
+            queued: AtomicU64::new(0),
             render_nanos: AtomicU64::new(0),
             rendered: AtomicU64::new(0),
             present_failed: AtomicBool::new(false),
@@ -554,13 +569,15 @@ fn render_loop(api: &'static MpvApi, ctx: MpvRenderContext, shared: Arc<Shared>)
                         LOG_TARGET,
                         format!(
                             "render: {:.1} fps at {}x{} px ({:.1} MB/frame, zero-copy), \
-                             {:.1} ms/frame in mpv, {} dropped (all buffers busy), lag {}",
+                             {:.1} ms/frame in mpv, {} dropped (all buffers busy), \
+                             {} stale (main thread busy), lag {}",
                             frames_since_report as f64 / elapsed,
                             frame.width,
                             frame.height,
                             (frame.stride * frame.height as usize) as f64 / (1024.0 * 1024.0),
                             render_ms,
                             shared.dropped_frames.load(Ordering::Relaxed),
+                            shared.stale_frames.load(Ordering::Relaxed),
                             shared
                                 .frame_seq
                                 .load(Ordering::Relaxed)
@@ -570,6 +587,15 @@ fn render_loop(api: &'static MpvApi, ctx: MpvRenderContext, shared: Arc<Shared>)
                     last_report = std::time::Instant::now();
                     frames_since_report = 0;
                 }
+                // Item 4: if the main thread has not presented the previous frame
+                // yet, this one is already stale — composite it and the viewer sees
+                // an old picture while a backlog drains. Skip the dispatch and let
+                // the `Frame` drop return its slot.
+                if !may_dispatch(shared.queued.load(Ordering::Relaxed)) {
+                    shared.stale_frames.fetch_add(1, Ordering::Relaxed);
+                    continue;
+                }
+                shared.queued.fetch_add(1, Ordering::Relaxed);
                 let view = shared.view;
                 let app = shared.app.clone();
                 let failed = shared.present_failed.load(Ordering::Relaxed);
@@ -579,12 +605,16 @@ fn render_loop(api: &'static MpvApi, ctx: MpvRenderContext, shared: Arc<Shared>)
                 // what returns the slot to the ring (two-frame recycle grace).
                 let presented = shared.clone();
                 if let Err(error) = app.run_on_main_thread(move || unsafe {
+                    // Clear the in-flight marker first: a failure here must not stall
+                    // the pipeline forever.
                     if present(view, &frame) {
                         presented.presented_seq.fetch_max(seq, Ordering::AcqRel);
                     } else if !failed {
                         logging::warn(LOG_TARGET, "could not present the video frame to the layer");
                     }
+                    presented.queued.fetch_sub(1, Ordering::Relaxed);
                 }) {
+                    shared.queued.fetch_sub(1, Ordering::Relaxed);
                     logging::warn(LOG_TARGET, format!("present dispatch failed: {error}"));
                 }
             }
@@ -925,6 +955,13 @@ mod tests {
         assert_eq!(w, TARGET_MAX_WIDTH);
         // Degenerate sizes are passed through for the caller to reject.
         assert_eq!(cap_target(0, 0), (0, 0));
+    }
+
+    /// Item 4's contract: one frame in flight to the main thread, never two.
+    #[test]
+    fn only_one_frame_is_dispatched_at_a_time() {
+        assert!(may_dispatch(0));
+        assert!(!may_dispatch(1), "a second frame would composite after a stale one");
     }
 
     /// The ring's contract: the renderer can only take a slot the presenter has

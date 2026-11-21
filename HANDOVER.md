@@ -116,45 +116,64 @@ Item 8's numbers (mpv `container-fps` / `estimated-vf-fps` / vo+decoder drop
 counters, render ms/frame, presenter lag) landed with it.
 Also on this branch: `886a629` player-mode takeover fix and `bf5b5a1` fullscreen
 de-duplication — **4b itself is 2 of 8 items, NOT finished.**
-**Next: BUNDLE A — items 3 + 4** (render cost). The user authorised batching
-coupled items on 2026-11-21: same code path ⇒ one session, but **one commit and
-one measurement per item**, never one commit for both. Full spec below.
+**DONE: BUNDLE A — items 3 + 4** (render cost), same session, two commits, one
+measurement each — the numbers are in the as-built section below.
+**Next: BUNDLE B — items 5 + 6 + 7** (prewarm, per-source cache, hr-seek), then WP5.
 
-### BUNDLE A spec (items 3 + 4)
+### BUNDLE A — as built (2026-11-21, items 3 + 4)
 
 **Item 3 — SW scaler + render-target cap.**
-- `player.rs` option set (before `mpv_initialize`, beside `vo=libmpv`):
-  `scale=bilinear`, `dscale=bilinear`. The SW VO scales in CPU; bilinear is the
-  cheap filter and at this size the difference is invisible after CALayer
-  upscaling.
-- `render.rs`: cap the render target. In `set_size` (and the initial create),
-  given backing `(w, h)`, if `w > TARGET_MAX_WIDTH` scale down preserving aspect
-  (`h = h * MAX / w`, `w = MAX`), `TARGET_MAX_WIDTH = 2560`. The NSView frame
-  stays the full stage — `CALayer.contentsGravity` defaults to resize, so the
-  layer upscales the smaller CGImage for free. Keep `set_size` idempotent: compare
-  the **capped** size, else it reallocates the ring on every resize tick.
-- Measure: `media.render` → `ms/frame in mpv` and fps on the same 4K 24 fps
-  torrent; expect fewer pixels (2560×~1049 ≈ 10.7 MB/frame vs 18.5) and lower
-  mpv time. Watch for subtitle softness (mpv rasterises subs into the capped
-  buffer) — if it looks bad, raise the cap, don't add a second render pass.
-- Live proof: `cargo test --lib live_ring_renders_in_place -- --ignored --nocapture`
-  must still paint every frame.
+- `player.rs`: `scale=bilinear` / `dscale=bilinear` set with the rest of the option
+  block, **before `mpv_initialize`** (beside `vo=libmpv`).
+- `render.rs`: `TARGET_MAX_WIDTH = 2560` and `cap_target(w, h)` (width-clamped,
+  aspect preserved, degrades to a passthrough for zero/under-cap sizes). It is
+  applied in **both** `SwRenderer::create` and `set_size`, and `set_size` compares
+  the **capped** geometry — comparing raw backing pixels would reallocate the whole
+  5-buffer ring on every resize tick.
+- The NSView frame stays the full stage: `CALayer.contentsGravity` defaults to
+  resize, so the layer upscales the smaller `CGImage` at composite time for free.
+- **Measured** (`cargo test --release --lib bench_render_target_cap -- --ignored
+  --nocapture`, 3840x2160 source, 35 frames after 5 warm-up, `untimed=yes` so the
+  VO is not pacing to the frame clock):
+
+  | target | scaler | ms/frame (mean) | peak | MB/frame |
+  |---|---|---|---|---|
+  | 3416x1700 | mpv default (spline) | 16.00 | 21.33 | 22.2 |
+  | 2560x1274 | bilinear | 13.58 | 19.21 | 12.4 |
+
+  −15 % render time, −44 % frame memory. The remaining cost is the 4K→`rgb0`
+  conversion inside mpv, which a smaller target does not remove — so do not expect
+  the cap alone to open big headroom; it buys the memory and the scale work.
+- Live path unchanged: `live_ring_renders_in_place` still paints 24/24 frames from
+  5 distinct surfaces.
+- Watch subtitle softness: mpv rasterises subs into the capped buffer. If they look
+  bad, **raise the cap**, do not add a second render pass.
 
 **Item 4 — drop stale frames before dispatch.**
-- Today every rendered frame is posted to the main thread unconditionally; when
-  the main thread lags, a backlog of stale `CGImage`s is composited in order.
-- Add `queued: AtomicU64` (frames dispatched, not yet presented). Before
-  `run_on_main_thread`, if `queued >= 1` **skip the dispatch** and let the `Frame`
-  drop return its slot (count it in a separate `stale_frames` counter — do NOT
-  add it to `dropped_frames`, which means "no buffer available"). Decrement
-  `queued` on the main thread after `setContents`.
-- Acceptance: `media.render` shows `lag 1` (never >1) and 0 stale drops at steady
-  state; during a window drag the stale counter may tick while fps stays 24.
+- `render.rs`: `queued: AtomicU64` (dispatched, not yet presented) + the gate
+  `may_dispatch(queued)` (= `queued == 0`), plus `stale_frames: AtomicU64`. When the
+  gate refuses, the rendered frame is skipped, counted as **stale** and its `Frame`
+  drop returns the slot through the normal `release` grace. `queued` is decremented
+  on the main thread right after `setContents` (and on a failed dispatch, so a
+  broken main-thread hop cannot wedge the pipeline).
+- `stale` is deliberately a **separate counter** from `dropped` — `dropped` still
+  means "no buffer was free" (real backpressure), `stale` means "the main thread
+  had not presented the previous frame yet".
+- The 5 s `media.render` line now reads e.g.
+  `render: 24.0 fps at 2560x1274 px (12.4 MB/frame, zero-copy), 41.6 ms/frame in
+  mpv, 0 dropped (all buffers busy), 0 stale (main thread busy), lag 1`.
+  Acceptance: `lag 1` never > 1 and `stale 0` at steady state; during a window drag
+  `stale` may tick while fps holds.
+- Unit contract: `only_one_frame_is_dispatched_at_a_time`.
 
-**Cleanup in the same build** (found 2026-11-21): `vo-drops` and
-`osd … bars l/t/r/b` print `n/a` — those properties don't exist in mpv
-v0.42.0-173. Keep `decoder-frame-drop-count` and `osd WxH` (both print), drop the
-dead fields.
+**Cleanup in the same build:** `media.player.perf` no longer logs `vo-drops` or
+`osd … bars l/t/r/b` — those properties do not exist in mpv v0.42.0-173 and always
+printed `n/a`. The line is now
+`playback: source 24.0 fps, vf 24.0 fps, decoder-drops 0, osd 2560x1274, pos 12.3`.
+
+**Gates:** `cargo test --lib` 116 passed / 10 ignored; `cargo test --release --lib
+bench_render_target_cap` (numbers above); `live_ring_renders_in_place` paints
+24/24; no frontend change in this bundle (`tsc`/vitest untouched).
 
 ### Ultrawide Fit/Fill + surface-rect diagnostics (2026-11-21, after the takeover fix)
 
@@ -169,10 +188,11 @@ dead fields.
 - **Diagnostics for the remaining question** (why the picture also sat ~136 px
   below the window top): every `media_player_set_rect` now logs
   `surface rect: css=(…) content_h=… frame=(…) backing=(WxH) view_flipped=…`, and
-  the 5 s `media.player.perf` line gained mpv's own picture rect
-  `osd WxH bars l t r b`. If `bars t/b` are 0 while the black band persists, the
-  bug is the NSView frame/offset; if `bars t` is ~136, mpv is fitting a stale
-  surface size.
+  the 5 s `media.player.perf` line carries mpv's `osd WxH` (its own fitted picture
+  size). If `frame.y + frame.h == content_h` while a black band persists, mpv is
+  fitting a stale surface size; if it does not, the NSView frame/offset is wrong.
+  The per-side margin properties (`osd-dimensions/margins-*`) do not exist in this
+  mpv build — they only ever printed `n/a`, so they are no longer logged.
 
 ### Player-mode takeover bug (fixed 2026-11-21, `886a629`)
 

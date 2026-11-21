@@ -310,8 +310,12 @@ fn get_property_string(api: &MpvApi, handle: MpvHandle, name: &str) -> Option<St
 ///
 /// Without these, "the frame rate is dropping" cannot be attributed: `media.render`
 /// only counts frames *we* rendered. `container-fps` is what the source offers,
-/// `estimated-vf-fps` what the VO filter chain is actually emitting, and mpv's two
-/// drop counters say whether the loss is in the VO or in the decoder.
+/// `estimated-vf-fps` what the VO filter chain is actually emitting, and
+/// `decoder-frame-drop-count` says whether the loss is in the decoder.
+///
+/// `vo-drop-frame-count` and `osd-dimensions/margins-*` are **not** implemented by
+/// this mpv build (0.42.0-173) — they only ever printed `n/a`, so they are no longer
+/// logged as if they were evidence.
 ///
 /// Must run on the mpv control thread (the event loop) — never from the ticker.
 fn log_playback_perf(api: &MpvApi, handle: MpvHandle) {
@@ -321,18 +325,12 @@ fn log_playback_perf(api: &MpvApi, handle: MpvHandle) {
     logging::info(
         "media.player.perf",
         format!(
-            "playback: source {} fps, vf {} fps, vo-drops {}, decoder-drops {}, osd {}x{} \
-             bars l{} t{} r{} b{}, pos {}",
+            "playback: source {} fps, vf {} fps, decoder-drops {}, osd {}x{}, pos {}",
             read("container-fps"),
             read("estimated-vf-fps"),
-            read("vo-drop-frame-count"),
             read("decoder-frame-drop-count"),
             read("osd-dimensions/w"),
             read("osd-dimensions/h"),
-            read("osd-dimensions/margins-l"),
-            read("osd-dimensions/margins-t"),
-            read("osd-dimensions/margins-r"),
-            read("osd-dimensions/margins-b"),
             read("time-pos"),
         ),
     );
