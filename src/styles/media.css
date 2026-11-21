@@ -2027,6 +2027,118 @@
   font-size: 14px;
 }
 
+/* --- Track menus (Phase 2) ------------------------------------------- */
+
+.media-player-tracks {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Track buttons are deliberately NOT `.is-toggle`: that class is the Fill/Fit
+   control's, and tests (and users) find it by that name. */
+.media-player-btn.is-track {
+  min-width: 52px;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The popover is anchored to its button and opens upward: the stage below is
+   the native video surface, which would paint over anything drawn there. */
+.media-player-trackwrap {
+  position: relative;
+}
+
+.media-player-btn.is-active {
+  border-color: var(--m-accent);
+  color: var(--m-text);
+}
+
+.media-player-btn.is-open {
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--m-text);
+}
+
+.media-player-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.media-trackmenu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 232px;
+  max-height: 46vh;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--m-hairline);
+  border-radius: var(--m-radius-panel);
+  background: var(--m-bg-elevated);
+  box-shadow: var(--m-shadow-panel);
+}
+
+.media-trackmenu-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--m-radius-sm);
+  background: transparent;
+  color: var(--m-text-dim);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.media-trackmenu-row:hover {
+  background: var(--m-surface-hover);
+  color: var(--m-text);
+}
+
+.media-trackmenu-row.is-active {
+  color: var(--m-text);
+}
+
+.media-trackmenu-row:focus-visible {
+  outline: 2px solid var(--m-accent);
+  outline-offset: -2px;
+}
+
+.media-trackmenu-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-trackmenu-badge {
+  padding: 1px 6px;
+  border: 1px solid var(--m-hairline);
+  border-radius: var(--m-radius-pill);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--m-text-dim);
+}
+
+.media-trackmenu-badge.forced {
+  border-color: var(--m-accent);
+  color: var(--m-text);
+}
+
+.media-trackmenu-check {
+  color: var(--m-accent);
+  font-size: 12px;
+}
+
 .media-player-btn.is-primary {
   border-color: var(--m-accent);
   background: var(--m-accent);

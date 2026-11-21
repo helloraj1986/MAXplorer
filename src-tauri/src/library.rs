@@ -175,14 +175,26 @@ impl LibraryPatch {
     }
 }
 
+/// Phase 2: the per-title audio/subtitle choice. Position/duration are left
+/// alone — this is a preference, not progress — and the entry is created if the
+/// title has not been recorded yet, so the choice survives a resume below 2 %.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackChoicePatch {
+    pub meta_id: String,
+    #[serde(default)]
+    pub audio_id: Option<i64>,
+    /// `None` / `0` = subtitles off, stored as `"off"` per the spec shape.
+    #[serde(default)]
+    pub subs_id: Option<i64>,
+}
+
 struct State {
     store: LibraryFile,
     dirty: bool,
     last_change: Option<Instant>,
     /// Writes performed since the process started (tests + the log line).
     writes: u64,
-    /// Load diagnostics for the "created/corrupt/loaded" log line.
-    loaded_entries: usize,
 }
 
 /// The process-wide library store. Cloning is cheap (`Arc` inside) but callers
@@ -202,13 +214,12 @@ impl MediaLibrary {
     /// Opens with an explicit debounce window — tests use a few milliseconds so
     /// they do not sleep for seconds.
     pub fn open_with_debounce(path: PathBuf, debounce: Duration) -> Self {
-        let (store, loaded_entries) = load_store(&path);
+        let (store, _loaded_entries) = load_store(&path);
         let state = Arc::new(Mutex::new(State {
             store,
             dirty: false,
             last_change: None,
             writes: 0,
-            loaded_entries,
         }));
         spawn_debounce_writer(path.clone(), Arc::downgrade(&state), debounce);
         Self {
@@ -218,6 +229,7 @@ impl MediaLibrary {
         }
     }
 
+    #[allow(dead_code)] // diagnostics
     pub fn path(&self) -> &Path {
         &self.path
     }
@@ -329,6 +341,39 @@ impl MediaLibrary {
         removed
     }
 
+    /// Stores the per-title audio/subtitle choice (Phase 2). Position and
+    /// duration are untouched; an entry is created when the title has no
+    /// progress yet, because a preference is worth keeping before 2 % watched.
+    pub fn set_tracks(&self, patch: TrackChoicePatch) -> Result<LibraryEntry, String> {
+        if patch.meta_id.trim().is_empty() {
+            return Err("metaId is required".to_string());
+        }
+        let key = patch.meta_id.clone();
+        let audio = patch.audio_id.filter(|id| *id > 0);
+        let subs = match patch.subs_id {
+            Some(id) if id > 0 => Value::from(id),
+            _ => Value::String("off".to_string()),
+        };
+        let entry = {
+            let mut state = self.state.lock().unwrap();
+            let mut entry = state.store.entries.get(&key).cloned().unwrap_or_default();
+            entry.audio_id = audio;
+            entry.subs_id = Some(subs);
+            entry.updated_at = now_iso();
+            state.store.entries.insert(key.clone(), entry.clone());
+            mark_dirty(&mut state);
+            entry
+        };
+        logging::info(
+            LOG_TARGET,
+            format!(
+                "tracks for {key}: audio={audio:?} subs={}",
+                entry.subs_id.as_ref().map(|v| v.to_string()).unwrap_or_default()
+            ),
+        );
+        Ok(entry)
+    }
+
     /// Writes immediately if there is anything pending. Called on app exit, by
     /// `media_library_remove`, and by tests.
     pub fn flush(&self) -> Result<(), String> {
@@ -344,6 +389,7 @@ impl MediaLibrary {
         self.state.lock().unwrap().writes
     }
 
+    #[allow(dead_code)] // diagnostics; kept for tests and future use
     pub fn debounce(&self) -> Duration {
         self.debounce
     }
@@ -394,6 +440,12 @@ fn spawn_debounce_writer(path: PathBuf, state: Weak<Mutex<State>>, debounce: Dur
         .expect("spawn library writer thread");
 }
 
+/// Phase 2: an entry that carries an audio/subtitle choice is retained even
+/// without usable progress — Continue watching filters on the ratio anyway.
+fn has_track_choice(entry: &LibraryEntry) -> bool {
+    entry.audio_id.is_some() || entry.subs_id.is_some()
+}
+
 /// 2 %–95 % watched, exclusive on both ends (spec: `< 2 %` and `> 95 %` drop).
 fn in_window(position_sec: f64, duration_sec: f64) -> bool {
     if !(duration_sec > 0.0) || !(position_sec > 0.0) {
@@ -408,7 +460,9 @@ fn in_window(position_sec: f64, duration_sec: f64) -> bool {
 fn sanitize(store: &mut LibraryFile) -> Vec<String> {
     let mut dropped: Vec<String> = Vec::new();
     store.entries.retain(|key, entry| {
-        if in_window(entry.position_sec, entry.duration_sec) {
+        // A stored track choice (Phase 2) is a preference, not progress: keep it
+        // even when the position is outside the Continue-watching window.
+        if in_window(entry.position_sec, entry.duration_sec) || has_track_choice(entry) {
             return true;
         }
         dropped.push(key.clone());
@@ -626,6 +680,17 @@ pub fn media_library_record(
     library(&app)?
         .record(patch.clone())
         .map_err(|error| crate::error::AppError::new("library_record", error, None))
+}
+
+/// Phase 2: persist the per-title audio/subtitle choice.
+#[tauri::command]
+pub fn media_library_set_tracks(
+    app: tauri::AppHandle,
+    choice: TrackChoicePatch,
+) -> Result<LibraryEntry, crate::error::AppError> {
+    library(&app)?
+        .set_tracks(choice)
+        .map_err(|error| crate::error::AppError::new("library_tracks", error, None))
 }
 
 #[tauri::command]
@@ -957,6 +1022,63 @@ mod tests {
         assert!(!library.remove("tt1"));
         assert_eq!(library.writes(), 1);
         assert!(read_file(&path).entries.is_empty());
+    }
+
+    #[test]
+    fn track_choice_persists_without_progress() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("library.json");
+        let library = MediaLibrary::open_with_debounce(path.clone(), Duration::from_millis(5));
+
+        // Below 2 % watched: a record would not create an entry, but a track
+        // choice must still be kept.
+        let entry = library
+            .set_tracks(TrackChoicePatch {
+                meta_id: "tt0903747".into(),
+                audio_id: Some(2),
+                subs_id: Some(3),
+            })
+            .expect("stored");
+        assert_eq!(entry.audio_id, Some(2));
+        assert_eq!(entry.subs_id, Some(Value::from(3)));
+        library.flush().unwrap();
+
+        let file = read_file(&path);
+        let stored = &file.entries["tt0903747"];
+        assert_eq!(stored.audio_id, Some(2));
+        assert_eq!(stored.subs_id, Some(Value::from(3)));
+        assert_eq!(stored.position_sec, 0.0, "a choice is not progress");
+
+        // Subtitles off is stored as the string "off" (spec shape).
+        library
+            .set_tracks(TrackChoicePatch {
+                meta_id: "tt0903747".into(),
+                audio_id: Some(1),
+                subs_id: None,
+            })
+            .unwrap();
+        library.flush().unwrap();
+        let file = read_file(&path);
+        assert_eq!(file.entries["tt0903747"].subs_id, Some(Value::String("off".into())));
+        assert_eq!(file.entries["tt0903747"].audio_id, Some(1));
+    }
+
+    #[test]
+    fn track_choice_survives_retention() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("library.json");
+        let mut store = LibraryFile::default();
+        // 0 % progress but a track choice: retention must keep it.
+        store.entries.insert(
+            "tt-pref".into(),
+            LibraryEntry {
+                subs_id: Some(Value::from(4)),
+                ..LibraryEntry::default()
+            },
+        );
+        fs::write(&path, serde_json::to_string(&store).unwrap()).unwrap();
+        let library = MediaLibrary::open_with_debounce(path.clone(), Duration::from_millis(5));
+        assert!(library.snapshot().entries.contains_key("tt-pref"));
     }
 
     #[test]

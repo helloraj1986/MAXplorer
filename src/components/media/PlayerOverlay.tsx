@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, isTauri, normalizeError } from "../../lib/api";
 import { logDiagnostic } from "../../lib/diagnostics";
 import { useMediaStore } from "../../state/mediaStore";
+import { TrackMenu, languageName } from "./TrackMenu";
 import type { NativePlayerStatus, NativePlayerTick } from "./types";
 
 /**
@@ -39,6 +40,7 @@ export function PlayerOverlay() {
   const setPlayerStatus = useMediaStore((state) => state.setPlayerStatus);
   const patchPlayerStatus = useMediaStore((state) => state.patchPlayerStatus);
   const recordProgress = useMediaStore((state) => state.recordProgress);
+  const setTrack = useMediaStore((state) => state.setTrack);
 
   const stageRef = useRef<HTMLDivElement | null>(null);
   const seekBarRef = useRef<HTMLDivElement | null>(null);
@@ -60,6 +62,8 @@ export function PlayerOverlay() {
   // ultrawide window cannot do both, so this is the user's call, not a default.
   const [fillVideo, setFillVideo] = useState(false);
   const fillRef = useRef(false);
+  /** Phase 2: which track popover is open, if any. */
+  const [trackMenu, setTrackMenu] = useState<"audio" | "sub" | null>(null);
 
   const status: NativePlayerStatus | null = playerStatus;
   const position = status?.position ?? 0;
@@ -107,7 +111,11 @@ export function PlayerOverlay() {
       "media.player",
     );
     api
-      .playerOpen(playerSource.url, playerSource.title, rect(), playerSource.startSeconds ?? undefined)
+      .playerOpen(playerSource.url, playerSource.title, rect(), {
+        startSeconds: playerSource.startSeconds ?? null,
+        audioId: playerSource.audioId ?? null,
+        subsId: playerSource.subsId ?? null,
+      })
       .then((initial) => {
         if (cancelled) return;
         setPlayerStatus(initial);
@@ -474,8 +482,24 @@ export function PlayerOverlay() {
             window.requestAnimationFrame(() => playButtonRef.current?.focus());
           }
           break;
+        case "a":
+        case "A":
+          event.preventDefault();
+          setTrackMenu((open) => (open === "audio" ? null : "audio"));
+          revealChrome();
+          break;
+        case "s":
+        case "S":
+          event.preventDefault();
+          setTrackMenu((open) => (open === "sub" ? null : "sub"));
+          revealChrome();
+          break;
         case "Escape":
-          if (chromeVisible) {
+          if (trackMenu) {
+            // The menu is the innermost layer: Esc closes it before the chrome.
+            event.preventDefault();
+            setTrackMenu(null);
+          } else if (chromeVisible) {
             event.preventDefault();
             clearIdleTimer();
             setChromeVisible(false);
@@ -493,6 +517,7 @@ export function PlayerOverlay() {
   }, [
     playerSource,
     chromeVisible,
+    trackMenu,
     togglePlay,
     toggleMute,
     toggleFullscreen,
@@ -519,6 +544,20 @@ export function PlayerOverlay() {
     .filter((part): part is string => Boolean(part))
     .join(" · ");
   const volumeIcon = muted || volume === 0 ? "🔇" : volume < 50 ? "🔉" : "🔊";
+
+  // ── Tracks (Phase 2) ──────────────────────────────────────────────────────
+  const tracks = status?.tracks ?? [];
+  const audioTracks = tracks.filter((track) => track.kind === "audio");
+  const subsTracks = tracks.filter((track) => track.kind === "sub");
+  const activeAudioId =
+    status?.audioId ?? audioTracks.find((track) => track.selected)?.id ?? null;
+  const activeSubsId = status?.subsId ?? null;
+  const activeAudioName =
+    languageName(audioTracks.find((track) => track.id === activeAudioId)?.lang ?? null) ??
+    (audioTracks.length > 1 ? "Audio" : "Audio");
+  const subsActive = activeSubsId !== null;
+  /** No container parsed yet ⇒ the menus are meaningless, so keep them disabled. */
+  const tracksReady = fileLoaded && tracks.length > 0;
 
   // ── Seek bar gesture handlers (optimistic: local scrub, one seek on release) ──
   const trackRect = () => seekBarRef.current?.getBoundingClientRect() ?? { left: 0, width: 0 };
@@ -756,6 +795,81 @@ export function PlayerOverlay() {
           <span className="media-player-time" aria-hidden="true">
             {formatTime(duration)}
           </span>
+
+          {/* Phase 2: track menus. Menus live in the chrome, never over the
+              stage — the native surface would cover them. */}
+          <div className="media-player-tracks">
+            <div className="media-player-trackwrap">
+              <button
+                type="button"
+                className={`media-player-btn is-track${trackMenu === "audio" ? " is-open" : ""}`}
+                onClick={() => setTrackMenu((open) => (open === "audio" ? null : "audio"))}
+                aria-haspopup="menu"
+                aria-expanded={trackMenu === "audio"}
+                aria-label={`Audio tracks (${audioTracks.length})`}
+                title={
+                  tracksReady
+                    ? `Audio: ${activeAudioName}${
+                        audioTracks.length > 1 ? ` (${audioTracks.length} tracks)` : ""
+                      } — A`
+                    : "Audio tracks appear once the file loads"
+                }
+                disabled={!tracksReady}
+              >
+                Audio
+              </button>
+              {trackMenu === "audio" ? (
+                <TrackMenu
+                  kind="audio"
+                  tracks={audioTracks}
+                  activeId={activeAudioId}
+                  onSelect={(id) => {
+                    setTrackMenu(null);
+                    void setTrack("audio", id);
+                  }}
+                  onClose={() => setTrackMenu(null)}
+                />
+              ) : null}
+            </div>
+
+            <div className="media-player-trackwrap">
+              <button
+                type="button"
+                className={`media-player-btn is-track${subsActive ? " is-active" : ""}${
+                  trackMenu === "sub" ? " is-open" : ""
+                }`}
+                onClick={() => setTrackMenu((open) => (open === "sub" ? null : "sub"))}
+                aria-haspopup="menu"
+                aria-expanded={trackMenu === "sub"}
+                aria-label={`Subtitles (${subsTracks.length} tracks)`}
+                title={
+                  !tracksReady
+                    ? "Subtitle tracks appear once the file loads"
+                    : subsTracks.length === 0
+                      ? "No subtitle tracks in this file"
+                      : `Subtitles: ${
+                          languageName(subsTracks.find((track) => track.id === activeSubsId)?.lang ?? null) ??
+                          "On"
+                        } — S`
+                }
+                disabled={!tracksReady || subsTracks.length === 0}
+              >
+                CC
+              </button>
+              {trackMenu === "sub" ? (
+                <TrackMenu
+                  kind="sub"
+                  tracks={subsTracks}
+                  activeId={activeSubsId}
+                  onSelect={(id) => {
+                    setTrackMenu(null);
+                    void setTrack("sub", id);
+                  }}
+                  onClose={() => setTrackMenu(null)}
+                />
+              ) : null}
+            </div>
+          </div>
 
           <div className="media-player-volume">
             <button

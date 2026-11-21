@@ -35,14 +35,14 @@ item per session — never batched.**
 > `src/components/media` → 91 passed. WP3 lives on `feature/media-ui-wp3` @
 > `cb138ae` (pushed); WP4a lives on `feature/media-ui-wp4a`.
 
-> ### ▶ NEXT: Phase 2 of the library/tracks bundle
+> ### ▶ NEXT: Phase 3 of the library/tracks bundle
 >
-> **Phase 1 (`library.json` + resume + real Continue watching) is DONE** on
-> `feature/media-library-p1` — as-built record in
-> `docs/MEDIA_LIBRARY_TRACKS_SPEC.md` §As built. Next session: **Phase 2** (track
-> menus: `media_player_tracks` / `media_player_set_track`, `TrackMenu.tsx`,
-> per-title `audioId`/`subsId` already reserved in `library.json`) on a new branch
-> off `main`. WP4b items 5–7 (prewarm / per-source cache / hr-seek) stay **parked**.
+> **Phases 1 and 2 are DONE** — Phase 1 (`library.json`, resume, real Continue
+> watching) and Phase 2 (track menus, per-title audio/subtitle choice) both have
+> an as-built record in `docs/MEDIA_LIBRARY_TRACKS_SPEC.md` §As built. Next
+> session: **Phase 3** (subtitle delay/size/visibility, audio delay, playback
+> speed, local `sub-add`, next-episode) on a new branch off `main`. WP4b items
+> 5–7 (prewarm / per-source cache / hr-seek) stay **parked**.
 
 ---
 

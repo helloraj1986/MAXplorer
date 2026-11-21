@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   PlayerOverlay,
@@ -12,7 +12,7 @@ import {
   spanPercent,
 } from "./PlayerOverlay";
 import { useMediaStore } from "../../state/mediaStore";
-import type { NativePlayerStatus } from "./types";
+import type { NativePlayerStatus, PlayerTrack } from "./types";
 
 /**
  * The buffering indicator can't live over the video stage (the native libmpv
@@ -105,6 +105,13 @@ vi.mock("../../lib/api", () => ({
     libraryGet: vi.fn(() => Promise.resolve({ version: 1, entries: {} })),
     libraryRecord: vi.fn(() => Promise.resolve({ key: "", entry: null })),
     libraryRemove: vi.fn(() => Promise.resolve(false)),
+    librarySetTracks: vi.fn(() => Promise.resolve({})),
+    playerTracks: vi.fn(() =>
+      Promise.resolve({ tracks: [], audioId: null, subsId: null, secondarySubsId: null }),
+    ),
+    playerSetTrack: vi.fn(() =>
+      Promise.resolve({ tracks: [], audioId: 2, subsId: null, secondarySubsId: null }),
+    ),
   },
 }));
 
@@ -358,5 +365,73 @@ describe("PlayerOverlay chrome", () => {
     expect(img.getAttribute("src")).toBe(
       "https://images.metahub.space/poster/medium/tt1727587/img",
     );
+  });
+});
+
+describe("track menus (Phase 2)", () => {
+  const audioTrack = {
+    id: 1,
+    kind: "audio" as const,
+    lang: "eng",
+    title: null,
+    codec: "eac3",
+    channels: "5.1",
+    selected: true,
+    default: true,
+    forced: false,
+    external: false,
+  };
+  const frenchTrack = { ...audioTrack, id: 2, lang: "fra", selected: false, default: false };
+  const subTrack = { ...audioTrack, id: 1, kind: "sub" as const, lang: "eng", codec: "subrip", channels: null, selected: false, default: false };
+
+  afterEach(cleanup);
+
+  function open(tracks: PlayerTrack[]) {
+    useMediaStore.setState({
+      playerSource: { url: "https://example/stream.mkv", title: "Dune", metaId: "tt1160419" },
+      playerStatus: status({ fileLoaded: true, loaded: true, tracks, audioId: 1, subsId: null }),
+      engine: null,
+    });
+    render(<PlayerOverlay />);
+  }
+
+  it("opens the audio menu and selects a track through the store", async () => {
+    open([audioTrack, frenchTrack]);
+    const button = screen.getByRole("button", { name: /Audio tracks/ });
+    fireEvent.click(button);
+    const menu = screen.getByRole("menu", { name: "Audio tracks" });
+    expect(menu).toBeTruthy();
+    // The active track is checked before the change.
+    expect(
+      screen.getAllByRole("menuitemradio").map((row) => row.getAttribute("aria-checked")),
+    ).toEqual(["true", "false"]);
+
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /French/ }));
+    await waitFor(() => expect(vi.mocked(api.playerSetTrack)).toHaveBeenCalledWith("audio", 2));
+    // The menu closes after a selection.
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("opens the subtitle menu with the Off row first", () => {
+    open([audioTrack, subTrack]);
+    fireEvent.click(screen.getByRole("button", { name: /Subtitles/ }));
+    const rows = screen.getAllByRole("menuitemradio");
+    expect(rows[0].textContent).toContain("Off");
+    expect(rows[0].getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("disables the subtitle control when the file has no subtitle tracks", () => {
+    open([audioTrack]);
+    const button = screen.getByRole("button", { name: /Subtitles/ }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.getAttribute("title")).toContain("No subtitle tracks");
+  });
+
+  it("opens the subtitle menu with S and closes it with Escape", () => {
+    open([audioTrack, subTrack]);
+    fireEvent.keyDown(window, { key: "s" });
+    expect(screen.getByRole("menu", { name: "Subtitles" })).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 });

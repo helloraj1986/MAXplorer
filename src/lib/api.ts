@@ -37,6 +37,7 @@ import type {
   SearchSuggestion,
 } from "./search/types";
 import type {
+  LibraryEntry,
   LibraryRecordOutcome,
   LibraryRecordPatch,
   LibrarySnapshot,
@@ -45,6 +46,7 @@ import type {
   NativePlayerDiagnostics,
   NativePlayerStatus,
   StreamsResponse,
+  TrackState,
 } from "../components/media/types";
 import type {
   CachedStorageScan,
@@ -112,19 +114,28 @@ export const api = {
   // Native playback engine (libmpv). The video surface is an NSView the backend
   // places over the rect the UI reports, so playback is not limited by what the
   // webview can decode (MKV/AC3/DTS all work).
-  // `startSeconds` resumes: the backend seeks on FILE_LOADED and keeps the
-  // native surface hidden until mpv actually presents the resumed frame.
+  // `resume.startSeconds` seeks on FILE_LOADED and keeps the native surface
+  // hidden until mpv presents the resumed frame; `audioId`/`subsId` restore the
+  // per-title track choice once the container is parsed (Phase 2).
   playerOpen: (
     url: string,
     title: string,
     rect: { x: number; y: number; width: number; height: number },
-    startSeconds?: number,
+    resume: {
+      startSeconds?: number | null;
+      audioId?: number | null;
+      subsId?: number | null;
+    } = {},
   ) =>
     call<NativePlayerStatus>("media_player_open", {
       url,
       title,
       ...rect,
-      ...(startSeconds && startSeconds > 0.5 ? { startSeconds } : {}),
+      ...(resume.startSeconds && resume.startSeconds > 0.5
+        ? { startSeconds: resume.startSeconds }
+        : {}),
+      ...(resume.audioId ? { audioId: resume.audioId } : {}),
+      ...(resume.subsId ? { subsId: resume.subsId } : {}),
     }),
   playerClose: () => call<void>("media_player_close"),
   playerSetRect: (rect: { x: number; y: number; width: number; height: number }) =>
@@ -142,12 +153,22 @@ export const api = {
   playerSetSurfaceVisible: (visible: boolean) =>
       call<void>("media_player_set_surface_visible", { visible }),
     playerStatus: () => call<NativePlayerStatus>("media_player_status"),
+  // Phase 2: track menus. `kind` is "audio" | "sub"; id <= 0 means off.
+  playerTracks: () => call<TrackState>("media_player_tracks"),
+  playerSetTrack: (kind: "audio" | "sub", id: number) =>
+    call<TrackState>("media_player_set_track", { kind, id }),
   // Phase 1 library (library.json): watch progress, resume, Continue watching.
   libraryGet: () => call<LibrarySnapshot>("media_library_get"),
   libraryRecord: (patch: LibraryRecordPatch) =>
     call<LibraryRecordOutcome>("media_library_record", { patch }),
   libraryRemove: (metaId: string) =>
     call<boolean>("media_library_remove", { metaId }),
+  // Phase 2: the per-title audio/subtitle choice lives in library.json too.
+  librarySetTracks: (choice: {
+    metaId: string;
+    audioId: number | null;
+    subsId: number | null;
+  }) => call<LibraryEntry>("media_library_set_tracks", { choice }),
   playerDiagnostics: () => call<NativePlayerDiagnostics>("media_player_diagnostics"),
   startTorrent: (infoHash: string) =>
       call<{ baseUrl: string }>("media_torrent_start", { infoHash }),

@@ -41,6 +41,49 @@ pub const MPV_FORMAT_STRING: c_int = 1;
 pub const MPV_FORMAT_FLAG: c_int = 3;
 pub const MPV_FORMAT_INT64: c_int = 4;
 pub const MPV_FORMAT_DOUBLE: c_int = 5;
+/// Nested value (map/array/scalar) — the only way to read mpv's `track-list`,
+/// whose entries are maps of mixed types.
+pub const MPV_FORMAT_NODE: c_int = 6;
+pub const MPV_FORMAT_NODE_ARRAY: c_int = 7;
+pub const MPV_FORMAT_NODE_MAP: c_int = 8;
+pub const MPV_FORMAT_BYTE_ARRAY: c_int = 9;
+
+/// `mpv_node` (client.h): a tagged union. Node values are only valid until the
+/// owning node is freed with `mpv_free_node_contents`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub union MpvNodeUnion {
+    pub string: *mut c_char,
+    pub flag: c_int,
+    pub int64: i64,
+    pub double: c_double,
+    pub list: *mut MpvNodeList,
+    pub ba: *mut MpvByteArray,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MpvNode {
+    pub u: MpvNodeUnion,
+    pub format: c_int,
+}
+
+/// `mpv_node_list`: an array (`keys` null) or a map (`keys` parallel to
+/// `values`).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MpvNodeList {
+    pub num: c_int,
+    pub values: *mut MpvNode,
+    pub keys: *mut *mut c_char,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct MpvByteArray {
+    pub data: *mut c_char,
+    pub size: usize,
+}
 
 // ── mpv_event_id ────────────────────────────────────────────────────────────
 #[allow(dead_code)] // part of the documented libmpv event surface
@@ -124,6 +167,7 @@ pub struct MpvApi {
     pub mpv_get_property_string:
         unsafe extern "C" fn(MpvHandle, *const c_char) -> *mut c_char,
     pub mpv_free: unsafe extern "C" fn(*mut c_void),
+    pub mpv_free_node_contents: unsafe extern "C" fn(*mut MpvNode),
     pub mpv_command: unsafe extern "C" fn(MpvHandle, *const *const c_char) -> c_int,
     pub mpv_observe_property:
         unsafe extern "C" fn(MpvHandle, u64, *const c_char, c_int) -> c_int,
@@ -223,6 +267,7 @@ fn load_libmpv() -> Result<LibMpv, String> {
                     mpv_get_property: *library.get(b"mpv_get_property\0")?,
                     mpv_get_property_string: *library.get(b"mpv_get_property_string\0")?,
                     mpv_free: *library.get(b"mpv_free\0")?,
+                    mpv_free_node_contents: *library.get(b"mpv_free_node_contents\0")?,
                     mpv_command: *library.get(b"mpv_command\0")?,
                     mpv_observe_property: *library.get(b"mpv_observe_property\0")?,
                     mpv_wait_event: *library.get(b"mpv_wait_event\0")?,
