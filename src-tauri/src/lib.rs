@@ -2,6 +2,7 @@ mod app_icons;
 mod commands;
 mod compare;
 mod error;
+mod library;
 mod listing;
 mod logging;
 mod media;
@@ -84,8 +85,14 @@ pub fn run() {
     let app_focused = Arc::new(AtomicBool::new(true));
     let focus_for_events = app_focused.clone();
     let builder = tauri::Builder::default().on_window_event(move |_window, event| {
-        if let tauri::WindowEvent::Focused(focused) = event {
-            focus_for_events.store(*focused, Ordering::Relaxed);
+        match event {
+            tauri::WindowEvent::Focused(focused) => {
+                focus_for_events.store(*focused, Ordering::Relaxed);
+            }
+            // A quit inside the library's 1.5 s debounce window must not lose
+            // the last position: force the pending write now.
+            tauri::WindowEvent::CloseRequested { .. } => library::flush_global(),
+            _ => {}
         }
     });
 
@@ -181,6 +188,9 @@ pub fn run() {
             media::media_catalog,
             media::media_streams,
             media::media_play,
+            library::media_library_get,
+            library::media_library_record,
+            library::media_library_remove,
             debrid::media_debrid_resolve,
             debrid::media_debrid_save_config,
             debrid::media_debrid_get_config,

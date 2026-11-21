@@ -5,6 +5,7 @@ import {
   CINEMETA_ADDON_URL,
   DEFAULT_MEDIA_CATALOGS,
   DEFAULT_STREAM_ADDON_URL,
+  type LibraryEntry,
   type MediaCatalogMeta,
   type MediaManifest,
   type NativePlayerDiagnostics,
@@ -13,6 +14,7 @@ import {
   type WatchProgress,
 } from "../components/media/types";
 import { rankStreams } from "../components/media/streams";
+import { CONTINUE_MAX_RATIO, CONTINUE_MIN_RATIO } from "../components/media/board";
 import type { RankedStream, StreamFilter } from "../components/media/types";
 
 export interface MediaCatalogState {
@@ -33,11 +35,13 @@ export interface MediaState {
   /** Top-bar search text. WP2 wires it to the loaded catalogs (spec §12.5). */
   searchQuery: string;
   /**
-   * Watch progress keyed by meta id. WP2 stub store: the positions are real
-   * (they come from mpv through `playerStatus`) but they live in memory only —
-   * WP5 writes them to `library.json` and resumes from them.
+   * Watch progress keyed by meta id. Hydrated from `library.json` when the
+   * workspace opens (Phase 1) and written back through `media_library_record`;
+   * the in-memory copy is the optimistic view between writes.
    */
   watchProgress: Record<string, WatchProgress>;
+  /** True once `media_library_get` has answered (or failed) this session. */
+  libraryReady: boolean;
   manifest: MediaManifest | null;
   manifestLoading: boolean;
   manifestError: string | null;
@@ -59,6 +63,8 @@ export interface MediaState {
     poster?: string | null;
     /** Stream quality badge (`4K`, `1080p`) for the player's codec chip. */
     quality?: string | null;
+    /** Resume position: seek on FILE_LOADED, reveal the surface after the seek. */
+    startSeconds?: number | null;
   } | null;
   /** Live state reported by the libmpv engine. */
   playerStatus: NativePlayerStatus | null;
@@ -87,15 +93,22 @@ export interface MediaState {
   setScreen: (screen: MediaScreen) => void;
   setSearchQuery: (query: string) => void;
   setStreamFilter: (filter: StreamFilter) => void;
-  /** Records a playback position (WP2 stub store; WP5 persists it). */
   recordProgress: (metaId: string, position: number, duration: number) => void;
+  /** Hydrates `watchProgress` from `library.json` (Phase 1). */
+  loadLibrary: () => Promise<void>;
   closeWorkspace: () => void;
   loadManifest: () => Promise<void>;
   loadCatalog: (type: string, id: string, name: string) => Promise<void>;
   selectMeta: (meta: MediaCatalogMeta) => void;
   clearSelection: () => void;
   loadStreams: (meta: MediaCatalogMeta) => Promise<void>;
-  openPlayer: (url: string, title: string, metaId?: string, quality?: string | null) => void;
+  openPlayer: (
+    url: string,
+    title: string,
+    metaId?: string,
+    quality?: string | null,
+    startSeconds?: number,
+  ) => void;
   closePlayer: () => void;
   setPlayerStatus: (status: NativePlayerStatus | null) => void;
   /** Merge the coalesced 250 ms metrics tick into the current status. */
@@ -106,6 +119,7 @@ export interface MediaState {
     title: string,
     metaId?: string,
     quality?: string | null,
+    startSeconds?: number,
   ) => Promise<void>;
   refreshEngineStats: () => Promise<void>;
   loadDebridConfig: () => Promise<void>;
@@ -114,6 +128,31 @@ export interface MediaState {
 }
 
 const CATALOG_LIMIT = 12;
+
+/**
+ * The catalog meta for a progress key, so `recordProgress` can store the
+ * type/name/poster the Continue-watching card needs without a catalog fetch.
+ * Falls back to whatever the store already knows for that id.
+ */
+function progressMeta(metaId: string, get: () => MediaState): MediaCatalogMeta | null {
+  const state = get();
+  if (state.selected?.id === metaId) return state.selected;
+  for (const catalog of state.catalogs) {
+    const hit = catalog.metas.find((meta) => meta.id === metaId);
+    if (hit) return hit;
+  }
+  const known = state.watchProgress[metaId];
+  if (known?.name || known?.poster || known?.type) {
+    return { id: metaId, name: known.name, poster: known.poster, type: known.type };
+  }
+  return null;
+}
+
+/** `library.json` stores RFC-3339; the board sorts on epoch millis. */
+function parseUpdatedAt(raw: LibraryEntry["updatedAt"]): number {
+  const ms = Date.parse(raw);
+  return Number.isFinite(ms) ? ms : 0;
+}
 
 function trimMetas(metas: MediaCatalogMeta[]): MediaCatalogMeta[] {
   return metas.slice(0, CATALOG_LIMIT);
@@ -124,6 +163,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   screen: "board",
   searchQuery: "",
   watchProgress: {},
+  libraryReady: false,
   manifest: null,
   manifestLoading: false,
   manifestError: null,
@@ -145,6 +185,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
     if (!get().manifest && !get().manifestLoading) {
       await get().loadManifest();
     }
+    void get().loadLibrary();
     void get().loadDebridConfig();
     void get().loadPlayerDiagnostics();
   },
@@ -166,24 +207,115 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   },
 
   /**
-   * Stores a playback position. Nothing is written for a zero-length or
-   * nonsense position: a half-open stream must not create a Continue-watching
-   * entry that can never be resumed.
+   * Stores a playback position. Phase 1: optimistic local update plus a write
+   * through `media_library_record`; the backend copy is the truth on the next
+   * workspace open.
+   *
+   * Nothing is written for a zero-length or nonsense position, and a position
+   * outside the 2 %–95 % window never creates an entry — it removes one that is
+   * already there (a finished title leaves the Continue-watching row).
    */
   recordProgress(metaId, position, duration) {
     if (!metaId || !(duration > 0) || !(position > 0) || !Number.isFinite(position)) return;
+    const clamped = Math.min(position, duration);
+    const ratio = clamped / duration;
+    const key = metaId;
+    if (!(ratio > CONTINUE_MIN_RATIO && ratio < CONTINUE_MAX_RATIO)) {
+      if (get().watchProgress[key]) {
+        set((state) => {
+          const next = { ...state.watchProgress };
+          delete next[key];
+          return { watchProgress: next };
+        });
+        void api.libraryRemove(key).catch((error) => {
+          logDiagnostic(
+            "warn",
+            `removing finished library entry ${key} failed: ${normalizeError(error).message}`,
+            "media.library",
+          );
+        });
+      }
+      return;
+    }
+
+    const meta = progressMeta(key, get);
+    const existing = get().watchProgress[key];
     set((state) => ({
       watchProgress: {
         ...state.watchProgress,
-        [metaId]: {
-          position: Math.min(position, duration),
+        [key]: {
+          position: clamped,
           duration,
           updatedAt: Date.now(),
-          season: state.watchProgress[metaId]?.season,
-          episode: state.watchProgress[metaId]?.episode,
+          season: existing?.season,
+          episode: existing?.episode,
+          type: meta?.type ?? existing?.type,
+          name: meta?.name ?? existing?.name,
+          poster: meta?.poster ?? existing?.poster,
         },
       },
     }));
+
+    void api
+      .libraryRecord({
+        metaId: key,
+        positionSec: clamped,
+        durationSec: duration,
+        type: meta?.type ?? existing?.type ?? null,
+        name: meta?.name ?? existing?.name ?? null,
+        poster: meta?.poster ?? existing?.poster ?? null,
+        season: existing?.season ?? null,
+        episode: existing?.episode ?? null,
+      })
+      .catch((error) => {
+        logDiagnostic(
+          "warn",
+          `library record for ${key} failed: ${normalizeError(error).message}`,
+          "media.library",
+        );
+      });
+  },
+
+  /**
+   * Hydrates watch progress from `library.json`. Episode keys
+   * (`tt<id>:<season>:<episode>`) aggregate onto the show id — the board card is
+   * one per show and the most recent episode wins, while each episode keeps its
+   * own position in the file.
+   */
+  async loadLibrary() {
+    try {
+      const snapshot = await api.libraryGet();
+      const progress: Record<string, WatchProgress> = {};
+      for (const [key, entry] of Object.entries(snapshot.entries ?? {})) {
+        const showId = key.split(":")[0];
+        const updatedAt = parseUpdatedAt(entry.updatedAt);
+        const existing = progress[showId];
+        if (existing && existing.updatedAt > updatedAt) continue;
+        progress[showId] = {
+          position: entry.positionSec,
+          duration: entry.durationSec,
+          updatedAt,
+          season: entry.season ?? undefined,
+          episode: entry.episode ?? undefined,
+          type: entry.type ?? undefined,
+          name: entry.name ?? undefined,
+          poster: entry.poster ?? undefined,
+        };
+      }
+      set({ watchProgress: progress, libraryReady: true });
+      logDiagnostic(
+        "info",
+        `library hydrated: ${Object.keys(snapshot.entries ?? {}).length} entries (version ${snapshot.version})`,
+        "media.library",
+      );
+    } catch (error) {
+      set({ libraryReady: true });
+      logDiagnostic(
+        "warn",
+        `library could not be read: ${normalizeError(error).message}`,
+        "media.library",
+      );
+    }
   },
 
   async loadManifest() {
@@ -264,7 +396,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
     }
   },
 
-  openPlayer(url, title, metaId, quality) {
+  openPlayer(url, title, metaId, quality, startSeconds) {
     set({
       playerSource: {
         url,
@@ -274,6 +406,9 @@ export const useMediaStore = create<MediaState>((set, get) => ({
         // source, where no native frame ever appears (spec §5.3).
         poster: get().selected?.poster ?? null,
         quality: quality ?? null,
+        // Resume: the backend seeks on FILE_LOADED and only reveals the native
+        // surface once the resumed frame is presented.
+        startSeconds: startSeconds && startSeconds > 0.5 ? startSeconds : null,
       },
       playerStatus: null,
       screen: "player",
@@ -327,7 +462,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
     }
   },
 
-  async streamTorrent(infoHash, title, metaId, quality) {
+  async streamTorrent(infoHash, title, metaId, quality, startSeconds) {
     set({ engine: { infoHash, baseUrl: "", phase: "resolving" } });
     let baseUrl = "";
     try {
@@ -375,6 +510,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
               metaId,
               poster: get().selected?.poster ?? null,
               quality: quality ?? null,
+              startSeconds: startSeconds && startSeconds > 0.5 ? startSeconds : null,
             },
             // Torrent playback must enter the player screen too, otherwise the
             // media rail + top bar stay in the layout: the native surface is

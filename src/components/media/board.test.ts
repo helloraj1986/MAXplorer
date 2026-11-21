@@ -3,6 +3,7 @@ import {
   allMetas,
   continueWatching,
   formatRuntime,
+  formatTimeLeft,
   heroBackdrop,
   heroMetaLine,
   inContinueWindow,
@@ -107,6 +108,49 @@ describe("continueWatching", () => {
       zzz: { position: 30, duration: 100, updatedAt: 100 },
     });
     expect(items).toEqual([]);
+  });
+
+  // Phase 1: library.json stores type/name/poster, so a resumed title the board
+  // did not load this session still gets a card.
+  it("renders a stored title that is not in any loaded catalog", () => {
+    const items = continueWatching(metas, {
+      tt1160419: {
+        position: 812,
+        duration: 9330,
+        updatedAt: 100,
+        type: "movie",
+        name: "Dune",
+        poster: "https://images.metahub.space/poster/large/tt1160419/img",
+      },
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      id: "tt1160419",
+      name: "Dune",
+      type: "movie",
+      poster: "https://images.metahub.space/poster/large/tt1160419/img",
+    });
+  });
+
+  it("prefers the catalog meta when the title is loaded", () => {
+    const items = continueWatching(metas, {
+      a: { position: 30, duration: 100, updatedAt: 100, name: "Stale name", poster: "stale.jpg" },
+    });
+    expect(items[0].name).toBe("Alpha");
+  });
+});
+
+describe("formatTimeLeft", () => {
+  it("reports the remaining runtime for the Resume label", () => {
+    expect(formatTimeLeft(812, 9330)).toBe("2 h 22 min left");
+    expect(formatTimeLeft(900, 1500)).toBe("10 min left");
+    expect(formatTimeLeft(3600, 7200)).toBe("1 h left");
+  });
+
+  it("returns null for an unknown or finished duration", () => {
+    expect(formatTimeLeft(10, 0)).toBeNull();
+    expect(formatTimeLeft(1000, 1000)).toBeNull();
+    expect(formatTimeLeft(1200, 1000)).toBeNull();
   });
 });
 

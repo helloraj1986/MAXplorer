@@ -83,21 +83,49 @@ export function inContinueWindow(entry: WatchProgress | undefined): boolean {
 }
 
 /**
- * Continue-watching row: the board's own progress entries joined to the loaded
- * catalog metas, most recent first. Entries whose title is not in a loaded
- * catalog are skipped — WP5's `library.json` will store the meta alongside the
- * position, which is what removes that limitation.
+ * Continue-watching row: the library's progress entries, most recent first.
+ * Entries joined to a loaded catalog meta use the catalog's art; a title that is
+ * not on the board right now renders from the `type`/`name`/`poster` stored in
+ * `library.json` (Phase 1), so a resumed title is never missing from the row.
  */
 export function continueWatching(
   metas: MediaCatalogMeta[],
   progress: Record<string, WatchProgress>,
 ): MediaCatalogMeta[] {
   const byId = new Map(metas.map((meta) => [meta.id, meta]));
-  return Object.entries(progress)
-    .filter(([id, entry]) => byId.has(id) && inContinueWindow(entry))
-    .sort((a, b) => b[1].updatedAt - a[1].updatedAt)
-    .map(([id]) => byId.get(id))
-    .filter((meta): meta is MediaCatalogMeta => Boolean(meta));
+  const out: MediaCatalogMeta[] = [];
+  const entries = Object.entries(progress)
+    .filter(([, entry]) => inContinueWindow(entry))
+    .sort((a, b) => b[1].updatedAt - a[1].updatedAt);
+  for (const [id, entry] of entries) {
+    const catalogued = byId.get(id);
+    if (catalogued) {
+      out.push(catalogued);
+    } else if (entry.name || entry.poster) {
+      out.push({
+        id,
+        name: entry.name ?? id,
+        type: entry.type ?? null,
+        poster: entry.poster ?? null,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * `12 min left` for the Resume button — the remaining runtime of a title that is
+ * in the Continue-watching window. Null when the duration is unknown.
+ */
+export function formatTimeLeft(position: number, duration: number): string | null {
+  if (!(duration > 0) || !Number.isFinite(position) || !Number.isFinite(duration)) return null;
+  const remaining = Math.max(0, duration - position);
+  const minutes = Math.ceil(remaining / 60);
+  if (minutes <= 0) return null;
+  if (minutes < 60) return `${minutes} min left`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest > 0 ? `${hours} h ${rest} min left` : `${hours} h left`;
 }
 
 /** Flattens every loaded row's metas, deduped, preserving row order. */

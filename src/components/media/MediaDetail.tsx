@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { MediaIcon } from "./icons";
-import { heroBackdrop, heroMetaLine } from "./board";
-import type { MediaCatalogMeta } from "./types";
+import { formatTimeLeft, heroBackdrop, heroMetaLine, inContinueWindow } from "./board";
+import type { MediaCatalogMeta, WatchProgress } from "./types";
 
 /** The action row's buttons (spec §4.2 item 8). */
 export type DetailAction = "library" | "watched" | "like" | "heart" | "share";
@@ -17,12 +17,18 @@ export type DetailAction = "library" | "watched" | "like" | "heart" | "share";
  */
 export function MediaDetail({
   meta,
+  progress,
   onClose,
   onAction,
+  onPlay,
 }: {
   meta: MediaCatalogMeta;
+  /** Watch progress for this title, from `library.json` (Phase 1). */
+  progress?: WatchProgress;
   onClose: () => void;
   onAction?: (action: DetailAction) => void;
+  /** Primary button: `null` starts from 0, a number resumes from that second. */
+  onPlay?: (startSeconds: number | null) => void;
 }) {
   const title = meta.name ?? meta.id;
   const line = heroMetaLine(meta);
@@ -32,6 +38,11 @@ export function MediaDetail({
   const genres = meta.genres ?? [];
   const cast = meta.cast ?? [];
   const directors = meta.director ?? [];
+  // Resume only when the title is genuinely mid-watch (> 2 % and < 95 %): the
+  // same window as the Continue-watching row, so the two can never disagree.
+  const resumable = progress !== undefined && inContinueWindow(progress);
+  const timeLeft = resumable && progress ? formatTimeLeft(progress.position, progress.duration) : null;
+  const playLabel = resumable ? (timeLeft ? `Resume · ${timeLeft}` : "Resume") : "Watch";
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -124,6 +135,21 @@ export function MediaDetail({
         </div>
 
         <div className="media-detail-actions">
+          {onPlay ? (
+            <button
+              type="button"
+              className="media-hero-watch media-detail-watch"
+              onClick={() => onPlay(resumable && progress ? progress.position : null)}
+              title={
+                resumable && progress
+                  ? `Continue from ${Math.floor(progress.position / 60)} min`
+                  : `Play ${title} from the start`
+              }
+            >
+              <MediaIcon name="play" size={18} strokeWidth={0} />
+              <span>{playLabel}</span>
+            </button>
+          ) : null}
           {actions.map((action) => (
             <button
               key={action.id}

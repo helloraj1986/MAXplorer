@@ -107,7 +107,7 @@ export function PlayerOverlay() {
       "media.player",
     );
     api
-      .playerOpen(playerSource.url, playerSource.title, rect())
+      .playerOpen(playerSource.url, playerSource.title, rect(), playerSource.startSeconds ?? undefined)
       .then((initial) => {
         if (cancelled) return;
         setPlayerStatus(initial);
@@ -196,6 +196,21 @@ export function PlayerOverlay() {
       lastWriteRef.current = 0;
     };
   }, [metaId, recordProgress]);
+
+  /** Flush the position at a natural checkpoint (pause, seek end). */
+  const flushProgress = useCallback(() => {
+    const latest = latestRef.current;
+    if (!metaId || !latest) return;
+    recordProgress(metaId, latest.position, latest.duration);
+    lastWriteRef.current = Date.now();
+  }, [metaId, recordProgress]);
+
+  // A pause is the most likely moment to quit, so it writes immediately rather
+  // than waiting for the next 5 s tick.
+  useEffect(() => {
+    if (!paused) return;
+    flushProgress();
+  }, [paused, flushProgress]);
 
   // Torrent swarm stats (speed / peers) while a torrent-backed stream plays.
   useEffect(() => {
@@ -327,12 +342,18 @@ export function PlayerOverlay() {
       if (!(total > 0)) return;
       void api
         .playerSeek(clampSeconds(seconds, total))
-        .then(setPlayerStatus)
+        .then((updated) => {
+          setPlayerStatus(updated);
+          // Seek end is a checkpoint: write the position the seek landed on.
+          if (metaId && updated.duration > 0) {
+            recordProgress(metaId, updated.position, updated.duration);
+          }
+        })
         .catch((caught) => {
           logDiagnostic("warn", `seek failed: ${normalizeError(caught).message}`, "media.player");
         });
     },
-    [setPlayerStatus],
+    [metaId, recordProgress, setPlayerStatus],
   );
 
   const seekBy = useCallback((delta: number) => {

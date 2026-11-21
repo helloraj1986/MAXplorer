@@ -35,7 +35,12 @@ export interface MediaCatalogMeta {
   released?: string | null;
 }
 
-/** In-memory watch progress (WP2 stub store; WP5 persists it to library.json). */
+/**
+ * Watch progress for the board: hydrated from `library.json` on workspace open
+ * (Phase 1) and written back through `media_library_record`. `type`/`name`/
+ * `poster` are stored so a Continue-watching card renders even when the title is
+ * not in a loaded catalog.
+ */
 export interface WatchProgress {
   position: number;
   duration: number;
@@ -43,6 +48,51 @@ export interface WatchProgress {
   updatedAt: number;
   season?: number;
   episode?: number;
+  type?: string;
+  name?: string;
+  poster?: string;
+}
+
+/** One `library.json` entry, as the backend stores it. */
+export interface LibraryEntry {
+  type?: string | null;
+  name?: string | null;
+  poster?: string | null;
+  positionSec: number;
+  durationSec: number;
+  season?: number | null;
+  episode?: number | null;
+  /** RFC-3339 UTC, e.g. `2026-11-21T13:40:00Z`. */
+  updatedAt: string;
+  audioId?: number | null;
+  subsId?: number | string | null;
+}
+
+/** `media_library_get` */
+export interface LibrarySnapshot {
+  version: number;
+  /** Keyed `tt<id>` for a movie, `tt<id>:<season>:<episode>` for an episode. */
+  entries: Record<string, LibraryEntry>;
+}
+
+/** `media_library_record` payload. */
+export interface LibraryRecordPatch {
+  metaId: string;
+  positionSec: number;
+  durationSec: number;
+  type?: string | null;
+  name?: string | null;
+  poster?: string | null;
+  season?: number | null;
+  episode?: number | null;
+  audioId?: number | null;
+  subsId?: number | string | null;
+}
+
+/** `media_library_record` result — `entry` is null outside the 2 %–95 % window. */
+export interface LibraryRecordOutcome {
+  key: string;
+  entry: LibraryEntry | null;
 }
 
 export interface MediaCatalogResponse {

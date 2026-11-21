@@ -37,6 +37,9 @@ import type {
   SearchSuggestion,
 } from "./search/types";
 import type {
+  LibraryRecordOutcome,
+  LibraryRecordPatch,
+  LibrarySnapshot,
   MediaCatalogResponse,
   MediaManifest,
   NativePlayerDiagnostics,
@@ -109,11 +112,20 @@ export const api = {
   // Native playback engine (libmpv). The video surface is an NSView the backend
   // places over the rect the UI reports, so playback is not limited by what the
   // webview can decode (MKV/AC3/DTS all work).
+  // `startSeconds` resumes: the backend seeks on FILE_LOADED and keeps the
+  // native surface hidden until mpv actually presents the resumed frame.
   playerOpen: (
     url: string,
     title: string,
     rect: { x: number; y: number; width: number; height: number },
-  ) => call<NativePlayerStatus>("media_player_open", { url, title, ...rect }),
+    startSeconds?: number,
+  ) =>
+    call<NativePlayerStatus>("media_player_open", {
+      url,
+      title,
+      ...rect,
+      ...(startSeconds && startSeconds > 0.5 ? { startSeconds } : {}),
+    }),
   playerClose: () => call<void>("media_player_close"),
   playerSetRect: (rect: { x: number; y: number; width: number; height: number }) =>
     call<void>("media_player_set_rect", { ...rect }),
@@ -130,6 +142,12 @@ export const api = {
   playerSetSurfaceVisible: (visible: boolean) =>
       call<void>("media_player_set_surface_visible", { visible }),
     playerStatus: () => call<NativePlayerStatus>("media_player_status"),
+  // Phase 1 library (library.json): watch progress, resume, Continue watching.
+  libraryGet: () => call<LibrarySnapshot>("media_library_get"),
+  libraryRecord: (patch: LibraryRecordPatch) =>
+    call<LibraryRecordOutcome>("media_library_record", { patch }),
+  libraryRemove: (metaId: string) =>
+    call<boolean>("media_library_remove", { metaId }),
   playerDiagnostics: () => call<NativePlayerDiagnostics>("media_player_diagnostics"),
   startTorrent: (infoHash: string) =>
       call<{ baseUrl: string }>("media_torrent_start", { infoHash }),

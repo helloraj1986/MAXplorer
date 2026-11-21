@@ -1112,6 +1112,21 @@
   outline-offset: 2px;
 }
 
+/* Phase 1: detail primary button (`Watch` / `Resume · 12 min left`). Same pill
+   as the hero's Watch, sized for the detail column rather than the full-bleed
+   hero. */
+.media-detail-watch {
+  height: 44px;
+  padding: 0 22px;
+  font-size: 15px;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+.media-detail-watch .media-icon {
+  fill: currentColor;
+}
+
 /* --- Streams panel (§4.3) ------------------------------------------- */
 
 .media-streams {

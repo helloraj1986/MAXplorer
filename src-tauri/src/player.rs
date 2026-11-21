@@ -192,6 +192,10 @@ pub struct PlayerTick {
 /// How often coalesced metrics are pushed to the webview.
 const TICK_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
 
+/// How long a resume seek may take before the surface is revealed anyway. A
+/// seek on a torrent stream can take a moment; it must never take forever.
+const SEEK_REVEAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
+
 /// Measurement counters behind the `media.player.perf` log line.
 static PROP_EVENTS: AtomicU64 = AtomicU64::new(0);
 static FULL_EMITS: AtomicU64 = AtomicU64::new(0);
@@ -602,6 +606,7 @@ fn spawn_event_loop(
     shared: Arc<Mutex<PlayerStatus>>,
     stop: Arc<std::sync::atomic::AtomicBool>,
     generation: u64,
+    start_seconds: Option<f64>,
 ) -> std::thread::JoinHandle<()> {
     let handle_addr = handle as usize;
     std::thread::Builder::new()
@@ -610,6 +615,16 @@ fn spawn_event_loop(
             // Raw pointers are not `Send`; carry the handle as an address.
             let handle = handle_addr as MpvHandle;
             logging::debug(LOG_TARGET, "mpv event loop started");
+
+            // Resume (`media_player_open`'s `start_seconds`): the seek is issued
+            // on FILE_LOADED, and mpv applies it asynchronously. The surface must
+            // stay hidden until the seek lands (PLAYBACK_RESTART), otherwise the
+            // first visible frame is frame 0 and the picture visibly jumps.
+            // `seek_started` is the safety net: if the restart event never comes,
+            // reveal is forced after SEEK_REVEAL_TIMEOUT so audio can never play
+            // behind a hidden surface.
+            let mut seek_pending = false;
+            let mut seek_started: Option<std::time::Instant> = None;
 
             // Coalescing tick: volatile properties dirty this flag, and a 250 ms
             // timer pushes at most one compact `PlayerTick` per window. That is
@@ -655,6 +670,28 @@ fn spawn_event_loop(
                     .expect("spawn mpv tick thread")
             };
             while !stop.load(Ordering::SeqCst) {
+                // Resume safety net: a seek that never reports PLAYBACK_RESTART
+                // (mpv rejects the seek, or the file ends during it) must not
+                // leave audio playing behind a surface the UI never reveals.
+                if let Some(started) = seek_started {
+                    if started.elapsed() >= SEEK_REVEAL_TIMEOUT {
+                        seek_pending = false;
+                        seek_started = None;
+                        logging::warn(
+                            LOG_TARGET,
+                            format!(
+                                "resume seek did not restart playback within {} ms; \
+                                 revealing the surface at the current position",
+                                SEEK_REVEAL_TIMEOUT.as_millis()
+                            ),
+                        );
+                        if let Ok(mut status) = shared.lock() {
+                            status.loaded = true;
+                            status.file_loaded = true;
+                        }
+                        emit_state(&app, &shared);
+                    }
+                }
                 // Playback numbers from mpv itself, on the control thread.
                 if perf_window.elapsed() >= std::time::Duration::from_secs(5) {
                     perf_window = std::time::Instant::now();
@@ -711,20 +748,84 @@ fn spawn_event_loop(
                     }
                     mpv::MPV_EVENT_FILE_LOADED => {
                         logging::info(LOG_TARGET, "file loaded; decoding started");
-                        if let Ok(mut status) = shared.lock() {
-                            status.loaded = true;
-                            // Set from the EVENT, not only from the observed
-                            // `file-loaded` property: the event is the
-                            // authoritative signal, and the UI reveals the
-                            // native video surface from this flag. Missing it
-                            // leaves audio playing behind a hidden surface.
-                            status.file_loaded = true;
-                            status.error = None;
+                        // Resume: seek before the UI may reveal the surface. The
+                        // restart event below is the signal that the resumed frame
+                        // is actually decoded and being presented.
+                        let mut resumed = false;
+                        if let Some(seconds) = start_seconds {
+                            if seconds > 0.5 {
+                                match command(
+                                    api,
+                                    handle,
+                                    &["seek", &format!("{seconds:.3}"), "absolute"],
+                                ) {
+                                    Ok(()) => {
+                                        resumed = true;
+                                        seek_started = Some(std::time::Instant::now());
+                                        logging::info(
+                                            LOG_TARGET,
+                                            format!(
+                                                "resume seek -> {seconds:.1}s issued on file-loaded"
+                                            ),
+                                        );
+                                    }
+                                    Err(error) => logging::warn(
+                                        LOG_TARGET,
+                                        format!(
+                                            "resume seek to {seconds:.1}s failed ({error}); \
+                                             starting from 0"
+                                        ),
+                                    ),
+                                }
+                            } else {
+                                logging::info(
+                                    LOG_TARGET,
+                                    format!(
+                                        "resume position {seconds:.1}s is at the start; no seek"
+                                    ),
+                                );
+                            }
                         }
-                        emit_state(&app, &shared);
+                        seek_pending = resumed;
+                        if let Ok(mut status) = shared.lock() {
+                            status.error = None;
+                            if resumed {
+                                // Keep `loaded` / `file_loaded` down: the UI
+                                // reveals the native surface from these flags.
+                                status.loaded = false;
+                                status.file_loaded = false;
+                                status.position = start_seconds.unwrap_or(0.0);
+                            } else {
+                                status.loaded = true;
+                                // Set from the EVENT, not only from the observed
+                                // `file-loaded` property: the event is the
+                                // authoritative signal, and the UI reveals the
+                                // native video surface from this flag. Missing it
+                                // leaves audio playing behind a hidden surface.
+                                status.file_loaded = true;
+                            }
+                        }
+                        // With a seek pending the UI hears nothing new, so it
+                        // cannot reveal the surface on a stale flag.
+                        if !resumed {
+                            emit_state(&app, &shared);
+                        }
                     }
                     mpv::MPV_EVENT_PLAYBACK_RESTART => {
                         logging::debug(LOG_TARGET, "playback restarted (seek/start finished)");
+                        if seek_pending {
+                            seek_pending = false;
+                            seek_started = None;
+                            if let Ok(mut status) = shared.lock() {
+                                status.loaded = true;
+                                status.file_loaded = true;
+                                status.error = None;
+                            }
+                            logging::info(
+                                LOG_TARGET,
+                                "resume seek applied; revealing the video surface",
+                            );
+                        }
                         emit_state(&app, &shared);
                     }
                     mpv::MPV_EVENT_END_FILE => {
@@ -932,10 +1033,14 @@ pub async fn media_player_open(
     y: f64,
     width: f64,
     height: f64,
+    start_seconds: Option<f64>,
 ) -> Result<PlayerStatus, AppError> {
     logging::info(
         LOG_TARGET,
-        format!("open requested: {title} ({url}) rect=({x},{y},{width},{height})"),
+        format!(
+            "open requested: {title} ({url}) rect=({x},{y},{width},{height}) start={}",
+            start_seconds.map(|s| format!("{s:.1}s")).unwrap_or_else(|| "0".into())
+        ),
     );
     let lib = mpv::libmpv().map_err(|error| {
         logging::error(LOG_TARGET, format!("libmpv unavailable: {error}"));
@@ -999,6 +1104,9 @@ pub async fn media_player_open(
     let shared = Arc::new(Mutex::new(PlayerStatus {
         volume: 100.0,
         title: Some(title.clone()),
+        // The seek bar starts at the resumed position instead of flashing 0 and
+        // jumping once the file loads.
+        position: start_seconds.unwrap_or(0.0),
         ..Default::default()
     }));
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
@@ -1010,6 +1118,7 @@ pub async fn media_player_open(
         shared.clone(),
         stop.clone(),
         generation,
+        start_seconds,
     );
 
     {

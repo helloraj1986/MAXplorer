@@ -186,4 +186,42 @@ control, so this phase is deliberately the cheapest of the three.
 
 ## As built
 
+### Phase 1 — `library.json` (branch `feature/media-library-p1`)
+
+- `src-tauri/src/library.rs` (new): `MediaLibrary` with a `Mutex<LibraryFile>`,
+  debounced writer thread (`DEBOUNCE = 1.5 s`, holds a `Weak` so it stops with the
+  store), `write → library.json.tmp → File::sync_all → fs::rename`, corrupt files
+  renamed `library.json.corrupt-<epoch ms>` + WARN + empty store, retention
+  (`in_window`: > 2 % and < 95 % watched; 500 most recent by parsed `updatedAt`).
+  Unknown keys survive because `LibraryFile.extra` / `LibraryEntry.extra` are
+  `#[serde(flatten)]` maps. Timestamps are RFC-3339 UTC via Hinnant civil-date
+  maths (no `chrono` dependency).
+- Commands `media_library_get` / `media_library_record` / `media_library_remove`
+  registered in `lib.rs`; the store is created lazily on the first call
+  (`OnceLock`, app-data dir). `media_library_record` returns
+  `{ key, entry | null }` — `entry: null` means the position was outside the
+  window and nothing was stored; `key` is `metaId` or `metaId:season:episode`.
+  `media_library_remove` writes immediately (no debounce).
+  `WindowEvent::CloseRequested` calls `library::flush_global()` so a quit inside
+  the debounce window cannot lose the last position.
+- `media_player_open(start_seconds: Option<f64>)`: on `MPV_EVENT_FILE_LOADED` it
+  issues `seek <s> absolute` and sets neither `loaded` nor `file_loaded` (the UI
+  reveals the native surface from those flags) and emits no state event; the
+  surface is revealed on `MPV_EVENT_PLAYBACK_RESTART`. A 4 s
+  `SEEK_REVEAL_TIMEOUT` forces the reveal if mpv never restarts, so audio cannot
+  play behind a hidden surface; a failed seek logs WARN and starts from 0.
+- `mediaStore`: `watchProgress` hydrates from `media_library_get` on workspace
+  open (`loadLibrary`), `recordProgress` keeps the optimistic local update and
+  writes through `media_library_record`, and a position outside the window
+  removes an existing entry through `media_library_remove`. Episode keys
+  aggregate onto the show id (latest `updatedAt` wins).
+- `MediaDetail` gains a primary button (`Watch` / `Resume · 2 h 22 min left`,
+  `.media-detail-watch`) driven by `onPlay(startSeconds | null)`; the workspace
+  plays the top-ranked stream (direct → `openPlayer`, torrent → `streamTorrent`)
+  with that position. `PlayerOverlay` passes `startSeconds` to `player_open` and
+  now also writes progress on pause and on seek end, not only every 5 s + close.
+- Gates: `cargo test --lib` → 127 passed / 10 ignored (11 new library tests);
+  `npx tsc --noEmit` clean; `npx vitest run src/components/media
+  src/state/mediaStore.test.ts` → 106 passed (7 new store tests, 2 board, 2 detail).
+
 _(append one block per phase: commit hash, measurements, gates, deviations)_

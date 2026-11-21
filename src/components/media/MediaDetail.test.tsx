@@ -79,4 +79,36 @@ describe("MediaDetail", () => {
     expect(screen.queryByRole("list", { name: "Genres" })).toBeNull();
     expect(screen.queryByRole("list", { name: "Cast" })).toBeNull();
   });
+
+  // Phase 1 resume: the primary button is only rendered when a play handler is
+  // supplied, and its label comes from library.json's progress.
+  it("offers Resume with the time left for a title that is mid-watch", () => {
+    const onPlay = vi.fn();
+    render(
+      <MediaDetail
+        meta={meta}
+        onClose={vi.fn()}
+        onPlay={onPlay}
+        progress={{ position: 812, duration: 9330, updatedAt: Date.now() }}
+      />,
+    );
+    const button = screen.getByRole("button", { name: /Resume · 2 h 22 min left/ });
+    fireEvent.click(button);
+    expect(onPlay).toHaveBeenCalledWith(812);
+  });
+
+  it("offers Watch from the start with no usable progress", () => {
+    const onPlay = vi.fn();
+    render(
+      <MediaDetail
+        meta={meta}
+        onClose={vi.fn()}
+        onPlay={onPlay}
+        progress={{ position: 9600, duration: 9330, updatedAt: Date.now() }}
+      />,
+    );
+    // 103 % watched is out of the Continue-watching window, so this is a restart.
+    fireEvent.click(screen.getByRole("button", { name: "Watch" }));
+    expect(onPlay).toHaveBeenCalledWith(null);
+  });
 });

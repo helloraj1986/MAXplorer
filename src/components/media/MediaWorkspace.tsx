@@ -48,6 +48,8 @@ export function MediaWorkspace() {
   const debridConfig = useMediaStore((state) => state.debridConfig);
   const diagnostics = useMediaStore((state) => state.playerDiagnostics);
   const watchProgress = useMediaStore((state) => state.watchProgress);
+  const openPlayer = useMediaStore((state) => state.openPlayer);
+  const streamTorrent = useMediaStore((state) => state.streamTorrent);
   const searchQuery = useMediaStore((state) => state.searchQuery);
   const toast = useExplorerStore((state) => state.toast);
 
@@ -98,6 +100,42 @@ export function MediaWorkspace() {
 
   const streamAddonHost = hostOf(DEFAULT_STREAM_ADDON_URL);
 
+  /**
+   * Detail screen primary button. `startSeconds` is the library position when the
+   * title is mid-watch, `null` for the start; playback uses the top-ranked
+   * stream, exactly like clicking the first row of the streams panel.
+   */
+  const playSelected = (startSeconds: number | null) => {
+    if (!selected) return;
+    const top = streams[0];
+    if (!top) {
+      toast({
+        title: "No sources yet",
+        detail: streamsLoading
+          ? `Still resolving sources for ${selected.name ?? selected.id}…`
+          : `No sources were found for ${selected.name ?? selected.id}.`,
+        tone: "info",
+      });
+      return;
+    }
+    const title = top.facts.release ?? top.label;
+    const hash = top.stream.infoHash ?? null;
+    const start = startSeconds ?? undefined;
+    if (top.direct && top.stream.url) {
+      openPlayer(top.stream.url, title, selected.id, top.qualityBadge, start);
+      return;
+    }
+    if (hash) {
+      void streamTorrent(hash, title, selected.id, top.qualityBadge, start);
+      return;
+    }
+    toast({
+      title: "Nothing to play",
+      detail: "The top source has neither a direct URL nor a torrent hash.",
+      tone: "error",
+    });
+  };
+
   /** Detail-screen action row: nothing here writes yet (library is roadmap WP6). */
   const handleDetailAction = (action: DetailAction) => {
     const roadmap: Record<DetailAction, string> = {
@@ -121,7 +159,7 @@ export function MediaWorkspace() {
       <MediaShell>
         <PlayerOverlay />
         <main className="media-main media-main-detail">
-          <MediaDetail meta={selected} onClose={clearSelection} onAction={handleDetailAction} />
+          <MediaDetail meta={selected} onClose={clearSelection} onAction={handleDetailAction} progress={watchProgress[selected.id]} onPlay={playSelected} />
           <StreamsPanel
             meta={selected}
             streams={streams}

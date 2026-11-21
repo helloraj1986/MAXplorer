@@ -102,6 +102,9 @@ vi.mock("../../lib/api", () => ({
     playerSetFill: vi.fn(() => Promise.resolve(undefined)),
     playerSetSurfaceVisible: vi.fn(() => Promise.resolve(undefined)),
     playMediaStream: vi.fn(() => Promise.resolve({ player: "VLC" })),
+    libraryGet: vi.fn(() => Promise.resolve({ version: 1, entries: {} })),
+    libraryRecord: vi.fn(() => Promise.resolve({ key: "", entry: null })),
+    libraryRemove: vi.fn(() => Promise.resolve(false)),
   },
 }));
 
