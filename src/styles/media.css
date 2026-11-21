@@ -2346,7 +2346,7 @@ html.mx-player-active .media-main {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.9);
+  color: #fff;
   cursor: pointer;
 }
 
@@ -2359,14 +2359,14 @@ html.mx-player-active .media-main {
   font-size: 16px;
   font-weight: 500;
   letter-spacing: 0.01em;
-  color: rgba(255, 255, 255, 0.94);
+  color: #fff;
 }
 
 .media-player-hdr {
   flex: 0 0 auto;
   padding: 0;
   border: 0;
-  color: rgba(255, 255, 255, 0.55);
+  color: rgba(255, 255, 255, 0.75);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.16em;
@@ -2382,15 +2382,18 @@ html.mx-player-active .media-main {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.85);
+  /* Pure white like the reference, and a 2 px outline: .85 alpha read as grey
+     over dark picture and 1.8 px looked thinner than Stremio at 26 px. */
+  color: #fff;
   cursor: pointer;
-  transition: background 120ms ease-out, color 120ms ease-out;
+  transition: background 120ms ease-out, opacity 120ms ease-out;
 }
 
 .media-player-icon svg {
   display: block;
   width: 26px;
   height: 26px;
+  stroke-width: 2;
 }
 
 .media-player-icon:hover {
@@ -2402,9 +2405,19 @@ html.mx-player-active .media-main {
   color: var(--m-accent);
 }
 
+/* Controls this stack cannot do yet stay legible (a dark smudge reads as a
+   rendering bug) but never invite a click: the tooltip says why. */
 .media-player-icon:disabled {
-  opacity: 0.34;
+  /* The reference's own icons sit at ~85 % white, so an unavailable control at
+     .85 reads the same and looks nothing like a rendering fault. The honest
+     signal is the tooltip + no hover response, not a grey smudge. */
+  opacity: 0.85;
   cursor: default;
+}
+
+.media-player-icon:disabled:hover {
+  background: transparent;
+  color: #fff;
 }
 
 /* Seek row: elapsed at the far left, total at the far right, bar between. */

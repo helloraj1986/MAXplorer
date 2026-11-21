@@ -230,6 +230,17 @@ icon-only chrome, cluster order + disabled reasons, fullscreen/HDR slot,
 Built and installed at `/Applications/MAXplorer.app` (`grep -c 'Casting is not
 available' dist/assets/*.js` → 1, entitlements 4/4).
 
+**Brightness pass (same session, after the user compared it to the reference):**
+the icons read grey because they shipped at `rgba(255,255,255,.85)` **and** the
+unavailable ones sat at `opacity: .34` — five of the six controls are disabled at
+some point (speed/cast/PiP always, subtitles/audio until the track list arrives),
+so the bar looked dark. Now: `color: #fff` on every control, `stroke-width: 2`
+on the glyph (1.8 px at 26 px looked thinner than the reference's 2 px outline),
+back chevron and title `#fff`, `HDR` at .75, and `:disabled` at `opacity: .85`
+with no hover wash — i.e. the reference's own measured 85 % white. The honest
+signal for an unavailable control is now the tooltip plus "nothing happens",
+not a grey smudge that reads as a rendering fault.
+
 **Still unverified:** the live pixel comparison against
 `ref-icons-right.png`. `computer_use` can capture the window on this box but
 background input is refused (`off_space_or_ax_unresolved`) and foreground clicks
