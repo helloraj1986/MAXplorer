@@ -35,6 +35,20 @@ item per session — never batched.**
 > `src/components/media` → 91 passed. WP3 lives on `feature/media-ui-wp3` @
 > `cb138ae` (pushed); WP4a lives on `feature/media-ui-wp4a`.
 
+> ### Player chrome is an OVERLAY now (2026-11-21)
+>
+> The window is transparent and the video NSView is stacked **below** the
+> webview, so player controls composite over the picture (no more chrome strips
+> that shrink the video). Three traps, all fixed and documented in the
+> maintenance skill: `addSubview:positioned:relativeTo:` aborts the app when the
+> reference view is not a direct subview (pass `relativeTo: nil` +
+> `NSWindowBelow`); the surface rect must be anchored to the *webview* frame
+> (fullscreen insets the webview by the title-bar band); and only the player may
+> stay mounted in player mode (`.app-shell`/`.main-area` backgrounds otherwise
+> show through). `macOSPrivateApi` + the `macos-private-api` cargo feature are
+> required for the transparent window — that rules out the App Store, not local
+> builds.
+
 > ### ▶ NEXT: Phase 3 of the library/tracks bundle
 >
 > **Phases 1 and 2 are DONE** — Phase 1 (`library.json`, resume, real Continue
