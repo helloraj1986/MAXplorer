@@ -49,14 +49,20 @@ item per session — never batched.**
 > required for the transparent window — that rules out the App Store, not local
 > builds.
 
-> ### ▶ NEXT: Phase 3 of the library/tracks bundle
+> ### ▶ NEXT: player chrome icon + control parity (then Phase 3)
 >
-> **Phases 1 and 2 are DONE** — Phase 1 (`library.json`, resume, real Continue
-> watching) and Phase 2 (track menus, per-title audio/subtitle choice) both have
-> an as-built record in `docs/MEDIA_LIBRARY_TRACKS_SPEC.md` §As built. Next
-> session: **Phase 3** (subtitle delay/size/visibility, audio delay, playback
-> speed, local `sub-add`, next-episode) on a new branch off `main`. WP4b items
-> 5–7 (prewarm / per-source cache / hr-seek) stay **parked**.
+> **Phases 1 and 2 are DONE** (as-built in `docs/MEDIA_LIBRARY_TRACKS_SPEC.md`
+> §As built) and the player chrome is now a true **overlay** (`ad63812`). What is
+> still wrong is the chrome *itself*: the controls are text glyphs (`CC`, `Fill`,
+> `⛶`, `…`), cramped at a 4 px gap, and three of the reference's six right-side
+> controls are missing. The work order — measured sizes, the exact glyph list,
+> the cluster order, the 0–200 volume boost slider, CSS tokens, tests and
+> acceptance — is **`docs/MEDIA_PLAYER_CHROME_SPEC.md`**. Do that in one pass.
+>
+> After it: **Phase 3** of the tracks bundle (subtitle delay/size/visibility,
+> audio delay, playback speed, local `sub-add`, next episode) — which also gives
+> the speedometer icon and the right-edge episode tab something real to do.
+> WP4b items 5–7 (prewarm / per-source cache / hr-seek) stay **parked**.
 
 ---
 
